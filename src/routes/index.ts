@@ -1,0 +1,31 @@
+import { Router } from 'express';
+import authRoutes      from './auth.routes';
+import rencontresRoutes from './rencontres.routes';
+import joueursRoutes   from './joueurs.routes';
+import statsRoutes     from './stats.routes';
+import matchsRoutes    from './matchs.routes';
+import equipesRoutes   from './equipes.routes';
+import saisonsRoutes   from './saisons.routes';
+import toursRoutes     from './tours.routes';
+import clubsRoutes     from './clubs.routes';
+import adminRoutes     from './admin/index';
+
+const router = Router();
+
+// Authentification
+router.use('/auth', authRoutes);
+
+// Routes publiques (lecture seule)
+router.use('/rencontres', rencontresRoutes);
+router.use('/joueurs',    joueursRoutes);
+router.use('/stats',      statsRoutes);
+router.use('/matchs',     matchsRoutes);
+router.use('/equipes',    equipesRoutes);
+router.use('/saisons',    saisonsRoutes);
+router.use('/tours',      toursRoutes);
+router.use('/clubs',      clubsRoutes);
+
+// Routes admin (JWT requis – appliqué dans admin/index.ts)
+router.use('/admin', adminRoutes);
+
+export default router;
