@@ -1,5 +1,44 @@
 import { QueryParams } from '../types';
 
+function normalizeSearchInput(input: string): string {
+  return input
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+function normalizedSqlExpr(column: string): string {
+  let expr = `lower(ifnull("${column}", ''))`;
+
+  // Normalize common accented characters to their base latin forms.
+  const accentMap: Array<[string, string]> = [
+    ['à', 'a'], ['á', 'a'], ['â', 'a'], ['ã', 'a'], ['ä', 'a'], ['å', 'a'],
+    ['æ', 'ae'],
+    ['ç', 'c'],
+    ['è', 'e'], ['é', 'e'], ['ê', 'e'], ['ë', 'e'],
+    ['ì', 'i'], ['í', 'i'], ['î', 'i'], ['ï', 'i'],
+    ['ñ', 'n'],
+    ['ò', 'o'], ['ó', 'o'], ['ô', 'o'], ['õ', 'o'], ['ö', 'o'], ['ø', 'o'],
+    ['œ', 'oe'],
+    ['ù', 'u'], ['ú', 'u'], ['û', 'u'], ['ü', 'u'],
+    ['ý', 'y'], ['ÿ', 'y'],
+    ['ß', 'ss'],
+  ];
+
+  for (const [from, to] of accentMap) {
+    expr = `replace(${expr}, '${from}', '${to}')`;
+  }
+
+  // Remove spaces and punctuation so search ignores special characters.
+  const charsToStrip = [' ', '-', '&', "'", '"', '.', ',', '/', '_', '(', ')', '[', ']', '{', '}', ':', ';', '+', '*', '!', '?'];
+  for (const ch of charsToStrip) {
+    expr = `replace(${expr}, '${ch}', '')`;
+  }
+
+  return expr;
+}
+
 /**
  * Vérifie que la colonne demandée est dans la liste blanche.
  * Évite toute injection SQL via le paramètre `sort`.
@@ -31,10 +70,15 @@ export function buildWhere(
 
   // Recherche plein-texte (LIKE)
   if (params.search && typeof params.search === 'string' && searchCols.length > 0) {
-    const clause = searchCols.map((col) => `"${col}" LIKE ?`).join(' OR ');
-    conditions.push(`(${clause})`);
-    const val = `%${params.search}%`;
-    searchCols.forEach(() => bindings.push(val));
+    const normalizedSearch = normalizeSearchInput(params.search);
+    if (normalizedSearch) {
+      const clause = searchCols
+        .map((col) => `${normalizedSqlExpr(col)} LIKE ?`)
+        .join(' OR ');
+      conditions.push(`(${clause})`);
+      const val = `%${normalizedSearch}%`;
+      searchCols.forEach(() => bindings.push(val));
+    }
   }
 
   // Filtres exacts
