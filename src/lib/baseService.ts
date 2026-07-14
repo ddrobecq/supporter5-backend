@@ -32,12 +32,12 @@ export interface EntityConfig {
   searchCols: readonly string[];
   /** Colonnes acceptées comme filtre exact (param URL = nom en minuscules) */
   filterCols?: readonly string[];
-  /** Mode de recherche: SQL classique ou filtrage local apres chargement des lignes */
-  searchMode?: 'sql' | 'local';
+  /** Strategie de recherche: SQL classique ou filtrage en memoire dans le backend */
+  searchStrategy?: 'sql' | 'backend-memory';
 }
 
 export function createEntityService(config: EntityConfig) {
-  const { table, pk, allowedSortCols, searchCols, filterCols = [], searchMode = 'sql' } = config;
+  const { table, pk, allowedSortCols, searchCols, filterCols = [], searchStrategy = 'sql' } = config;
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
     const page   = Math.max(1, Number(params.page)  || 1);
@@ -47,7 +47,7 @@ export function createEntityService(config: EntityConfig) {
     const order  = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const searchValue = typeof params.search === 'string' ? normalizeSearchText(params.search) : '';
 
-    if (searchMode === 'local' && searchValue) {
+    if (searchStrategy === 'backend-memory' && searchValue) {
       const { where, bindings } = buildWhere({ ...params, search: undefined }, searchCols, filterCols);
       const allRows = await dbAll<Record<string, unknown>>(
         `SELECT * FROM "${table}" ${where} ORDER BY "${sort}" ${order}`,
