@@ -7,4 +7,5 @@ export default createEntityService({
   allowedSortCols: ['IDNATIO', 'PAYS', 'NALOCAL'],
   searchCols: ['IDNATIO', 'PAYS'],
   filterCols: ['NALOCAL'],
+  searchMode: 'local',
 });
