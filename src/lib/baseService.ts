@@ -18,7 +18,7 @@ export interface EntityConfig {
 export function createEntityService(config: EntityConfig) {
   const { table, pk, allowedSortCols, searchCols, filterCols = [] } = config;
 
-  function getAll(params: QueryParams): PaginatedResult {
+  async function getAll(params: QueryParams): Promise<PaginatedResult> {
     const page   = Math.max(1, Number(params.page)  || 1);
     const limit  = Math.min(200, Math.max(1, Number(params.limit) || 20));
     const offset = (page - 1) * limit;
@@ -26,55 +26,63 @@ export function createEntityService(config: EntityConfig) {
     const order  = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const { where, bindings } = buildWhere(params, searchCols, filterCols);
 
-    const row   = dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM "${table}" ${where}`, bindings);
+    const row   = await dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM "${table}" ${where}`, bindings);
     const total = row?.total ?? 0;
-    const data  = dbAll(`SELECT * FROM "${table}" ${where} ORDER BY "${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
+    const data  = await dbAll(`SELECT * FROM "${table}" ${where} ORDER BY "${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  function getById(id: string | number): Record<string, unknown> | undefined {
+  async function getById(id: string | number): Promise<Record<string, unknown> | undefined> {
     return dbGet(`SELECT * FROM "${table}" WHERE "${pk}" = ?`, [id]);
   }
 
-  function create(body: Record<string, unknown>): Record<string, unknown> | undefined {
+  async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const keys = Object.keys(body);
     if (!keys.length) throw new Error('No fields provided');
     const cols   = keys.map((c) => `"${c}"`).join(', ');
     const marks  = keys.map(() => '?').join(', ');
-    const result = dbRun(`INSERT INTO "${table}" (${cols}) VALUES (${marks})`, Object.values(body));
-    return getById(result.lastInsertRowid as number);
+    const result = await dbRun(`INSERT INTO "${table}" (${cols}) VALUES (${marks})`, Object.values(body));
+
+    const explicitPkValue = body[pk];
+    if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
+      return getById(explicitPkValue);
+    }
+    if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
+      return getById(result.lastInsertRowid);
+    }
+    return undefined;
   }
 
-  function update(id: string | number, body: Record<string, unknown>): Record<string, unknown> | undefined {
+  async function update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const keys = Object.keys(body);
     if (!keys.length) throw new Error('No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
-    dbRun(`UPDATE "${table}" SET ${sets} WHERE "${pk}" = ?`, [...Object.values(body), id]);
+    await dbRun(`UPDATE "${table}" SET ${sets} WHERE "${pk}" = ?`, [...Object.values(body), id]);
     return getById(id);
   }
 
-  function bulkUpdate(ids: (string | number)[], body: Record<string, unknown>): number {
+  async function bulkUpdate(ids: (string | number)[], body: Record<string, unknown>): Promise<number> {
     if (!ids.length) return 0;
     const keys = Object.keys(body);
     if (!keys.length) throw new Error('No fields provided');
     const sets   = keys.map((c) => `"${c}" = ?`).join(', ');
     const marks  = ids.map(() => '?').join(', ');
-    const result = dbRun(
+    const result = await dbRun(
       `UPDATE "${table}" SET ${sets} WHERE "${pk}" IN (${marks})`,
       [...Object.values(body), ...ids],
     );
     return result.changes;
   }
 
-  function remove(id: string | number): boolean {
-    return dbRun(`DELETE FROM "${table}" WHERE "${pk}" = ?`, [id]).changes > 0;
+  async function remove(id: string | number): Promise<boolean> {
+    return (await dbRun(`DELETE FROM "${table}" WHERE "${pk}" = ?`, [id])).changes > 0;
   }
 
-  function bulkDelete(ids: (string | number)[]): number {
+  async function bulkDelete(ids: (string | number)[]): Promise<number> {
     if (!ids.length) return 0;
     const marks = ids.map(() => '?').join(', ');
-    return dbRun(`DELETE FROM "${table}" WHERE "${pk}" IN (${marks})`, ids).changes;
+    return (await dbRun(`DELETE FROM "${table}" WHERE "${pk}" IN (${marks})`, ids)).changes;
   }
 
   return { getAll, getById, create, update, bulkUpdate, remove, bulkDelete };

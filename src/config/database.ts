@@ -1,44 +1,58 @@
-import BetterSqlite3 from 'better-sqlite3';
-import path from 'path';
+import { createClient, InValue } from '@libsql/client';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
-const dbPath =
-  process.env.NODE_ENV === 'production'
-    ? '/data/database.sqlite'
-    : path.resolve(process.cwd(), 'database.sqlite');
+const tursoUrl = process.env.TURSO_DATABASE_URL;
+const tursoAuthToken = process.env.TURSO_AUTH_TOKEN;
 
-const db = new BetterSqlite3(dbPath);
+if (!tursoUrl) {
+  throw new Error('Missing TURSO_DATABASE_URL environment variable');
+}
 
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+const db = createClient({
+  url: tursoUrl,
+  authToken: tursoAuthToken,
+});
+
+export interface DbRunResult {
+  changes: number;
+  lastInsertRowid?: number | string;
+}
 
 /** Exécute un SELECT et retourne toutes les lignes. */
-export function dbAll<T = Record<string, unknown>>(
+export async function dbAll<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],
-): T[] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (db.prepare(sql) as any).all(...params) as T[];
+): Promise<T[]> {
+  const result = await db.execute({ sql, args: params as InValue[] });
+  return result.rows as unknown as T[];
 }
 
 /** Exécute un SELECT et retourne la première ligne. */
-export function dbGet<T = Record<string, unknown>>(
+export async function dbGet<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],
-): T | undefined {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (db.prepare(sql) as any).get(...params) as T | undefined;
+): Promise<T | undefined> {
+  const rows = await dbAll<T>(sql, params);
+  return rows[0];
 }
 
 /** Exécute un INSERT / UPDATE / DELETE. */
-export function dbRun(
+export async function dbRun(
   sql: string,
   params: unknown[] = [],
-): BetterSqlite3.RunResult {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (db.prepare(sql) as any).run(...params) as BetterSqlite3.RunResult;
+): Promise<DbRunResult> {
+  const result = await db.execute({ sql, args: params as InValue[] });
+  return {
+    changes: Number(result.rowsAffected ?? 0),
+    lastInsertRowid:
+      result.lastInsertRowid === null || result.lastInsertRowid === undefined
+        ? undefined
+        : typeof result.lastInsertRowid === 'bigint'
+          ? Number(result.lastInsertRowid)
+          : result.lastInsertRowid,
+  };
 }
 
 export default db;

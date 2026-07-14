@@ -1,4 +1,4 @@
-# Supporter v5 — Backend API (Express.js + TypeScript + SQLite)
+# Supporter v5 — Backend API (Express.js + TypeScript + Turso/libSQL)
 
 ## 🚀 Démarrage rapide
 
@@ -7,7 +7,7 @@ npm install
 npm run dev
 ```
 
-Le serveur démarre sur le port **3000** avec la base SQLite en `./database.sqlite` (dev) ou `/data/database.sqlite` (prod).
+Le serveur démarre sur le port **3000** et se connecte a la base Turso via `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN`.
 
 ---
 
@@ -138,7 +138,7 @@ npm run typecheck   # Vérifier les types sans build
 back/
   src/
     config/
-      database.ts         # Singleton SQLite + helpers (dbAll, dbGet, dbRun)
+      database.ts         # Client Turso/libSQL + helpers (dbAll, dbGet, dbRun)
     lib/
       baseService.ts      # Factory pour CRUD + bulk ops
       controllerFactory.ts # Factory pour controllers génériques
@@ -177,6 +177,8 @@ back/
 |-----|--------|-------------|
 | `NODE_ENV` | `development` | `production` ou `development` |
 | `PORT` | `3000` | Port du serveur |
+| `TURSO_DATABASE_URL` | — | URL libSQL de la base Turso |
+| `TURSO_AUTH_TOKEN` | — | Token d'authentification Turso |
 | `ADMIN_USERNAME` | — | Nom d'utilisateur (ex: `admin`) |
 | `ADMIN_PASSWORD_HASH` | — | Hash bcrypt du mot de passe |
 | `JWT_SECRET` | — | Clé secrète JWT (min 32 chars) |
@@ -187,7 +189,7 @@ back/
 
 ## 🔐 Sécurité
 
-- **Zéro ORM lourd** — SQL brut via `better-sqlite3` avec requêtes préparées
+- **Zéro ORM lourd** — SQL brut via client `@libsql/client` (Turso)
 - **Injection SQL prévenue** — Paramètres liés + whitelist pour tri/filtres
 - **JWT pour l'authentification** — Un seul compte admin via `.env`
 - **CORS + Helmet** — Protection contre les attaques courantes
@@ -210,14 +212,13 @@ DELETE /api/admin/rencontres/bulk
 
 ---
 
-## 🚀 Déploiement (Render.com)
+## 🚀 Déploiement (Render.com + Turso)
 
 1. Créer un Web Service sur Render.com lié au repo Git
-2. Attacher un Persistent Volume à `/data` (pour `database.sqlite`)
-3. Définir les env vars (ADMIN_USERNAME, ADMIN_PASSWORD_HASH, JWT_SECRET)
+2. Définir les env vars (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `JWT_SECRET`)
 4. Git push → déploiement automatique
 
-**Important** : La base SQLite doit être à `/data/database.sqlite` en production.
+**Important** : Le backend n'utilise plus de fichier SQLite local en production.
 
 ---
 

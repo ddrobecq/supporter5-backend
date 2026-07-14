@@ -10,58 +10,58 @@ function assertIds(ids: unknown): asserts ids is (string | number)[] {
 
 export function createEntityController(service: EntityService) {
   return {
-    getAll(req: Request, res: Response, next: NextFunction): void {
+    async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        res.json(service.getAll(req.query as QueryParams));
+        res.json(await service.getAll(req.query as QueryParams));
       } catch (err) { next(err); }
     },
 
-    getById(req: Request, res: Response, next: NextFunction): void {
+    async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const item = service.getById(req.params.id);
+        const item = await service.getById(req.params.id);
         if (!item) { res.status(404).json({ message: 'Not found' }); return; }
         res.json(item);
       } catch (err) { next(err); }
     },
 
-    create(req: Request, res: Response, next: NextFunction): void {
+    async create(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const item = service.create(req.body as Record<string, unknown>);
+        const item = await service.create(req.body as Record<string, unknown>);
         res.status(201).json(item);
       } catch (err) { next(err); }
     },
 
-    update(req: Request, res: Response, next: NextFunction): void {
+    async update(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        const item = service.update(req.params.id, req.body as Record<string, unknown>);
+        const item = await service.update(req.params.id, req.body as Record<string, unknown>);
         if (!item) { res.status(404).json({ message: 'Not found' }); return; }
         res.json(item);
       } catch (err) { next(err); }
     },
 
-    bulkUpdate(req: Request, res: Response, next: NextFunction): void {
+    async bulkUpdate(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         const { ids, data } = req.body as { ids: unknown; data: Record<string, unknown> };
         assertIds(ids);
-        const changes = service.bulkUpdate(ids, data);
+        const changes = await service.bulkUpdate(ids, data);
         res.json({ changes });
       } catch (err) { next(err); }
     },
 
-    remove(req: Request, res: Response, next: NextFunction): void {
+    async remove(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        if (!service.remove(req.params.id)) {
+        if (!(await service.remove(req.params.id))) {
           res.status(404).json({ message: 'Not found' }); return;
         }
         res.status(204).send();
       } catch (err) { next(err); }
     },
 
-    bulkDelete(req: Request, res: Response, next: NextFunction): void {
+    async bulkDelete(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         const { ids } = req.body as { ids: unknown };
         assertIds(ids);
-        const changes = service.bulkDelete(ids);
+        const changes = await service.bulkDelete(ids);
         res.json({ changes });
       } catch (err) { next(err); }
     },
