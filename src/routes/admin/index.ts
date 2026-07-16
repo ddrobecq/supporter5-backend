@@ -10,6 +10,7 @@ import toursAdmin      from './tours.admin.routes';
 import clubsAdmin      from './clubs.admin.routes';
 import natioAdmin      from './natio.admin.routes';
 import villeAdmin      from './ville.admin.routes';
+import arbitreAdmin    from './arbitre.admin.routes';
 
 const router = Router();
 
@@ -26,5 +27,6 @@ router.use('/tours',      toursAdmin);
 router.use('/clubs',      clubsAdmin);
 router.use('/natio',      natioAdmin);
 router.use('/ville',      villeAdmin);
+router.use('/arbitre',    arbitreAdmin);
 
 export default router;
