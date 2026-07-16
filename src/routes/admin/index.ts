@@ -9,6 +9,7 @@ import saisonsAdmin    from './saisons.admin.routes';
 import toursAdmin      from './tours.admin.routes';
 import clubsAdmin      from './clubs.admin.routes';
 import natioAdmin      from './natio.admin.routes';
+import villeAdmin      from './ville.admin.routes';
 
 const router = Router();
 
@@ -24,5 +25,6 @@ router.use('/saisons',    saisonsAdmin);
 router.use('/tours',      toursAdmin);
 router.use('/clubs',      clubsAdmin);
 router.use('/natio',      natioAdmin);
+router.use('/ville',      villeAdmin);
 
 export default router;

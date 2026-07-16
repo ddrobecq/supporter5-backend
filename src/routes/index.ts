@@ -9,6 +9,7 @@ import saisonsRoutes   from './saisons.routes';
 import toursRoutes     from './tours.routes';
 import clubsRoutes     from './clubs.routes';
 import natioRoutes     from './natio.routes';
+import villeRoutes     from './ville.routes';
 import adminRoutes     from './admin/index';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.use('/saisons',    saisonsRoutes);
 router.use('/tours',      toursRoutes);
 router.use('/clubs',      clubsRoutes);
 router.use('/natio',      natioRoutes);
+router.use('/ville',      villeRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
 router.use('/admin', adminRoutes);

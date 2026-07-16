@@ -68,6 +68,38 @@ curl -X POST http://localhost:3000/api/admin/rencontres \
   -d '{"DOMICILE":"0001",...}'
 ```
 
+### 3. Changer le mot de passe admin (generer un hash)
+
+Important: la commande doit etre lancee dans le dossier `back` (sinon erreur `Cannot find module 'bcryptjs'`).
+
+Depuis la racine du projet, utilise cette commande PowerShell:
+
+```powershell
+Set-Location -Path ".\\back"
+node -e "const bcrypt=require('bcryptjs'); console.log(bcrypt.hashSync(process.argv[1], 12));" "NOUVEAU_MOT_DE_PASSE"
+```
+
+Ou, si tu es deja dans `back`:
+
+```powershell
+node -e "const bcrypt=require('bcryptjs'); console.log(bcrypt.hashSync(process.argv[1], 12));" "NOUVEAU_MOT_DE_PASSE"
+```
+
+Option (evite d'afficher le mot de passe en clair dans l'historique):
+
+```powershell
+$pwd = Read-Host "Nouveau mot de passe"
+node -e "const bcrypt=require('bcryptjs'); console.log(bcrypt.hashSync(process.argv[1], 12));" "$pwd"
+```
+
+Copier le hash obtenu dans `.env`:
+
+```env
+ADMIN_PASSWORD_HASH=<LE_HASH_GENERE>
+```
+
+Puis redemarrer le backend.
+
 ---
 
 ## 📝 Routes Admin (JWT requis — `/api/admin/*`)
