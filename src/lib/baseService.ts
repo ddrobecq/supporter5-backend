@@ -22,7 +22,7 @@ function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly str
 }
 
 export interface EntityConfig {
-  /** Nom exact de la table SQLite */
+  /** Nom exact de la table en base de données (Turso/libSQL) */
   table: string;
   /** Nom exact de la clé primaire */
   pk: string;
