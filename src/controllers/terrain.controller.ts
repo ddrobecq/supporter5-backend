@@ -12,8 +12,21 @@ import {
 /** GET /api/terrains */
 export async function listTerrains(req: Request, res: Response): Promise<void> {
   try {
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 200));
+    const offset = (page - 1) * limit;
+    
     const terrains = await getAllTerrains();
-    res.json(terrains);
+    const total = terrains.length;
+    const data = terrains.slice(offset, offset + limit);
+    
+    res.json({
+      data,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
   } catch (error) {
     console.error('[TERRAIN] Error listing terrains:', error);
     res.status(500).json({ message: 'Erreur lors de la récupération des terrains' });

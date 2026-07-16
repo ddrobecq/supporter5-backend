@@ -1,6 +1,6 @@
 {
   "name": "supporter-v5-backend",
-  "version": "1.0.0",
+  "version": "5.0.0.0",
   "description": "API REST – Supporter v5 (Express/TypeScript + SQLite)",
   "main": "dist/server.js",
   "scripts": {
