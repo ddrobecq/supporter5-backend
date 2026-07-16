@@ -11,6 +11,7 @@ import clubsRoutes     from './clubs.routes';
 import natioRoutes     from './natio.routes';
 import villeRoutes     from './ville.routes';
 import arbitreRoutes   from './arbitre.routes';
+import imageRoutes     from './image.routes';
 import adminRoutes     from './admin/index';
 
 const router = Router();
@@ -30,6 +31,7 @@ router.use('/clubs',      clubsRoutes);
 router.use('/natio',      natioRoutes);
 router.use('/ville',      villeRoutes);
 router.use('/arbitre',    arbitreRoutes);
+router.use('/images',     imageRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
 router.use('/admin', adminRoutes);
