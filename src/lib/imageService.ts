@@ -29,6 +29,11 @@ function toBuffer(raw: unknown): Buffer | null {
   if (raw instanceof Uint8Array) return Buffer.from(raw);
   if (Buffer.isBuffer(raw)) return raw;
 
+  // ArrayBuffer (peut être retourné par le client Turso)
+  if (raw instanceof ArrayBuffer) {
+    return Buffer.from(new Uint8Array(raw));
+  }
+
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (!trimmed) return null;
@@ -63,21 +68,38 @@ export async function getEntityImage(
   id: string,
 ): Promise<ImageResult | null> {
   const config: ImageConfig | undefined = IMAGE_CONFIGS[entityType.toLowerCase()];
-  if (!config) return null;
+  if (!config) {
+    console.error(`[IMAGE] Unknown entity type: ${entityType}`);
+    return null;
+  }
+
+  console.log(`[IMAGE] Fetching ${entityType}#${id} from ${config.table}.${config.field}`);
 
   const row = await dbGet<Record<string, unknown>>(
     `SELECT ${config.field} FROM ${config.table} WHERE ${config.pk} = ?`,
     [id],
   );
 
-  if (!row) return null;
+  if (!row) {
+    console.warn(`[IMAGE] No row found for ${entityType}#${id}`);
+    return null;
+  }
 
   const raw = row[config.field];
+  console.log(`[IMAGE] Raw data from DB - Type: ${typeof raw}, Length: ${String(raw).length}`);
+  console.log(`[IMAGE] Raw data details:`, JSON.stringify(raw, null, 2).slice(0, 200));
+  
   const buffer = toBuffer(raw);
-  if (!buffer || buffer.length === 0) return null;
+  if (!buffer || buffer.length === 0) {
+    console.warn(`[IMAGE] Buffer conversion failed or empty for ${entityType}#${id}`);
+    return null;
+  }
+
+  const mimeType = detectMimeType(buffer);
+  console.log(`[IMAGE] ✓ Image ready - Size: ${buffer.length} bytes, MIME: ${mimeType}, First bytes: ${buffer.slice(0, 20).toString('hex')}`);
 
   return {
     buffer,
-    mimeType: detectMimeType(buffer),
+    mimeType,
   };
 }

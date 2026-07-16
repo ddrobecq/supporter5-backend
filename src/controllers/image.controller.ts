@@ -10,7 +10,10 @@ import { getEntityImage } from '../lib/imageService';
 export async function getImage(req: Request, res: Response): Promise<void> {
   const { entity, id } = req.params;
 
+  console.log(`[API] GET /api/images/${entity}/${id}`);
+
   if (!entity || !id) {
+    console.warn(`[API] Missing parameters`);
     res.status(400).json({ message: 'Paramètres manquants.' });
     return;
   }
@@ -18,6 +21,7 @@ export async function getImage(req: Request, res: Response): Promise<void> {
   const result = await getEntityImage(entity, id);
 
   if (!result) {
+    console.warn(`[API] Image not found for ${entity}#${id}`);
     res.status(404).json({ message: 'Image introuvable.' });
     return;
   }
@@ -26,5 +30,6 @@ export async function getImage(req: Request, res: Response): Promise<void> {
   res.setHeader('Content-Type', result.mimeType);
   res.setHeader('Content-Length', result.buffer.length);
   res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
+  console.log(`[API] ✓ Sending ${result.buffer.length} bytes with Content-Type: ${result.mimeType}`);
   res.end(result.buffer);
 }
