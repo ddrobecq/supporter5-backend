@@ -12,6 +12,7 @@ import natioAdmin      from './natio.admin.routes';
 import villeAdmin      from './ville.admin.routes';
 import arbitreAdmin    from './arbitre.admin.routes';
 import terrainAdmin    from './terrain.admin.routes';
+import deviseAdmin     from './devise.admin.routes';
 
 const router = Router();
 
@@ -30,5 +31,5 @@ router.use('/natio',      natioAdmin);
 router.use('/ville',      villeAdmin);
 router.use('/arbitre',    arbitreAdmin);
 router.use('/terrains',   terrainAdmin);
-
+  router.use('/devises',    deviseAdmin);
 export default router;

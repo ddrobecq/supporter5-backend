@@ -103,3 +103,29 @@ export async function checkTerrainIntegrity(
     constraints,
   };
 }
+
+/**
+ * Vérifie si un enregistrement DEVISE peut être supprimé.
+ */
+export async function checkDeviseIntegrity(
+  deviseId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  const transacCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM TRANSAC WHERE DVCLEUNIK = ?',
+    [deviseId],
+  );
+  if ((transacCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'TRANSAC',
+      count: transacCount[0]?.count ?? 0,
+      description: `${transacCount[0]?.count ?? 0} transaction(s) utilisant cette devise`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}

@@ -12,6 +12,7 @@ import natioRoutes     from './natio.routes';
 import villeRoutes     from './ville.routes';
 import arbitreRoutes   from './arbitre.routes';
 import terrainRoutes   from './terrain.routes';
+import deviseRoutes    from './devise.routes';
 import imageRoutes     from './image.routes';
 import adminRoutes     from './admin/index';
 
@@ -32,8 +33,7 @@ router.use('/clubs',      clubsRoutes);
 router.use('/natio',      natioRoutes);
 router.use('/ville',      villeRoutes);
 router.use('/arbitre',    arbitreRoutes);
-router.use('/terrains',   terrainRoutes);
-router.use('/images',     imageRoutes);
+router.use('/terrains',   terrainRoutes);  router.use('/devises',    deviseRoutes);router.use('/images',     imageRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
 router.use('/admin', adminRoutes);
