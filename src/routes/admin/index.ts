@@ -11,6 +11,7 @@ import clubsAdmin      from './clubs.admin.routes';
 import natioAdmin      from './natio.admin.routes';
 import villeAdmin      from './ville.admin.routes';
 import arbitreAdmin    from './arbitre.admin.routes';
+import terrainAdmin    from './terrain.admin.routes';
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.use('/clubs',      clubsAdmin);
 router.use('/natio',      natioAdmin);
 router.use('/ville',      villeAdmin);
 router.use('/arbitre',    arbitreAdmin);
+router.use('/terrains',   terrainAdmin);
 
 export default router;

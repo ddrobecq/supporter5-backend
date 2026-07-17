@@ -62,3 +62,44 @@ export async function checkVilleIntegrity(
     constraints,
   };
 }
+
+/**
+ * Vérifie si un enregistrement TERRAIN peut être supprimé
+ * en contrôlant les dépendances principales connues.
+ */
+export async function checkTerrainIntegrity(
+  terrainId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  // Vérifier les CLUB_TERRAIN qui référencent ce TERRAIN
+  const clubTerrainsCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM CLUB_TERRAIN WHERE TECLEUNIK = ?',
+    [terrainId],
+  );
+  if (clubTerrainsCount[0]?.count ?? 0 > 0) {
+    constraints.push({
+      table: 'CLUB_TERRAIN',
+      count: clubTerrainsCount[0]?.count ?? 0,
+      description: `${clubTerrainsCount[0]?.count ?? 0} liaison(s) club-terrain utilisent ce terrain`,
+    });
+  }
+
+  // Vérifier les MATCH qui référencent ce TERRAIN
+  const matchsCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM MATCH WHERE TECLEUNIK = ?',
+    [terrainId],
+  );
+  if (matchsCount[0]?.count ?? 0 > 0) {
+    constraints.push({
+      table: 'MATCH',
+      count: matchsCount[0]?.count ?? 0,
+      description: `${matchsCount[0]?.count ?? 0} match(es) planifié(s) sur ce terrain`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}
