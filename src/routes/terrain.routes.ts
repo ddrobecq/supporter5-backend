@@ -1,22 +1,16 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middlewares/auth.middleware';
-import {
-  listTerrains,
-  getTerrain,
-  createTerrainHandler,
-  updateTerrainHandler,
-  deleteTerrainHandler,
-} from '../controllers/terrain.controller';
+import ctrl from '../controllers/terrain.controller';
 
 const router = Router();
 
 // Public routes
-router.get('/', listTerrains);
-router.get('/:id', getTerrain);
+router.get('/', ctrl.getAll);
+router.get('/:id', ctrl.getById);
 
 // Admin routes
-router.post('/', authMiddleware, createTerrainHandler);
-router.put('/:id', authMiddleware, updateTerrainHandler);
-router.delete('/:id', authMiddleware, deleteTerrainHandler);
+router.post('/', authMiddleware, ctrl.create);
+router.put('/:id', authMiddleware, ctrl.update);
+router.delete('/:id', authMiddleware, ctrl.remove);
 
 export default router;
