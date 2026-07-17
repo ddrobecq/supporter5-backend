@@ -33,7 +33,9 @@ router.use('/clubs',      clubsRoutes);
 router.use('/natio',      natioRoutes);
 router.use('/ville',      villeRoutes);
 router.use('/arbitre',    arbitreRoutes);
-router.use('/terrains',   terrainRoutes);  router.use('/devises',    deviseRoutes);router.use('/images',     imageRoutes);
+router.use('/terrains',   terrainRoutes);
+router.use('/devises',    deviseRoutes);
+router.use('/images',     imageRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
 router.use('/admin', adminRoutes);

@@ -31,5 +31,6 @@ router.use('/natio',      natioAdmin);
 router.use('/ville',      villeAdmin);
 router.use('/arbitre',    arbitreAdmin);
 router.use('/terrains',   terrainAdmin);
-  router.use('/devises',    deviseAdmin);
+router.use('/devises',    deviseAdmin);
+
 export default router;
