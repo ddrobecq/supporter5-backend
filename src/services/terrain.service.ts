@@ -25,6 +25,18 @@ const TABLE = 'TERRAIN';
 const PK = 'TECLEUNIK';
 const ALLOWED_SORT_COLS = ['TECLEUNIK', 'STADE', 'IDVILLE'];
 const SEARCH_COLS = ['TECLEUNIK', 'STADE'];
+const WRITABLE_COLS = ['TECLEUNIK', 'STADE', 'IDVILLE'] as const;
+
+function sanitizeWriteBody(
+  body: Record<string, unknown>,
+  options: { includePk: boolean },
+): Record<string, unknown> {
+  const allowed = new Set<string>(
+    options.includePk ? WRITABLE_COLS : WRITABLE_COLS.filter((col) => col !== PK),
+  );
+  const entries = Object.entries(body).filter(([key]) => allowed.has(key));
+  return Object.fromEntries(entries);
+}
 
 export default {
   async getAll(params: QueryParams): Promise<PaginatedResult> {
@@ -71,16 +83,17 @@ export default {
   },
 
   async create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-    const keys = Object.keys(body);
+    const sanitizedBody = sanitizeWriteBody(body, { includePk: true });
+    const keys = Object.keys(sanitizedBody);
     if (!keys.length) throw new Error('No fields provided');
     const cols = keys.map((c) => `"${c}"`).join(', ');
     const marks = keys.map(() => '?').join(', ');
     const result = await dbRun(
       `INSERT INTO "${TABLE}" (${cols}) VALUES (${marks})`,
-      Object.values(body),
+      Object.values(sanitizedBody),
     );
 
-    const explicitPkValue = body[PK];
+    const explicitPkValue = sanitizedBody[PK];
     if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
       return this.getById(explicitPkValue);
     }
@@ -91,10 +104,11 @@ export default {
   },
 
   async update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-    const keys = Object.keys(body);
+    const sanitizedBody = sanitizeWriteBody(body, { includePk: false });
+    const keys = Object.keys(sanitizedBody);
     if (!keys.length) throw new Error('No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
-    await dbRun(`UPDATE "${TABLE}" SET ${sets} WHERE "${PK}" = ?`, [...Object.values(body), id]);
+    await dbRun(`UPDATE "${TABLE}" SET ${sets} WHERE "${PK}" = ?`, [...Object.values(sanitizedBody), id]);
     return this.getById(id);
   },
 
@@ -104,13 +118,14 @@ export default {
 
   async bulkUpdate(ids: (string | number)[], body: Record<string, unknown>): Promise<number> {
     if (!ids.length) return 0;
-    const keys = Object.keys(body);
+    const sanitizedBody = sanitizeWriteBody(body, { includePk: false });
+    const keys = Object.keys(sanitizedBody);
     if (!keys.length) throw new Error('No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
     const marks = ids.map(() => '?').join(', ');
     const result = await dbRun(
       `UPDATE "${TABLE}" SET ${sets} WHERE "${PK}" IN (${marks})`,
-      [...Object.values(body), ...ids],
+      [...Object.values(sanitizedBody), ...ids],
     );
     return result.changes;
   },
