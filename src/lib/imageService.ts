@@ -38,6 +38,15 @@ function toBuffer(raw: unknown): Buffer | null {
     const trimmed = raw.trim();
     if (!trimmed) return null;
 
+    // MySQL/turso textual hex wrappers: x'ABCD...' or 0xABCD...
+    const xQuotedHex = /^x'([0-9a-fA-F]+)'$/i.exec(trimmed);
+    if (xQuotedHex && xQuotedHex[1].length % 2 === 0) {
+      return Buffer.from(xQuotedHex[1], 'hex');
+    }
+    if (/^0x[0-9a-fA-F]+$/i.test(trimmed) && (trimmed.length - 2) % 2 === 0) {
+      return Buffer.from(trimmed.slice(2), 'hex');
+    }
+
     // Data URL base64
     if (trimmed.startsWith('data:')) {
       const commaIdx = trimmed.indexOf(',');
@@ -46,9 +55,10 @@ function toBuffer(raw: unknown): Buffer | null {
       return Buffer.from(payload, 'base64');
     }
 
-    // String hexadécimale pure (ex: "424d56ab...")
-    if (/^[0-9a-fA-F]+$/.test(trimmed) && trimmed.length % 2 === 0) {
-      return Buffer.from(trimmed, 'hex');
+    // String hexadécimale pure, éventuellement avec espaces/retours ligne.
+    const compactHex = trimmed.replace(/[\s\r\n\t]+/g, '');
+    if (/^[0-9a-fA-F]+$/.test(compactHex) && compactHex.length % 2 === 0) {
+      return Buffer.from(compactHex, 'hex');
     }
 
     // Fallback : base64 pur

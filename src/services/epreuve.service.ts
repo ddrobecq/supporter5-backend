@@ -50,7 +50,7 @@ async function create(body: Record<string, unknown>): Promise<Record<string, unk
     clean.IDEPREUVE = (result?.maxId ?? 0) + 1;
   }
   if (!clean.EPREUVE || (typeof clean.EPREUVE === 'string' && !clean.EPREUVE.trim())) {
-    throw new Error('EPREUVE est requis');
+    throw new Error('ÉPREUVE est requis');
   }
 
   clean.SCOPE = normalizeScope(clean.SCOPE);
