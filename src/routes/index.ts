@@ -13,6 +13,7 @@ import villeRoutes     from './ville.routes';
 import arbitreRoutes   from './arbitre.routes';
 import terrainRoutes   from './terrain.routes';
 import deviseRoutes    from './devise.routes';
+import circRoutes      from './circ.routes';
 import imageRoutes     from './image.routes';
 import adminRoutes     from './admin/index';
 
@@ -35,6 +36,7 @@ router.use('/ville',      villeRoutes);
 router.use('/arbitre',    arbitreRoutes);
 router.use('/terrains',   terrainRoutes);
 router.use('/devises',    deviseRoutes);
+router.use('/circs',      circRoutes);
 router.use('/images',     imageRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)

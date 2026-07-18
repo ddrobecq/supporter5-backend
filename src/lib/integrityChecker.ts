@@ -129,3 +129,29 @@ export async function checkDeviseIntegrity(
     constraints,
   };
 }
+
+/**
+ * Vérifie si un enregistrement CIRC peut être supprimé.
+ */
+export async function checkCircIntegrity(
+  circId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  const rencontresCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM RENCO WHERE IDCIRC = ?',
+    [circId],
+  );
+  if ((rencontresCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'RENCO',
+      count: rencontresCount[0]?.count ?? 0,
+      description: `${rencontresCount[0]?.count ?? 0} rencontre(s) utilisent cette circonstance`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}
