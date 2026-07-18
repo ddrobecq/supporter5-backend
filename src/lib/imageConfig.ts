@@ -10,6 +10,7 @@ export interface ImageConfig {
 
 export const IMAGE_CONFIGS: Record<string, ImageConfig> = {
   arbitre:  { table: 'ARBITRE',  pk: 'IDARBITRE', field: 'ARB_PHOTO' },
+  epreuve:  { table: 'EPREUVE',  pk: 'IDEPREUVE', field: 'EPR_VISUEL' },
   // Prêts pour extension :
   // club:     { table: 'CLUB',     pk: 'IDCLUB',    field: 'CLUB_LOGO' },
   // joueurrg: { table: 'JOUEURRG', pk: 'IDJOUEUR',  field: 'JR_PHOTO'  },

@@ -38,11 +38,14 @@ async function create(body: Record<string, unknown>): Promise<Record<string, unk
   if (!clean.IDCIRC || (typeof clean.IDCIRC === 'string' && !clean.IDCIRC.trim())) {
     throw new Error('IDCIRC est requis');
   }
-  if (String(clean.IDCIRC).length > 3) {
-    throw new Error('IDCIRC doit contenir 3 caracteres max');
+  if (String(clean.IDCIRC).length > 5) {
+    throw new Error('IDCIRC doit contenir 5 caracteres max');
   }
   if (!clean.CIRC || (typeof clean.CIRC === 'string' && !clean.CIRC.trim())) {
     throw new Error('CIRC est requis');
+  }
+  if (String(clean.CIRC).trim().length < 12) {
+    throw new Error('CIRC doit contenir 12 caracteres minimum');
   }
 
   clean.TYPE_TOUR = normalizeTypeTour(clean.TYPE_TOUR);

@@ -155,3 +155,29 @@ export async function checkCircIntegrity(
     constraints,
   };
 }
+
+/**
+ * Vérifie si un enregistrement EPREUVE peut être supprimé.
+ */
+export async function checkEpreuveIntegrity(
+  epreuveId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  const competCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM COMPET WHERE IDEPREUVE = ?',
+    [epreuveId],
+  );
+  if ((competCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'COMPET',
+      count: competCount[0]?.count ?? 0,
+      description: `${competCount[0]?.count ?? 0} compétition(s) utilisent cette épreuve`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}

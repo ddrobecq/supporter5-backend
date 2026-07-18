@@ -14,6 +14,7 @@ import arbitreRoutes   from './arbitre.routes';
 import terrainRoutes   from './terrain.routes';
 import deviseRoutes    from './devise.routes';
 import circRoutes      from './circ.routes';
+import epreuveRoutes   from './epreuve.routes';
 import imageRoutes     from './image.routes';
 import adminRoutes     from './admin/index';
 
@@ -37,6 +38,7 @@ router.use('/arbitre',    arbitreRoutes);
 router.use('/terrains',   terrainRoutes);
 router.use('/devises',    deviseRoutes);
 router.use('/circs',      circRoutes);
+router.use('/epreuves',   epreuveRoutes);
 router.use('/images',     imageRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
