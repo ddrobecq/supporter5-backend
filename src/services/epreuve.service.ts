@@ -1,5 +1,4 @@
 import { createEntityService } from '../lib/baseService';
-import { dbGet } from '../config/database';
 
 const WRITABLE_COLS = new Set([
   'IDEPREUVE',
@@ -43,12 +42,8 @@ const baseService = createEntityService({
 });
 
 async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = sanitize(body, true);
+  const clean = sanitize(body, false);
 
-  if (!clean.IDEPREUVE || (typeof clean.IDEPREUVE === 'string' && !clean.IDEPREUVE.trim())) {
-    const result = await dbGet<{ maxId: number }>('SELECT COALESCE(MAX(IDEPREUVE), 0) as maxId FROM EPREUVE');
-    clean.IDEPREUVE = (result?.maxId ?? 0) + 1;
-  }
   if (!clean.EPREUVE || (typeof clean.EPREUVE === 'string' && !clean.EPREUVE.trim())) {
     throw new Error('ÉPREUVE est requis');
   }

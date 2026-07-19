@@ -1,5 +1,4 @@
 import { createEntityService } from '../lib/baseService';
-import { dbGet, dbRun } from '../config/database';
 
 const WRITABLE_COLS = new Set(['DVCLEUNIK', 'NOM', 'SYMBOLE', 'CONVERSION', 'DVDEFAUT']);
 
@@ -18,12 +17,8 @@ function sanitize(body: Record<string, unknown>, includePk: boolean): Record<str
 }
 
 async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = sanitize(body, true);
+  const clean = sanitize(body, false);
 
-  if (!clean.DVCLEUNIK || (typeof clean.DVCLEUNIK === 'string' && !(clean.DVCLEUNIK as string).trim())) {
-    const result = await dbGet<{ maxId: number }>('SELECT COALESCE(MAX(DVCLEUNIK), 0) as maxId FROM DEVISE');
-    clean.DVCLEUNIK = (result?.maxId ?? 0) + 1;
-  }
   if (!clean.NOM || (typeof clean.NOM === 'string' && !(clean.NOM as string).trim())) {
     throw new Error('NOM est requis');
   }
