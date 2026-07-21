@@ -1,4 +1,4 @@
-import { dbAll } from '../config/database';
+import { dbAll, dbGet } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 
 /** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
@@ -33,6 +33,22 @@ export async function getJoueurPostes(): Promise<PosteOption[]> {
      FROM Poste
      WHERE POS_TYPE = 1
      ORDER BY POS_NOM ASC, POS_ID ASC`,
+  );
+}
+
+export async function getJoueurByIdWithVille(
+  id: string | number,
+): Promise<Record<string, unknown> | undefined> {
+  return dbGet<Record<string, unknown>>(
+    `SELECT
+      jr.*, 
+      vb.NOM AS VILLE_NOM,
+      vd.NOM AS VILLE_DECES_NOM
+     FROM JOUEURRG jr
+     LEFT JOIN VILLE vb ON vb.VICLEUNIK = jr.IDVILLE
+     LEFT JOIN VILLE vd ON vd.VICLEUNIK = jr.VILLE_DECES
+     WHERE jr.IDJOUEUR = ?`,
+    [id],
   );
 }
 
@@ -86,4 +102,5 @@ export default {
   ...baseService,
   getJoueursGridBySeason,
   getJoueurPostes,
+  getJoueurByIdWithVille,
 };

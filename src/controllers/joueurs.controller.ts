@@ -28,4 +28,17 @@ export async function getJoueurPostes(_req: Request, res: Response, next: NextFu
 		next(error);
 	}
 }
+
+export async function getJoueurById(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const item = await joueursService.getJoueurByIdWithVille(req.params.id);
+		if (!item) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(item);
+	} catch (error) {
+		next(error);
+	}
+}
 export default baseController;
