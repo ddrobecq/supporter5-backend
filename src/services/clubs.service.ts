@@ -43,7 +43,7 @@ export async function getClubsGrid(search: string): Promise<ClubGridRow[]> {
        OR LOWER(COALESCE(lcn.CN_NOM, c.CLUB, '')) LIKE ?
        OR LOWER(COALESCE(v.NOM, '')) LIKE ?
      )
-     ORDER BY CLUB_NOM_COMPLET ASC, c.IDCLUB ASC`,
+     ORDER BY c.CLUB ASC, c.IDCLUB ASC`,
     [normalizedSearch, likeSearch, likeSearch, likeSearch],
   );
 }
