@@ -25,6 +25,7 @@ export async function getClubsGrid(search: string): Promise<ClubGridRow[]> {
              ORDER BY cn.DATE DESC, cn.IDCLUB_NOM DESC
            ) AS rn
          FROM CLUB_NOM cn
+         WHERE COALESCE(cn.CN_ACTION, 0) <> 3
        ) ranked
        WHERE ranked.rn = 1
      )
