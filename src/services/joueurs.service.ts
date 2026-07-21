@@ -17,6 +17,8 @@ export interface JoueurGridRow {
   POSTE: number;
   JOUEUR_NOM: string;
   POSTE_NOM: string;
+  LAST_TRANSAC_SAISON: string | null;
+  LAST_TRANSAC_STATUT: number | null;
 }
 
 export async function getJoueursGridBySeason(season: string, search: string): Promise<JoueurGridRow[]> {
@@ -33,10 +35,23 @@ export async function getJoueursGridBySeason(season: string, search: string): Pr
         NULLIF(TRIM(jr.SURNOM), ''),
         TRIM(UPPER(COALESCE(jr.NOM, '')) || ' ' || COALESCE(jr.PRENOM, ''))
       ) AS JOUEUR_NOM,
-      p.POS_NOM AS POSTE_NOM
+      p.POS_NOM AS POSTE_NOM,
+      tx.SAISON AS LAST_TRANSAC_SAISON,
+      tx.STATUT AS LAST_TRANSAC_STATUT
      FROM JOUEUR j
      INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = j.IDJOUEUR
      INNER JOIN Poste p ON p.POS_ID = j.POSTE
+     LEFT JOIN (
+       SELECT t1.IDJOUEUR, t1.SAISON, t1.STATUT
+       FROM TRANSAC t1
+       INNER JOIN (
+         SELECT IDJOUEUR, MAX(DATE || '-' || printf('%010d', TNCLEUNIK)) AS latest_key
+         FROM TRANSAC
+         GROUP BY IDJOUEUR
+       ) latest
+         ON latest.IDJOUEUR = t1.IDJOUEUR
+        AND (t1.DATE || '-' || printf('%010d', t1.TNCLEUNIK)) = latest.latest_key
+     ) tx ON tx.IDJOUEUR = j.IDJOUEUR
      WHERE j.SAISON = ?
        AND p.POS_TYPE = 1
        AND (
