@@ -41,4 +41,13 @@ export async function getJoueurById(req: Request, res: Response, next: NextFunct
 		next(error);
 	}
 }
+
+export async function getJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await joueursService.getJoueurHistoryById(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
 export default baseController;

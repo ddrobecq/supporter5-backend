@@ -27,6 +27,19 @@ export interface PosteOption {
   POS_NOM: string;
 }
 
+export interface JoueurHistoryRow {
+  JOCLEUNIK: number;
+  SAISON: string;
+  POSTE: number;
+  POSTE_NOM: string;
+  TITULAIRETOTAL: number;
+  REMPTOTAL: number;
+  BUTTOTAL: number;
+  PASSETOTAL: number;
+  JAUNETOTAL: number;
+  ROUGETOTAL: number;
+}
+
 export async function getJoueurPostes(): Promise<PosteOption[]> {
   return dbAll<PosteOption>(
     `SELECT POS_ID, POS_NOM
@@ -98,9 +111,31 @@ export async function getJoueursGridBySeason(season: string, search: string): Pr
   );
 }
 
+export async function getJoueurHistoryById(idJoueur: string | number): Promise<JoueurHistoryRow[]> {
+  return dbAll<JoueurHistoryRow>(
+    `SELECT
+      j.JOCLEUNIK,
+      j.SAISON,
+      j.POSTE,
+      COALESCE(p.POS_NOM, '') AS POSTE_NOM,
+      COALESCE(j.TITULAIRETOTAL, 0) AS TITULAIRETOTAL,
+      COALESCE(j.REMPTOTAL, 0) AS REMPTOTAL,
+      COALESCE(j.BUTTOTAL, 0) AS BUTTOTAL,
+      COALESCE(j.PASSETOTAL, 0) AS PASSETOTAL,
+      COALESCE(j.JAUNETOTAL, 0) AS JAUNETOTAL,
+      COALESCE(j.ROUGETOTAL, 0) AS ROUGETOTAL
+     FROM JOUEUR j
+     LEFT JOIN Poste p ON p.POS_ID = j.POSTE
+     WHERE j.IDJOUEUR = ?
+     ORDER BY j.SAISON DESC, j.JOCLEUNIK DESC`,
+    [idJoueur],
+  );
+}
+
 export default {
   ...baseService,
   getJoueursGridBySeason,
   getJoueurPostes,
   getJoueurByIdWithVille,
+  getJoueurHistoryById,
 };
