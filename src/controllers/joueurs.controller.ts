@@ -19,4 +19,13 @@ export async function getJoueursGrid(req: Request, res: Response, next: NextFunc
 		next(error);
 	}
 }
+
+export async function getJoueurPostes(_req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await joueursService.getJoueurPostes();
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
 export default baseController;

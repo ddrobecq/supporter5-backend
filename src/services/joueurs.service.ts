@@ -22,6 +22,20 @@ export interface JoueurGridRow {
   LAST_TRANSAC_TYPE: number | null;
 }
 
+export interface PosteOption {
+  POS_ID: number;
+  POS_NOM: string;
+}
+
+export async function getJoueurPostes(): Promise<PosteOption[]> {
+  return dbAll<PosteOption>(
+    `SELECT POS_ID, POS_NOM
+     FROM Poste
+     WHERE POS_TYPE = 1
+     ORDER BY POS_NOM ASC, POS_ID ASC`,
+  );
+}
+
 export async function getJoueursGridBySeason(season: string, search: string): Promise<JoueurGridRow[]> {
   const normalizedSearch = search.trim().toLowerCase();
   const likeSearch = `%${normalizedSearch}%`;
@@ -71,4 +85,5 @@ export async function getJoueursGridBySeason(season: string, search: string): Pr
 export default {
   ...baseService,
   getJoueursGridBySeason,
+  getJoueurPostes,
 };
