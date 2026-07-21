@@ -1,5 +1,5 @@
 import { createEntityService } from '../lib/baseService';
-import { dbAll, dbGet } from '../config/database';
+import { dbAll } from '../config/database';
 
 /** CLUB_NOM = historique des noms de clubs */
 export interface ClubGridRow {
@@ -17,72 +17,24 @@ export interface ClubsGridPage {
   totalPages: number;
 }
 
-interface CountRow {
-  total: number;
-}
-
-const CLUBS_GRID_CTE = `WITH latest_club_name AS (
-  SELECT ranked.IDCLUB, ranked.CN_NOM
-  FROM (
-    SELECT
-      cn.IDCLUB,
-      cn.CN_NOM,
-      ROW_NUMBER() OVER (
-        PARTITION BY cn.IDCLUB
-        ORDER BY cn.DATE DESC, cn.IDCLUB_NOM DESC
-      ) AS rn
-    FROM CLUB_NOM cn
-    WHERE COALESCE(cn.CN_ACTION, 0) <> 3
-  ) ranked
-  WHERE ranked.rn = 1
-)`;
-
-const CLUBS_GRID_FROM = `
-FROM CLUB c
-LEFT JOIN latest_club_name lcn ON lcn.IDCLUB = c.IDCLUB
-LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
-WHERE (
-  ? = ''
-  OR LOWER(COALESCE(c.CLUB, '')) LIKE ?
-  OR LOWER(COALESCE(lcn.CN_NOM, c.CLUB, '')) LIKE ?
-  OR LOWER(COALESCE(v.NOM, '')) LIKE ?
-)`;
-
-export async function getClubsGrid(search: string, page: number, limit: number): Promise<ClubsGridPage> {
-  const normalizedSearch = search.trim().toLowerCase();
-  const likeSearch = `%${normalizedSearch}%`;
-  const safePage = Number.isFinite(page) && page > 0 ? Math.floor(page) : 1;
-  const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.floor(limit) : 100;
-  const offset = (safePage - 1) * safeLimit;
-  const params = [normalizedSearch, likeSearch, likeSearch, likeSearch];
-
-  const totalRow = await dbGet<CountRow>(
-    `${CLUBS_GRID_CTE}
-     SELECT COUNT(*) AS total
-     ${CLUBS_GRID_FROM}`,
-    params,
-  );
-
-  const total = Number(totalRow?.total ?? 0);
+export async function getClubsGrid(_search: string, _page: number, _limit: number): Promise<ClubsGridPage> {
   const data = await dbAll<ClubGridRow>(
-    `${CLUBS_GRID_CTE}
-     SELECT
+    `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
-       COALESCE(lcn.CN_NOM, c.CLUB) AS CLUB_NOM_COMPLET,
+       '' AS CLUB_NOM_COMPLET,
        COALESCE(v.NOM, '') AS VILLE_NOM
-     ${CLUBS_GRID_FROM}
-     ORDER BY c.CLUB ASC, c.IDCLUB ASC
-     LIMIT ? OFFSET ?`,
-    [...params, safeLimit, offset],
+     FROM CLUB c
+     LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
+     LIMIT 25`,
   );
 
   return {
     data,
-    total,
-    page: safePage,
-    limit: safeLimit,
-    totalPages: total > 0 ? Math.ceil(total / safeLimit) : 0,
+    total: data.length,
+    page: 1,
+    limit: 25,
+    totalPages: 1,
   };
 }
 
