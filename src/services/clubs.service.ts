@@ -25,8 +25,7 @@ export async function getClubsGrid(_search: string, _page: number, _limit: numbe
        '' AS CLUB_NOM_COMPLET,
        COALESCE(v.NOM, '') AS VILLE_NOM
      FROM CLUB c
-     LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
-     LIMIT 25`,
+      LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE`,
   );
 
   return {
