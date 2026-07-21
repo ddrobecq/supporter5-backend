@@ -14,23 +14,21 @@ export async function getClubsGrid(search: string): Promise<ClubGridRow[]> {
   const likeSearch = `%${normalizedSearch}%`;
 
   return dbAll<ClubGridRow>(
-    `WITH latest_club_name AS (
-       SELECT cn.IDCLUB, cn.CN_NOM
-       FROM CLUB_NOM cn
-       INNER JOIN (
-         SELECT IDCLUB, MAX(COALESCE(DATE, '') || '-' || printf('%010d', IDCLUB_NOM)) AS latest_key
-         FROM CLUB_NOM
-         GROUP BY IDCLUB
-       ) latest ON latest.IDCLUB = cn.IDCLUB
-               AND (COALESCE(cn.DATE, '') || '-' || printf('%010d', cn.IDCLUB_NOM)) = latest.latest_key
-     )
-     SELECT
+    `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
        COALESCE(lcn.CN_NOM, c.CLUB) AS CLUB_NOM_COMPLET,
        COALESCE(v.NOM, '') AS VILLE_NOM
      FROM CLUB c
-     LEFT JOIN latest_club_name lcn ON lcn.IDCLUB = c.IDCLUB
+     LEFT JOIN CLUB_NOM lcn
+       ON lcn.IDCLUB = c.IDCLUB
+      AND lcn.IDCLUB_NOM = (
+        SELECT cn2.IDCLUB_NOM
+        FROM CLUB_NOM cn2
+        WHERE cn2.IDCLUB = c.IDCLUB
+        ORDER BY cn2.DATE DESC, cn2.IDCLUB_NOM DESC
+        LIMIT 1
+      )
      LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
      WHERE (
        ? = ''
