@@ -181,3 +181,79 @@ export async function checkEpreuveIntegrity(
     constraints,
   };
 }
+
+/**
+ * Vérifie si un enregistrement CLUB peut être supprimé.
+ * Les tables "propriétaires" du club (CLUB_NOM, CLUB_TERRAIN) sont supprimées
+ * automatiquement lors de l'opération de suppression.
+ */
+export async function checkClubIntegrity(
+  clubId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  const rencontresDomicileCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM RENCO WHERE DOMICILE = ?',
+    [clubId],
+  );
+  if ((rencontresDomicileCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'RENCO',
+      count: rencontresDomicileCount[0]?.count ?? 0,
+      description: `${rencontresDomicileCount[0]?.count ?? 0} rencontre(s) avec ce club comme domicile`,
+    });
+  }
+
+  const rencontresExterieurCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM RENCO WHERE EXTERIEUR = ?',
+    [clubId],
+  );
+  if ((rencontresExterieurCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'RENCO',
+      count: rencontresExterieurCount[0]?.count ?? 0,
+      description: `${rencontresExterieurCount[0]?.count ?? 0} rencontre(s) avec ce club comme exterieur`,
+    });
+  }
+
+  const participCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM PARTICIP WHERE IDCLUB = ?',
+    [clubId],
+  );
+  if ((participCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'PARTICIP',
+      count: participCount[0]?.count ?? 0,
+      description: `${participCount[0]?.count ?? 0} participation(s) de ce club`,
+    });
+  }
+
+  const transacCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM TRANSAC WHERE IDCLUB = ?',
+    [clubId],
+  );
+  if ((transacCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'TRANSAC',
+      count: transacCount[0]?.count ?? 0,
+      description: `${transacCount[0]?.count ?? 0} transaction(s) liee(s) a ce club`,
+    });
+  }
+
+  const jotroCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM JOTRO WHERE IDCLUB = ?',
+    [clubId],
+  );
+  if ((jotroCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'JOTRO',
+      count: jotroCount[0]?.count ?? 0,
+      description: `${jotroCount[0]?.count ?? 0} trophee(s) de joueur(s) associe(s) a ce club`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}

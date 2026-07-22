@@ -14,4 +14,29 @@ export async function getClubsGrid(req: Request, res: Response, next: NextFuncti
 	}
 }
 
+export async function getClubSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const search = String(req.query.search ?? '').trim();
+		const rawLimit = Number(req.query.limit ?? 12);
+		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 30) : 12;
+		const result = await clubsService.getClubSuggestions(search, limit);
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function removeClub(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const removed = await clubsService.removeClubById(req.params.id);
+		if (!removed) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export default baseController;
