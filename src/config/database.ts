@@ -1,19 +1,20 @@
-import { createClient, InValue } from '@libsql/client';
+import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
+import path from 'node:path';
 
 dotenv.config();
 
-const tursoUrl = process.env.TURSO_DATABASE_URL;
-const tursoAuthToken = process.env.TURSO_AUTH_TOKEN;
+const configuredDbPath = (process.env.SQLITE_DB_PATH ?? '/data/supporter.sqlite').trim();
+const resolvedDbPath = path.isAbsolute(configuredDbPath)
+  ? configuredDbPath
+  : path.resolve(process.cwd(), configuredDbPath);
 
-if (!tursoUrl) {
-  throw new Error('Missing TURSO_DATABASE_URL environment variable');
+if (!resolvedDbPath) {
+  throw new Error('Missing SQLITE_DB_PATH environment variable');
 }
 
-const db = createClient({
-  url: tursoUrl,
-  authToken: tursoAuthToken,
-});
+const db = new Database(resolvedDbPath);
+db.pragma('foreign_keys = ON');
 
 export interface DbRunResult {
   changes: number;
@@ -25,8 +26,9 @@ export async function dbAll<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],
 ): Promise<T[]> {
-  const result = await db.execute({ sql, args: params as InValue[] });
-  return result.rows as unknown as T[];
+  const stmt = db.prepare(sql);
+  const rows = stmt.all(...(params as Array<string | number | null | Uint8Array | boolean>));
+  return rows as unknown as T[];
 }
 
 /** Exécute un SELECT et retourne la première ligne. */
@@ -43,9 +45,10 @@ export async function dbRun(
   sql: string,
   params: unknown[] = [],
 ): Promise<DbRunResult> {
-  const result = await db.execute({ sql, args: params as InValue[] });
+  const stmt = db.prepare(sql);
+  const result = stmt.run(...(params as Array<string | number | null | Uint8Array | boolean>));
   return {
-    changes: Number(result.rowsAffected ?? 0),
+    changes: Number(result.changes ?? 0),
     lastInsertRowid:
       result.lastInsertRowid === null || result.lastInsertRowid === undefined
         ? undefined

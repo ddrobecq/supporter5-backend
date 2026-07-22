@@ -1,4 +1,4 @@
-# Supporter v5 — Backend API (Express.js + TypeScript + Turso/libSQL)
+# Supporter v5 — Backend API (Express.js + TypeScript + SQLite)
 
 ## 🚀 Démarrage rapide
 
@@ -7,7 +7,7 @@ npm install
 npm run dev
 ```
 
-Le serveur démarre sur le port **3000** et se connecte a la base Turso via `TURSO_DATABASE_URL` et `TURSO_AUTH_TOKEN`.
+Le serveur démarre sur le port **3000** et se connecte a la base SQLite via `SQLITE_DB_PATH`.
 
 ---
 
@@ -170,7 +170,7 @@ npm run typecheck   # Vérifier les types sans build
 back/
   src/
     config/
-      database.ts         # Client Turso/libSQL + helpers (dbAll, dbGet, dbRun)
+      database.ts         # Connexion SQLite + helpers (dbAll, dbGet, dbRun)
     lib/
       baseService.ts      # Factory pour CRUD + bulk ops
       controllerFactory.ts # Factory pour controllers génériques
@@ -209,8 +209,7 @@ back/
 |-----|--------|-------------|
 | `NODE_ENV` | `development` | `production` ou `development` |
 | `PORT` | `3000` | Port du serveur |
-| `TURSO_DATABASE_URL` | — | URL libSQL de la base Turso |
-| `TURSO_AUTH_TOKEN` | — | Token d'authentification Turso |
+| `SQLITE_DB_PATH` | `/data/supporter.sqlite` | Chemin du fichier SQLite |
 | `ADMIN_USERNAME` | — | Nom d'utilisateur (ex: `admin`) |
 | `ADMIN_PASSWORD_HASH` | — | Hash bcrypt du mot de passe |
 | `JWT_SECRET` | — | Clé secrète JWT (min 32 chars) |
@@ -221,7 +220,7 @@ back/
 
 ## 🔐 Sécurité
 
-- **Zéro ORM lourd** — SQL brut via client `@libsql/client` (Turso)
+- **Zéro ORM lourd** — SQL brut via `better-sqlite3` (SQLite)
 - **Injection SQL prévenue** — Paramètres liés + whitelist pour tri/filtres
 - **JWT pour l'authentification** — Un seul compte admin via `.env`
 - **CORS + Helmet** — Protection contre les attaques courantes
@@ -244,13 +243,13 @@ DELETE /api/admin/rencontres/bulk
 
 ---
 
-## 🚀 Déploiement (Render.com + Turso)
+## 🚀 Déploiement (Render.com + SQLite)
 
 1. Créer un Web Service sur Render.com lié au repo Git
-2. Définir les env vars (`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `JWT_SECRET`)
+2. Définir les env vars (`SQLITE_DB_PATH`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `JWT_SECRET`)
 4. Git push → déploiement automatique
 
-**Important** : Le backend n'utilise plus de fichier SQLite local en production.
+**Important** : Le backend utilise un fichier SQLite. Configure `SQLITE_DB_PATH` selon l'environnement.
 
 ---
 

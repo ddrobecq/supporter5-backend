@@ -1,7 +1,9 @@
 node_modules/
 dist/
+data/
 .env
-database.sqlite
+.env.test
+.env.production
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
