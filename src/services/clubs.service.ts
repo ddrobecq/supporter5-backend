@@ -1,5 +1,6 @@
 import { createEntityService } from '../lib/baseService';
-import { dbAll, dbRun } from '../config/database';
+import { dbAll, dbGet, dbRun } from '../config/database';
+import { AppError } from '../types';
 
 /** CLUB_NOM = historique des noms de clubs */
 export interface ClubGridRow {
@@ -23,6 +24,13 @@ export interface ClubSuggestionRow {
   CLUB_NOM_COMPLET: string;
   CLUB_NOMS: string[];
   SCORE: number;
+}
+
+export interface CreateClubWizardPayload {
+  name: string;
+  natioId: string;
+  isSelection: boolean;
+  villeId?: string | number;
 }
 
 interface ClubCandidateRow {
@@ -250,6 +258,28 @@ export async function getClubsGrid(search: string): Promise<ClubsGridResponse> {
   return { data };
 }
 
+export async function getClubGridById(id: string): Promise<ClubGridRow | undefined> {
+  return dbGet<ClubGridRow>(
+    `SELECT
+       c.IDCLUB,
+       c.CLUB AS CLUB_ABREGE,
+       COALESCE((
+         SELECT cn.CN_NOM
+         FROM CLUB_NOM cn
+         WHERE cn.IDCLUB = c.IDCLUB
+           AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
+         ORDER BY cn.DATE DESC
+         LIMIT 1
+       ), '') AS CLUB_NOM_COMPLET,
+       COALESCE(v.NOM, '') AS VILLE_NOM
+     FROM CLUB c
+     LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
+     WHERE c.IDCLUB = ?
+     LIMIT 1`,
+    [id],
+  );
+}
+
 export async function getClubSuggestions(search: string, limit = 12): Promise<ClubSuggestionsResponse> {
   const query = search.trim();
   if (!query) {
@@ -320,6 +350,89 @@ export async function removeClubById(id: string): Promise<boolean> {
   return result.changes > 0;
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+function toSelectionFlag(value: unknown): 0 | 1 {
+  return value ? 1 : 0;
+}
+
+async function resolveNextClubId(): Promise<string> {
+  const row = await dbGet<{ maxId: number | null }>(
+    'SELECT MAX(CAST(IDCLUB AS INTEGER)) AS maxId FROM CLUB',
+  );
+  const nextNumericId = Math.max(0, Number(row?.maxId ?? 0)) + 1;
+  if (nextNumericId > 9999) {
+    throw new AppError(400, 'Impossible de generer un identifiant club (limite 9999 atteinte).');
+  }
+  return String(nextNumericId).padStart(4, '0');
+}
+
+async function resolveVilleIdForClub(natioId: string, villeId?: string | number): Promise<number> {
+  const explicit = normalizeText(villeId);
+  if (explicit) {
+    const found = await dbGet<{ VICLEUNIK: number }>('SELECT VICLEUNIK FROM VILLE WHERE VICLEUNIK = ?', [explicit]);
+    if (!found) {
+      throw new AppError(400, 'La ville selectionnee est introuvable.');
+    }
+    return Number(found.VICLEUNIK);
+  }
+
+  const fallback = await dbGet<{ VICLEUNIK: number }>(
+    'SELECT VICLEUNIK FROM VILLE WHERE IDNATIO = ? ORDER BY NOM ASC, VICLEUNIK ASC LIMIT 1',
+    [natioId],
+  );
+  if (!fallback) {
+    throw new AppError(400, 'Aucune ville disponible pour ce pays. Selectionnez une ville.');
+  }
+  return Number(fallback.VICLEUNIK);
+}
+
+export async function createClubWithWizard(payload: CreateClubWizardPayload): Promise<ClubGridRow> {
+  const name = normalizeText(payload.name);
+  const natioId = normalizeText(payload.natioId).toUpperCase();
+  const isSelection = Boolean(payload.isSelection);
+
+  if (!name) {
+    throw new AppError(400, 'Le nom du club est requis.');
+  }
+  if (!natioId) {
+    throw new AppError(400, 'Le pays est requis.');
+  }
+
+  const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
+  if (!country) {
+    throw new AppError(400, 'Le pays selectionne est introuvable.');
+  }
+
+  if (!isSelection && !normalizeText(payload.villeId)) {
+    throw new AppError(400, 'La ville est requise lorsque le club nest pas une selection nationale.');
+  }
+
+  const idClub = await resolveNextClubId();
+  const idVille = await resolveVilleIdForClub(natioId, payload.villeId);
+  const nowDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+
+  await dbRun(
+    `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [idClub, name.slice(0, 100), natioId, -1, -1, idVille, toSelectionFlag(isSelection)],
+  );
+
+  await dbRun(
+    `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
+     VALUES (?, ?, ?, ?)`,
+    [name.slice(0, 200), idClub, nowDate, 0],
+  );
+
+  const created = await getClubGridById(idClub);
+  if (!created) {
+    throw new AppError(500, 'Le club a ete cree mais est introuvable apres creation.');
+  }
+  return created;
+}
+
 const baseService = createEntityService({
   table:           'CLUB_NOM',
   pk:              'IDCLUB_NOM',
@@ -331,6 +444,8 @@ const baseService = createEntityService({
 export default {
   ...baseService,
   getClubsGrid,
+  getClubGridById,
   getClubSuggestions,
   removeClubById,
+  createClubWithWizard,
 };

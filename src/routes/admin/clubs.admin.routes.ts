@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import ctrl from '../../controllers/clubs.controller';
 import { removeClub } from '../../controllers/clubs.controller';
+import { createClubWithWizard } from '../../controllers/clubs.controller';
 import { checkClubIntegrity } from '../../lib/integrityChecker';
 const router = Router();
 router.post('/',       ctrl.create);
+router.post('/wizard-create', createClubWithWizard);
 router.put('/:id',    ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);

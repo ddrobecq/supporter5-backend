@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import ctrl from '../../controllers/joueurs.controller';
+import { createJoueurWithWizard } from '../../controllers/joueurs.controller';
 import { checkJoueurIntegrity } from '../../lib/joueurIntegrityChecker';
 const router = Router();
 router.post('/',       ctrl.create);
+router.post('/wizard-create', createJoueurWithWizard);
 router.put('/:id',    ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);

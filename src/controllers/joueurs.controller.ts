@@ -50,4 +50,25 @@ export async function getJoueurHistory(req: Request, res: Response, next: NextFu
 		next(error);
 	}
 }
+
+export async function getJoueurSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const search = String(req.query.search ?? '').trim();
+		const rawLimit = Number(req.query.limit ?? 12);
+		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 30) : 12;
+		const result = await joueursService.getJoueurSuggestions(search, limit);
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function createJoueurWithWizard(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const created = await joueursService.createJoueurWithWizard(req.body as { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string });
+		res.status(201).json(created);
+	} catch (error) {
+		next(error);
+	}
+}
 export default baseController;

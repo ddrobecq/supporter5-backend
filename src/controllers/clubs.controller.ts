@@ -14,6 +14,19 @@ export async function getClubsGrid(req: Request, res: Response, next: NextFuncti
 	}
 }
 
+export async function getClubGridById(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.getClubGridById(req.params.id);
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getClubSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const search = String(req.query.search ?? '').trim();
@@ -21,6 +34,20 @@ export async function getClubSuggestions(req: Request, res: Response, next: Next
 		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 30) : 12;
 		const result = await clubsService.getClubSuggestions(search, limit);
 		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function createClubWithWizard(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const created = await clubsService.createClubWithWizard(req.body as {
+			name: string;
+			natioId: string;
+			isSelection: boolean;
+			villeId?: string | number;
+		});
+		res.status(201).json(created);
 	} catch (error) {
 		next(error);
 	}
