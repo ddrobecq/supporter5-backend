@@ -22,14 +22,15 @@ export interface ClubProfileRow {
 
 export interface ClubNameHistoryRow {
   IDCLUB_NOM: number;
-  DATE: string;
+  DATE: string | null;
   CN_ACTION: number;
   CN_NOM: string;
 }
 
 export interface ClubTerrainHistoryRow {
   CT_CLEUNIK: number;
-  DATE: string;
+  TECLEUNIK: number;
+  DATE: string | null;
   STADE: string;
 }
 
@@ -339,6 +340,7 @@ export async function getClubTerrainHistoryById(id: string): Promise<ClubTerrain
   return dbAll<ClubTerrainHistoryRow>(
     `SELECT
        ct.CT_CLEUNIK,
+       ct.TECLEUNIK,
        ct.DATE,
        COALESCE(t.STADE, '') AS STADE
      FROM CLUB_TERRAIN ct
@@ -347,6 +349,211 @@ export async function getClubTerrainHistoryById(id: string): Promise<ClubTerrain
      ORDER BY ct.DATE DESC, ct.CT_CLEUNIK DESC`,
     [id],
   );
+}
+
+export async function createClubTerrainHistoryById(
+  id: string,
+  payload: { date?: string | null; terrainId: string | number },
+): Promise<ClubTerrainHistoryRow | undefined> {
+  const clubId = normalizeText(id);
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+
+  const club = await dbGet<{ IDCLUB: string }>('SELECT IDCLUB FROM CLUB WHERE IDCLUB = ?', [clubId]);
+  if (!club) {
+    return undefined;
+  }
+
+  const normalizedDate = normalizeClubNameDate(payload.date);
+  const terrainId = normalizeTerrainId(payload.terrainId);
+
+  await dbRun(
+    `INSERT INTO CLUB_TERRAIN (IDCLUB, TECLEUNIK, DATE)
+     VALUES (?, ?, ?)`,
+    [clubId, terrainId, normalizedDate],
+  );
+
+  return dbGet<ClubTerrainHistoryRow>(
+    `SELECT
+       ct.CT_CLEUNIK,
+       ct.TECLEUNIK,
+       ct.DATE,
+       COALESCE(t.STADE, '') AS STADE
+     FROM CLUB_TERRAIN ct
+     LEFT JOIN TERRAIN t ON t.TECLEUNIK = ct.TECLEUNIK
+     WHERE ct.IDCLUB = ?
+     ORDER BY ct.CT_CLEUNIK DESC
+     LIMIT 1`,
+    [clubId],
+  );
+}
+
+export async function updateClubTerrainHistoryById(
+  id: string,
+  terrainHistoryId: string,
+  payload: { date?: string | null; terrainId: string | number },
+): Promise<ClubTerrainHistoryRow | undefined> {
+  const clubId = normalizeText(id);
+  const historyNumericId = Number(terrainHistoryId);
+
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
+    throw new AppError(400, 'Identifiant de stade club invalide.');
+  }
+
+  const existing = await dbGet<{ CT_CLEUNIK: number }>(
+    'SELECT CT_CLEUNIK FROM CLUB_TERRAIN WHERE CT_CLEUNIK = ? AND IDCLUB = ?',
+    [historyNumericId, clubId],
+  );
+  if (!existing) {
+    return undefined;
+  }
+
+  const normalizedDate = normalizeClubNameDate(payload.date);
+  const terrainId = normalizeTerrainId(payload.terrainId);
+
+  await dbRun(
+    `UPDATE CLUB_TERRAIN
+     SET TECLEUNIK = ?, DATE = ?
+     WHERE CT_CLEUNIK = ? AND IDCLUB = ?`,
+    [terrainId, normalizedDate, historyNumericId, clubId],
+  );
+
+  return dbGet<ClubTerrainHistoryRow>(
+    `SELECT
+       ct.CT_CLEUNIK,
+       ct.TECLEUNIK,
+       ct.DATE,
+       COALESCE(t.STADE, '') AS STADE
+     FROM CLUB_TERRAIN ct
+     LEFT JOIN TERRAIN t ON t.TECLEUNIK = ct.TECLEUNIK
+     WHERE ct.CT_CLEUNIK = ? AND ct.IDCLUB = ?
+     LIMIT 1`,
+    [historyNumericId, clubId],
+  );
+}
+
+export async function deleteClubTerrainHistoryById(id: string, terrainHistoryId: string): Promise<boolean> {
+  const clubId = normalizeText(id);
+  const historyNumericId = Number(terrainHistoryId);
+
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
+    throw new AppError(400, 'Identifiant de stade club invalide.');
+  }
+
+  const result = await dbRun(
+    'DELETE FROM CLUB_TERRAIN WHERE CT_CLEUNIK = ? AND IDCLUB = ?',
+    [historyNumericId, clubId],
+  );
+  return result.changes > 0;
+}
+
+export async function createClubNameHistoryById(
+  id: string,
+  payload: { date?: string | null; eventType: number | string; name: string },
+): Promise<ClubNameHistoryRow | undefined> {
+  const clubId = normalizeText(id);
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+
+  const club = await dbGet<{ IDCLUB: string }>('SELECT IDCLUB FROM CLUB WHERE IDCLUB = ?', [clubId]);
+  if (!club) {
+    return undefined;
+  }
+
+  const normalizedDate = normalizeClubNameDate(payload.date);
+  const eventType = normalizeClubNameEventType(payload.eventType);
+  const name = normalizeText(payload.name);
+
+  if (!name) {
+    throw new AppError(400, 'Le nom est requis.');
+  }
+
+  await dbRun(
+    `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
+     VALUES (?, ?, ?, ?)`,
+    [name.slice(0, 200), clubId, normalizedDate, eventType],
+  );
+
+  return dbGet<ClubNameHistoryRow>(
+    `SELECT IDCLUB_NOM, DATE, COALESCE(CN_ACTION, 0) AS CN_ACTION, CN_NOM
+     FROM CLUB_NOM
+     WHERE IDCLUB = ?
+     ORDER BY IDCLUB_NOM DESC
+     LIMIT 1`,
+    [clubId],
+  );
+}
+
+export async function updateClubNameHistoryById(
+  id: string,
+  historyId: string,
+  payload: { date?: string | null; eventType: number | string; name: string },
+): Promise<ClubNameHistoryRow | undefined> {
+  const clubId = normalizeText(id);
+  const historyNumericId = Number(historyId);
+
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
+    throw new AppError(400, 'Identifiant de nom club invalide.');
+  }
+
+  const existing = await dbGet<{ IDCLUB_NOM: number }>(
+    'SELECT IDCLUB_NOM FROM CLUB_NOM WHERE IDCLUB_NOM = ? AND IDCLUB = ?',
+    [historyNumericId, clubId],
+  );
+  if (!existing) {
+    return undefined;
+  }
+
+  const normalizedDate = normalizeClubNameDate(payload.date);
+  const eventType = normalizeClubNameEventType(payload.eventType);
+  const name = normalizeText(payload.name);
+  if (!name) {
+    throw new AppError(400, 'Le nom est requis.');
+  }
+
+  await dbRun(
+    `UPDATE CLUB_NOM
+     SET CN_NOM = ?, DATE = ?, CN_ACTION = ?
+     WHERE IDCLUB_NOM = ? AND IDCLUB = ?`,
+    [name.slice(0, 200), normalizedDate, eventType, historyNumericId, clubId],
+  );
+
+  return dbGet<ClubNameHistoryRow>(
+    `SELECT IDCLUB_NOM, DATE, COALESCE(CN_ACTION, 0) AS CN_ACTION, CN_NOM
+     FROM CLUB_NOM
+     WHERE IDCLUB_NOM = ? AND IDCLUB = ?
+     LIMIT 1`,
+    [historyNumericId, clubId],
+  );
+}
+
+export async function deleteClubNameHistoryById(id: string, historyId: string): Promise<boolean> {
+  const clubId = normalizeText(id);
+  const historyNumericId = Number(historyId);
+
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
+    throw new AppError(400, 'Identifiant de nom club invalide.');
+  }
+
+  const result = await dbRun(
+    'DELETE FROM CLUB_NOM WHERE IDCLUB_NOM = ? AND IDCLUB = ?',
+    [historyNumericId, clubId],
+  );
+  return result.changes > 0;
 }
 
 export async function updateClubColorsById(
@@ -488,6 +695,41 @@ function normalizeText(value: unknown): string {
   return String(value ?? '').trim();
 }
 
+function normalizeClubNameDate(value: unknown): string | null {
+  const text = normalizeText(value);
+  if (!text) {
+    return null;
+  }
+
+  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) {
+    return `${compact[1]}${compact[2]}${compact[3]}`;
+  }
+
+  const dashed = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dashed) {
+    return `${dashed[1]}${dashed[2]}${dashed[3]}`;
+  }
+
+  throw new AppError(400, 'La date est invalide.');
+}
+
+function normalizeClubNameEventType(value: unknown): number {
+  const eventType = Number(value);
+  if (!Number.isInteger(eventType) || eventType < 1 || eventType > 3) {
+    throw new AppError(400, 'Le type d evenement est invalide.');
+  }
+  return eventType;
+}
+
+function normalizeTerrainId(value: unknown): number {
+  const terrainId = Number(value);
+  if (!Number.isInteger(terrainId) || terrainId <= 0) {
+    throw new AppError(400, 'Le stade selectionne est invalide.');
+  }
+  return terrainId;
+}
+
 function toSelectionFlag(value: unknown): 0 | 1 {
   return value ? 1 : 0;
 }
@@ -582,6 +824,12 @@ export default {
   getClubProfileById,
   getClubNameHistoryById,
   getClubTerrainHistoryById,
+  createClubNameHistoryById,
+  updateClubNameHistoryById,
+  deleteClubNameHistoryById,
+  createClubTerrainHistoryById,
+  updateClubTerrainHistoryById,
+  deleteClubTerrainHistoryById,
   updateClubColorsById,
   updateClubProfileById,
   getClubSuggestions,

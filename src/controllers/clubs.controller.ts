@@ -93,6 +93,98 @@ export async function updateClubProfile(req: Request, res: Response, next: NextF
 	}
 }
 
+export async function createClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.createClubNameHistoryById(req.params.id, req.body as {
+			date?: string | null;
+			eventType: number | string;
+			name: string;
+		});
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(201).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function updateClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.updateClubNameHistoryById(req.params.id, req.params.nameId, req.body as {
+			date?: string | null;
+			eventType: number | string;
+			name: string;
+		});
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function deleteClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const removed = await clubsService.deleteClubNameHistoryById(req.params.id, req.params.nameId);
+		if (!removed) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function createClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.createClubTerrainHistoryById(req.params.id, req.body as {
+			date?: string | null;
+			terrainId: string | number;
+		});
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(201).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function updateClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.updateClubTerrainHistoryById(req.params.id, req.params.terrainId, req.body as {
+			date?: string | null;
+			terrainId: string | number;
+		});
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function deleteClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const removed = await clubsService.deleteClubTerrainHistoryById(req.params.id, req.params.terrainId);
+		if (!removed) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getClubSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const search = String(req.query.search ?? '').trim();
