@@ -27,6 +27,72 @@ export async function getClubGridById(req: Request, res: Response, next: NextFun
 	}
 }
 
+export async function getClubProfileById(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.getClubProfileById(req.params.id);
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function getClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await clubsService.getClubNameHistoryById(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function getClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await clubsService.getClubTerrainHistoryById(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function updateClubColors(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.updateClubColorsById(req.params.id, req.body as {
+			fond: string | number | null;
+			texte: string | number | null;
+		});
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function updateClubProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await clubsService.updateClubProfileById(req.params.id, req.body as {
+			name: string;
+			natioId: string;
+			villeId?: string | number | null;
+			fond?: string | number | null;
+			texte?: string | number | null;
+		});
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getClubSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const search = String(req.query.search ?? '').trim();

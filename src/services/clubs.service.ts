@@ -10,6 +10,29 @@ export interface ClubGridRow {
   VILLE_NOM: string;
 }
 
+export interface ClubProfileRow {
+  IDCLUB: string;
+  CLUB_ABREGE: string;
+  IDNATIO: string;
+  IDVILLE: string | null;
+  VILLE_NOM: string;
+  FOND: string | null;
+  TEXTE: string | null;
+}
+
+export interface ClubNameHistoryRow {
+  IDCLUB_NOM: number;
+  DATE: string;
+  CN_ACTION: number;
+  CN_NOM: string;
+}
+
+export interface ClubTerrainHistoryRow {
+  CT_CLEUNIK: number;
+  DATE: string;
+  STADE: string;
+}
+
 export interface ClubsGridResponse {
   data: ClubGridRow[];
 }
@@ -280,6 +303,117 @@ export async function getClubGridById(id: string): Promise<ClubGridRow | undefin
   );
 }
 
+export async function getClubProfileById(id: string): Promise<ClubProfileRow | undefined> {
+  return dbGet<ClubProfileRow>(
+    `SELECT
+       c.IDCLUB,
+       c.CLUB AS CLUB_ABREGE,
+       c.IDNATIO,
+       c.IDVILLE,
+       COALESCE(v.NOM, '') AS VILLE_NOM,
+       c.FOND,
+       c.TEXTE
+     FROM CLUB c
+     LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
+     WHERE c.IDCLUB = ?
+     LIMIT 1`,
+    [id],
+  );
+}
+
+export async function getClubNameHistoryById(id: string): Promise<ClubNameHistoryRow[]> {
+  return dbAll<ClubNameHistoryRow>(
+    `SELECT
+       cn.IDCLUB_NOM,
+       cn.DATE,
+       COALESCE(cn.CN_ACTION, 0) AS CN_ACTION,
+       cn.CN_NOM
+     FROM CLUB_NOM cn
+     WHERE cn.IDCLUB = ?
+     ORDER BY cn.DATE DESC, cn.IDCLUB_NOM DESC`,
+    [id],
+  );
+}
+
+export async function getClubTerrainHistoryById(id: string): Promise<ClubTerrainHistoryRow[]> {
+  return dbAll<ClubTerrainHistoryRow>(
+    `SELECT
+       ct.CT_CLEUNIK,
+       ct.DATE,
+       COALESCE(t.STADE, '') AS STADE
+     FROM CLUB_TERRAIN ct
+     LEFT JOIN TERRAIN t ON t.TECLEUNIK = ct.TECLEUNIK
+     WHERE ct.IDCLUB = ?
+     ORDER BY ct.DATE DESC, ct.CT_CLEUNIK DESC`,
+    [id],
+  );
+}
+
+export async function updateClubColorsById(
+  id: string,
+  payload: { fond: string | number | null; texte: string | number | null },
+): Promise<ClubProfileRow | undefined> {
+  const clubId = normalizeText(id);
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+
+  await dbRun(
+    'UPDATE CLUB SET FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
+    [payload.fond ?? null, payload.texte ?? null, clubId],
+  );
+
+  return getClubProfileById(clubId);
+}
+
+export async function updateClubProfileById(
+  id: string,
+  payload: { name: string; natioId: string; villeId?: string | number | null; fond?: string | number | null; texte?: string | number | null },
+): Promise<ClubProfileRow | undefined> {
+  const clubId = normalizeText(id);
+  const name = normalizeText(payload.name);
+  const natioId = normalizeText(payload.natioId).toUpperCase();
+
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+  if (!name) {
+    throw new AppError(400, 'Le nom du club est requis.');
+  }
+  if (!natioId) {
+    throw new AppError(400, 'Le pays est requis.');
+  }
+
+  const current = await getClubProfileById(clubId);
+  if (!current) {
+    return undefined;
+  }
+
+  const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
+  if (!country) {
+    throw new AppError(400, 'Le pays selectionne est introuvable.');
+  }
+
+  const villeId = await resolveVilleIdForClub(natioId, payload.villeId ?? current.IDVILLE ?? undefined);
+  const nowDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const nameChanged = normalizeText(String(current.CLUB_ABREGE ?? '')) !== name;
+
+  await dbRun(
+    'UPDATE CLUB SET CLUB = ?, IDNATIO = ?, IDVILLE = ?, FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
+    [name.slice(0, 100), natioId, villeId, payload.fond ?? null, payload.texte ?? null, clubId],
+  );
+
+  if (nameChanged) {
+    await dbRun(
+      `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
+       VALUES (?, ?, ?, ?)`,
+      [name.slice(0, 200), clubId, nowDate, 2],
+    );
+  }
+
+  return getClubProfileById(clubId);
+}
+
 export async function getClubSuggestions(search: string, limit = 12): Promise<ClubSuggestionsResponse> {
   const query = search.trim();
   if (!query) {
@@ -445,6 +579,11 @@ export default {
   ...baseService,
   getClubsGrid,
   getClubGridById,
+  getClubProfileById,
+  getClubNameHistoryById,
+  getClubTerrainHistoryById,
+  updateClubColorsById,
+  updateClubProfileById,
   getClubSuggestions,
   removeClubById,
   createClubWithWizard,
