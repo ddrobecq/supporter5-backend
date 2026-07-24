@@ -31,3 +31,14 @@ export class AppError extends Error {
     this.name = 'AppError';
   }
 }
+
+export interface IntegrityConstraint {
+  table: string;
+  count: number;
+  description: string;
+}
+
+export interface IntegrityCheckResult {
+  canDelete: boolean;
+  constraints: IntegrityConstraint[];
+}

@@ -1,6 +1,8 @@
 import { createEntityService } from '../lib/baseService';
 import { dbAll, dbGet, dbRun } from '../config/database';
-import { AppError } from '../types';
+import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
+import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** CLUB_NOM = historique des noms de clubs */
 export interface ClubGridRow {
@@ -89,14 +91,6 @@ function parseHistoryNames(rawHistory: string, latestName: string): string[] {
   return deduped;
 }
 
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
 function tokenizeNormalized(value: string): string[] {
   return value
     .normalize('NFD')
@@ -125,32 +119,6 @@ function toFrenchPhoneticKey(value: string): string {
   v = v.replace(/[aeiou]/g, '');
   v = v.replace(/(.)\1+/g, '$1');
   return v;
-}
-
-function levenshteinDistance(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a) return b.length;
-  if (!b) return a.length;
-
-  const cols = b.length + 1;
-  const rows = a.length + 1;
-  const dp = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
-
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
-
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
-  }
-
-  return dp[rows - 1][cols - 1];
 }
 
 function damerauLevenshteinDistance(a: string, b: string): number {
@@ -812,13 +780,105 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
 const baseService = createEntityService({
   table:           'CLUB_NOM',
   pk:              'IDCLUB_NOM',
+  selectCols:      ['IDCLUB_NOM', 'CN_NOM', 'IDCLUB', 'DATE', 'CN_ACTION'],
   allowedSortCols: ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE'],
   searchCols:      ['CN_NOM'],
   filterCols:      ['IDCLUB'],
 });
 
+const CLUB_NOM_TABLE = 'CLUB_NOM';
+const CLUB_NOM_PK = 'IDCLUB_NOM';
+const CLUB_NOM_ALLOWED_SORT_COLS = ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE'] as const;
+const CLUB_NOM_SEARCH_COLS = ['CN_NOM'] as const;
+const CLUB_NOM_FILTER_COLS = ['IDCLUB'] as const;
+const CLUB_NOM_SELECT_COLUMNS = ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE', 'CN_ACTION'] as const;
+const CLUB_NOM_SELECT_SQL = CLUB_NOM_SELECT_COLUMNS.map((col) => `"${col}"`).join(', ');
+
+async function getClubNomAll(params: QueryParams): Promise<PaginatedResult> {
+  const page = Math.max(1, Number(params.page) || 1);
+  const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
+  const offset = (page - 1) * limit;
+  const sort = sanitizeSort(params.sort, CLUB_NOM_ALLOWED_SORT_COLS, CLUB_NOM_PK);
+  const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+  const { where, bindings } = buildWhere(params, CLUB_NOM_SEARCH_COLS, CLUB_NOM_FILTER_COLS);
+
+  const row = await dbGet<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM "${CLUB_NOM_TABLE}" ${where}`,
+    bindings,
+  );
+  const total = row?.total ?? 0;
+
+  const data = await dbAll(
+    `SELECT ${CLUB_NOM_SELECT_SQL}
+     FROM "${CLUB_NOM_TABLE}" ${where}
+     ORDER BY "${sort}" ${order}
+     LIMIT ? OFFSET ?`,
+    [...bindings, limit, offset],
+  );
+
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+async function getClubNomById(id: string | number): Promise<Record<string, unknown> | undefined> {
+  return dbGet(
+    `SELECT ${CLUB_NOM_SELECT_SQL}
+     FROM "${CLUB_NOM_TABLE}"
+     WHERE "${CLUB_NOM_PK}" = ?`,
+    [id],
+  );
+}
+
+async function createClubNom(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const keys = Object.keys(body);
+  if (!keys.length) {
+    throw new AppError(400, 'No fields provided');
+  }
+
+  const cols = keys.map((key) => `"${key}"`).join(', ');
+  const marks = keys.map(() => '?').join(', ');
+  const result = await dbRun(
+    `INSERT INTO "${CLUB_NOM_TABLE}" (${cols}) VALUES (${marks})`,
+    Object.values(body),
+  );
+
+  const explicitPkValue = body[CLUB_NOM_PK];
+  if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
+    return getClubNomById(explicitPkValue);
+  }
+  if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
+    return getClubNomById(result.lastInsertRowid);
+  }
+
+  return undefined;
+}
+
+async function updateClubNom(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const keys = Object.keys(body);
+  if (!keys.length) {
+    throw new AppError(400, 'No fields provided');
+  }
+
+  const sets = keys.map((key) => `"${key}" = ?`).join(', ');
+  await dbRun(
+    `UPDATE "${CLUB_NOM_TABLE}" SET ${sets} WHERE "${CLUB_NOM_PK}" = ?`,
+    [...Object.values(body), id],
+  );
+
+  return getClubNomById(id);
+}
+
 export default {
   ...baseService,
+  getAll: getClubNomAll,
+  getById: getClubNomById,
+  create: createClubNom,
+  update: updateClubNom,
   getClubsGrid,
   getClubGridById,
   getClubProfileById,

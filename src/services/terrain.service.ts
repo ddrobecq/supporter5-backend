@@ -1,14 +1,8 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
+import { AppError } from '../types';
 import { QueryParams, PaginatedResult } from '../types';
 import { sanitizeSort } from '../lib/queryBuilder';
-
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
+import { normalizeSearchText } from '../lib/searchUtils';
 
 function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly string[], search: string): boolean {
   if (!search) {
@@ -41,7 +35,7 @@ function sanitizeWriteBody(
 export default {
   async getAll(params: QueryParams): Promise<PaginatedResult> {
     const page = Math.max(1, Number(params.page) || 1);
-    const limit = Math.min(200, Math.max(1, Number(params.limit) || 200));
+    const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
     const offset = (page - 1) * limit;
     const sort = sanitizeSort(params.sort, ALLOWED_SORT_COLS, PK);
     const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
@@ -85,7 +79,7 @@ export default {
   async create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const sanitizedBody = sanitizeWriteBody(body, { includePk: true });
     const keys = Object.keys(sanitizedBody);
-    if (!keys.length) throw new Error('No fields provided');
+    if (!keys.length) throw new AppError(400, 'No fields provided');
     const cols = keys.map((c) => `"${c}"`).join(', ');
     const marks = keys.map(() => '?').join(', ');
     const result = await dbRun(
@@ -106,7 +100,7 @@ export default {
   async update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const sanitizedBody = sanitizeWriteBody(body, { includePk: false });
     const keys = Object.keys(sanitizedBody);
-    if (!keys.length) throw new Error('No fields provided');
+    if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
     await dbRun(`UPDATE "${TABLE}" SET ${sets} WHERE "${PK}" = ?`, [...Object.values(sanitizedBody), id]);
     return this.getById(id);
@@ -120,7 +114,7 @@ export default {
     if (!ids.length) return 0;
     const sanitizedBody = sanitizeWriteBody(body, { includePk: false });
     const keys = Object.keys(sanitizedBody);
-    if (!keys.length) throw new Error('No fields provided');
+    if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
     const marks = ids.map(() => '?').join(', ');
     const result = await dbRun(

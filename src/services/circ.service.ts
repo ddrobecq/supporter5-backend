@@ -1,4 +1,5 @@
 import { createEntityService } from '../lib/baseService';
+import { AppError } from '../types';
 
 const WRITABLE_COLS = new Set(['IDCIRC', 'CIRC', 'TYPE_TOUR']);
 
@@ -28,6 +29,7 @@ function normalizeTypeTour(value: unknown): number {
 const baseService = createEntityService({
   table: 'CIRC',
   pk: 'IDCIRC',
+  selectCols: ['IDCIRC', 'CIRC', 'TYPE_TOUR'],
   allowedSortCols: ['IDCIRC', 'CIRC', 'TYPE_TOUR'],
   searchCols: ['IDCIRC', 'CIRC'],
 });
@@ -36,16 +38,16 @@ async function create(body: Record<string, unknown>): Promise<Record<string, unk
   const clean = sanitize(body, true);
 
   if (!clean.IDCIRC || (typeof clean.IDCIRC === 'string' && !clean.IDCIRC.trim())) {
-    throw new Error('IDCIRC est requis');
+    throw new AppError(400, 'IDCIRC est requis');
   }
   if (String(clean.IDCIRC).length > 5) {
-    throw new Error('IDCIRC doit contenir 5 caracteres max');
+    throw new AppError(400, 'IDCIRC doit contenir 5 caracteres max');
   }
   if (!clean.CIRC || (typeof clean.CIRC === 'string' && !clean.CIRC.trim())) {
-    throw new Error('CIRC est requis');
+    throw new AppError(400, 'CIRC est requis');
   }
   if (String(clean.CIRC).trim().length < 12) {
-    throw new Error('CIRC doit contenir 12 caracteres minimum');
+    throw new AppError(400, 'CIRC doit contenir 12 caracteres minimum');
   }
 
   clean.TYPE_TOUR = normalizeTypeTour(clean.TYPE_TOUR);
@@ -61,7 +63,7 @@ async function update(id: string | number, body: Record<string, unknown>): Promi
   if (clean.TYPE_TOUR !== undefined) {
     clean.TYPE_TOUR = normalizeTypeTour(clean.TYPE_TOUR);
   }
-  if (!Object.keys(clean).length) throw new Error('No fields provided');
+  if (!Object.keys(clean).length) throw new AppError(400, 'No fields provided');
   return baseService.update(id, clean);
 }
 

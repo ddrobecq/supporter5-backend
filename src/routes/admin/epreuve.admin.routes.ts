@@ -2,6 +2,7 @@ import { Router } from 'express';
 import ctrl from '../../controllers/epreuve.controller';
 import { createEpreuveWithWizard } from '../../controllers/epreuve.controller';
 import { checkEpreuveIntegrity } from '../../lib/integrityChecker';
+import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
 
@@ -11,14 +12,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-router.get('/:id/can-delete', async (req, res, next) => {
-  try {
-    const result = await checkEpreuveIntegrity(req.params.id);
-    res.status(200).json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+bindCanDeleteRoute(router, checkEpreuveIntegrity);
 
 router.delete('/:id', ctrl.remove);
 

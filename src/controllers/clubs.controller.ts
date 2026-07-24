@@ -1,4 +1,6 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { parseSuggestQuery } from '../lib/requestQuery';
+import { sendNotFound } from '../lib/responseHelpers';
 import clubsService from '../services/clubs.service';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -18,7 +20,7 @@ export async function getClubGridById(req: Request, res: Response, next: NextFun
 	try {
 		const row = await clubsService.getClubGridById(req.params.id);
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(row);
@@ -31,7 +33,7 @@ export async function getClubProfileById(req: Request, res: Response, next: Next
 	try {
 		const row = await clubsService.getClubProfileById(req.params.id);
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(row);
@@ -65,7 +67,7 @@ export async function updateClubColors(req: Request, res: Response, next: NextFu
 			texte: string | number | null;
 		});
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(row);
@@ -84,7 +86,7 @@ export async function updateClubProfile(req: Request, res: Response, next: NextF
 			texte?: string | number | null;
 		});
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(row);
@@ -101,7 +103,7 @@ export async function createClubNameHistory(req: Request, res: Response, next: N
 			name: string;
 		});
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(201).json(row);
@@ -118,7 +120,7 @@ export async function updateClubNameHistory(req: Request, res: Response, next: N
 			name: string;
 		});
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(row);
@@ -131,7 +133,7 @@ export async function deleteClubNameHistory(req: Request, res: Response, next: N
 	try {
 		const removed = await clubsService.deleteClubNameHistoryById(req.params.id, req.params.nameId);
 		if (!removed) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(204).send();
@@ -147,7 +149,7 @@ export async function createClubTerrainHistory(req: Request, res: Response, next
 			terrainId: string | number;
 		});
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(201).json(row);
@@ -163,7 +165,7 @@ export async function updateClubTerrainHistory(req: Request, res: Response, next
 			terrainId: string | number;
 		});
 		if (!row) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(row);
@@ -176,7 +178,7 @@ export async function deleteClubTerrainHistory(req: Request, res: Response, next
 	try {
 		const removed = await clubsService.deleteClubTerrainHistoryById(req.params.id, req.params.terrainId);
 		if (!removed) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(204).send();
@@ -187,9 +189,7 @@ export async function deleteClubTerrainHistory(req: Request, res: Response, next
 
 export async function getClubSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const search = String(req.query.search ?? '').trim();
-		const rawLimit = Number(req.query.limit ?? 12);
-		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 30) : 12;
+		const { search, limit } = parseSuggestQuery(req);
 		const result = await clubsService.getClubSuggestions(search, limit);
 		res.status(200).json(result);
 	} catch (error) {
@@ -215,7 +215,7 @@ export async function removeClub(req: Request, res: Response, next: NextFunction
 	try {
 		const removed = await clubsService.removeClubById(req.params.id);
 		if (!removed) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(204).send();

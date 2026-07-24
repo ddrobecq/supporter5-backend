@@ -1,15 +1,28 @@
 import { createEntityService } from '../lib/baseService';
-import { dbGet, dbAll } from '../config/database';
-import { AppError } from '../types';
+import { dbGet, dbAll, dbRun } from '../config/database';
+import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
+import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 const baseService = createEntityService({
   table: 'ARBITRE',
   pk: 'IDARBITRE',
+  selectCols: ['IDARBITRE', 'NOM', 'PRENOM', 'IDNATIO'],
   allowedSortCols: ['IDARBITRE', 'NOM', 'PRENOM', 'IDNATIO'],
   searchCols: ['IDARBITRE', 'NOM', 'PRENOM'],
   filterCols: ['IDNATIO'],
   searchStrategy: 'backend-memory',
 });
+
+const ARBITRE_TABLE = 'ARBITRE';
+const ARBITRE_PK = 'IDARBITRE';
+const ARBITRE_ALLOWED_SORT_COLS = ['IDARBITRE', 'NOM', 'PRENOM', 'IDNATIO'] as const;
+const ARBITRE_SEARCH_COLS = ['IDARBITRE', 'NOM', 'PRENOM'] as const;
+const ARBITRE_FILTER_COLS = ['IDNATIO'] as const;
+// Deliberately excludes ARB_PHOTO BLOB from payloads; image bytes are served via /api/images.
+const ARBITRE_SELECT_COLS = ['IDARBITRE', 'NOM', 'PRENOM', 'IDNATIO'] as const;
+const ARBITRE_SELECT_SQL = ARBITRE_SELECT_COLS.map((col) => `"${col}"`).join(', ');
+const ARBITRE_SELECT_WITH_PHOTO_PLACEHOLDER_SQL = `${ARBITRE_SELECT_SQL}, NULL AS "ARB_PHOTO"`;
 
 export interface ArbitreSuggestionRow {
   IDARBITRE: string;
@@ -23,38 +36,94 @@ export interface ArbitreSuggestionsResponse {
   data: ArbitreSuggestionRow[];
 }
 
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
-function levenshteinDistance(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a) return b.length;
-  if (!b) return a.length;
-
-  const cols = b.length + 1;
-  const rows = a.length + 1;
-  const dp = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
-
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
-
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
+function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly string[], search: string): boolean {
+  if (!search) {
+    return true;
   }
 
-  return dp[rows - 1][cols - 1];
+  return searchCols.some((col) => {
+    const value = row[col];
+    return normalizeSearchText(String(value ?? '')).includes(search);
+  });
+}
+
+async function getArbitreAll(params: QueryParams): Promise<PaginatedResult> {
+  const page = Math.max(1, Number(params.page) || 1);
+  const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
+  const offset = (page - 1) * limit;
+  const sort = sanitizeSort(params.sort, ARBITRE_ALLOWED_SORT_COLS, ARBITRE_PK);
+  const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+  const searchValue = typeof params.search === 'string' ? normalizeSearchText(params.search) : '';
+
+  const { where, bindings } = buildWhere({ ...params, search: undefined }, ARBITRE_SEARCH_COLS, ARBITRE_FILTER_COLS);
+  const allRows = await dbAll<Record<string, unknown>>(
+    `SELECT ${ARBITRE_SELECT_WITH_PHOTO_PLACEHOLDER_SQL}
+     FROM "${ARBITRE_TABLE}" ${where}
+     ORDER BY "${sort}" ${order}`,
+    bindings,
+  );
+
+  const filteredRows = searchValue
+    ? allRows.filter((row) => rowMatchesSearch(row, ARBITRE_SEARCH_COLS, searchValue))
+    : allRows;
+  const total = filteredRows.length;
+  const data = filteredRows.slice(offset, offset + limit);
+
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
+}
+
+async function getArbitreById(id: string | number): Promise<Record<string, unknown> | undefined> {
+  return dbGet<Record<string, unknown>>(
+    `SELECT ${ARBITRE_SELECT_WITH_PHOTO_PLACEHOLDER_SQL}
+     FROM "${ARBITRE_TABLE}"
+     WHERE "${ARBITRE_PK}" = ?`,
+    [id],
+  );
+}
+
+async function createArbitreRecord(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const keys = Object.keys(body);
+  if (!keys.length) {
+    throw new AppError(400, 'No fields provided');
+  }
+
+  const cols = keys.map((key) => `"${key}"`).join(', ');
+  const marks = keys.map(() => '?').join(', ');
+  const result = await dbRun(
+    `INSERT INTO "${ARBITRE_TABLE}" (${cols}) VALUES (${marks})`,
+    Object.values(body),
+  );
+
+  const explicitPkValue = body[ARBITRE_PK];
+  if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
+    return getArbitreById(explicitPkValue);
+  }
+  if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
+    return getArbitreById(result.lastInsertRowid);
+  }
+
+  return undefined;
+}
+
+async function updateArbitreRecord(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const keys = Object.keys(body);
+  if (!keys.length) {
+    throw new AppError(400, 'No fields provided');
+  }
+
+  const sets = keys.map((key) => `"${key}" = ?`).join(', ');
+  await dbRun(
+    `UPDATE "${ARBITRE_TABLE}" SET ${sets} WHERE "${ARBITRE_PK}" = ?`,
+    [...Object.values(body), id],
+  );
+
+  return getArbitreById(id);
 }
 
 function computeApproxScore(query: string, nom: string, prenom: string): number {
@@ -127,28 +196,30 @@ async function create(body: Record<string, unknown>): Promise<Record<string, unk
   // Si IDARBITRE est vide, null, ou une string vide, générer automatiquement
   if (!idarbitreValue || (typeof idarbitreValue === 'string' && idarbitreValue.trim() === '')) {
     // Trouver le prochain ID disponible (MAX + 1, formaté en 4 chiffres)
-    const result = await dbGet<{ maxId: string }>(
+    const result = await dbGet<{ maxId: number | null }>(
       'SELECT COALESCE(MAX(CAST(IDARBITRE AS INTEGER)), 0) as maxId FROM ARBITRE',
     );
-    const nextId = (parseInt(result?.maxId as unknown as string, 10) ?? 0) + 1;
+    const nextId = Math.max(0, Number(result?.maxId ?? 0)) + 1;
     body.IDARBITRE = String(nextId).padStart(4, '0');
   }
 
   // Valider que les champs requis sont présents
   if (!body.NOM || (typeof body.NOM === 'string' && !body.NOM.trim())) {
-    throw new Error('NOM est requis');
+    throw new AppError(400, 'NOM est requis');
   }
   if (!body.IDNATIO || (typeof body.IDNATIO === 'string' && !body.IDNATIO.trim())) {
-    throw new Error('IDNATIO (Nationalité) est requis');
+    throw new AppError(400, 'IDNATIO (Nationalité) est requis');
   }
 
-  // Utiliser le create de base service
-  return baseService.create(body);
+  return createArbitreRecord(body);
 }
 
 export default {
   ...baseService,
-  create,
+  getAll: getArbitreAll,
+  getById: getArbitreById,
+  create: create,
+  update: updateArbitreRecord,
   getArbitreSuggestions,
   createArbitreWithWizard,
 };

@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { EntityService } from './baseService';
+import { sendNotFound } from './responseHelpers';
 import { AppError, QueryParams } from '../types';
 
 function assertIds(ids: unknown): asserts ids is (string | number)[] {
@@ -19,7 +20,7 @@ export function createEntityController(service: EntityService) {
     async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         const item = await service.getById(req.params.id);
-        if (!item) { res.status(404).json({ message: 'Not found' }); return; }
+        if (!item) { sendNotFound(res); return; }
         res.json(item);
       } catch (err) { next(err); }
     },
@@ -34,7 +35,7 @@ export function createEntityController(service: EntityService) {
     async update(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         const item = await service.update(req.params.id, req.body as Record<string, unknown>);
-        if (!item) { res.status(404).json({ message: 'Not found' }); return; }
+        if (!item) { sendNotFound(res); return; }
         res.json(item);
       } catch (err) { next(err); }
     },
@@ -51,7 +52,7 @@ export function createEntityController(service: EntityService) {
     async remove(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
         if (!(await service.remove(req.params.id))) {
-          res.status(404).json({ message: 'Not found' }); return;
+          sendNotFound(res); return;
         }
         res.status(204).send();
       } catch (err) { next(err); }

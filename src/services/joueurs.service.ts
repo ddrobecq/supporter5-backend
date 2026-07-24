@@ -1,15 +1,70 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService } from '../lib/baseService';
-import { AppError } from '../types';
+import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
+import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
 const baseService = createEntityService({
   table:           'JOUEURRG',
   pk:              'IDJOUEUR',
+  selectCols: [
+    'IDJOUEUR',
+    'NOM',
+    'PRENOM',
+    'NAISSANCE',
+    'IDNATIO',
+    'POSTE',
+    'BUT',
+    'PASSE',
+    'JAUNE',
+    'ROUGE',
+    'REMP',
+    'TITULAIRE',
+    'SURNOM',
+    'COMMENT',
+    'ENTRAINE',
+    'IDVILLE',
+    'APPARITION',
+    'HAUTEUR',
+    'POIDS',
+    'DECES',
+    'VILLE_DECES',
+  ],
   allowedSortCols: ['IDJOUEUR', 'NOM', 'PRENOM', 'NAISSANCE', 'POSTE', 'BUT', 'TITULAIRE'],
   searchCols:      ['NOM', 'PRENOM', 'SURNOM'],
   filterCols:      ['POSTE', 'IDNATIO'],
 });
+
+const JOUEURRG_TABLE = 'JOUEURRG';
+const JOUEURRG_PK = 'IDJOUEUR';
+const JOUEURRG_ALLOWED_SORT_COLS = ['IDJOUEUR', 'NOM', 'PRENOM', 'NAISSANCE', 'POSTE', 'BUT', 'TITULAIRE'] as const;
+const JOUEURRG_SEARCH_COLS = ['NOM', 'PRENOM', 'SURNOM'] as const;
+const JOUEURRG_FILTER_COLS = ['POSTE', 'IDNATIO'] as const;
+// Deliberately excludes PHOTO BLOB: image payloads are served via /api/images only.
+const JOUEURRG_SELECT_COLS = [
+  'IDJOUEUR',
+  'NOM',
+  'PRENOM',
+  'NAISSANCE',
+  'DECES',
+  'IDNATIO',
+  'POSTE',
+  'BUT',
+  'PASSE',
+  'JAUNE',
+  'ROUGE',
+  'REMP',
+  'TITULAIRE',
+  'SURNOM',
+  'COMMENT',
+  'ENTRAINE',
+  'IDVILLE',
+  'VILLE_DECES',
+  'APPARITION',
+] as const;
+const JOUEURRG_SELECT_SQL = JOUEURRG_SELECT_COLS.map((col) => `"${col}"`).join(', ');
+const JOUEURRG_SELECT_SQL_WITH_ALIAS = JOUEURRG_SELECT_COLS.map((col) => `jr."${col}"`).join(', ');
 
 export interface JoueurGridRow {
   JOCLEUNIK: number;
@@ -49,38 +104,83 @@ export interface JoueurSuggestionRow {
   SCORE: number;
 }
 
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+async function getJoueurRgAll(params: QueryParams): Promise<PaginatedResult> {
+  const page = Math.max(1, Number(params.page) || 1);
+  const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
+  const offset = (page - 1) * limit;
+  const sort = sanitizeSort(params.sort, JOUEURRG_ALLOWED_SORT_COLS, JOUEURRG_PK);
+  const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+  const { where, bindings } = buildWhere(params, JOUEURRG_SEARCH_COLS, JOUEURRG_FILTER_COLS);
+
+  const row = await dbGet<{ total: number }>(
+    `SELECT COUNT(*) AS total FROM "${JOUEURRG_TABLE}" ${where}`,
+    bindings,
+  );
+  const total = row?.total ?? 0;
+
+  const data = await dbAll(
+    `SELECT ${JOUEURRG_SELECT_SQL}
+     FROM "${JOUEURRG_TABLE}" ${where}
+     ORDER BY "${sort}" ${order}
+     LIMIT ? OFFSET ?`,
+    [...bindings, limit, offset],
+  );
+
+  return {
+    data,
+    total,
+    page,
+    limit,
+    totalPages: Math.ceil(total / limit),
+  };
 }
 
-function levenshteinDistance(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a) return b.length;
-  if (!b) return a.length;
+async function getJoueurRgById(id: string | number): Promise<Record<string, unknown> | undefined> {
+  return dbGet<Record<string, unknown>>(
+    `SELECT ${JOUEURRG_SELECT_SQL}
+     FROM "${JOUEURRG_TABLE}"
+     WHERE "${JOUEURRG_PK}" = ?`,
+    [id],
+  );
+}
 
-  const cols = b.length + 1;
-  const rows = a.length + 1;
-  const dp = Array.from({ length: rows }, () => new Array<number>(cols).fill(0));
-
-  for (let i = 0; i < rows; i += 1) dp[i][0] = i;
-  for (let j = 0; j < cols; j += 1) dp[0][j] = j;
-
-  for (let i = 1; i < rows; i += 1) {
-    for (let j = 1; j < cols; j += 1) {
-      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
-      dp[i][j] = Math.min(
-        dp[i - 1][j] + 1,
-        dp[i][j - 1] + 1,
-        dp[i - 1][j - 1] + cost,
-      );
-    }
+async function createJoueurRg(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const keys = Object.keys(body);
+  if (!keys.length) {
+    throw new AppError(400, 'No fields provided');
   }
 
-  return dp[rows - 1][cols - 1];
+  const cols = keys.map((key) => `"${key}"`).join(', ');
+  const marks = keys.map(() => '?').join(', ');
+  const result = await dbRun(
+    `INSERT INTO "${JOUEURRG_TABLE}" (${cols}) VALUES (${marks})`,
+    Object.values(body),
+  );
+
+  const explicitPkValue = body[JOUEURRG_PK];
+  if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
+    return getJoueurRgById(explicitPkValue);
+  }
+  if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
+    return getJoueurRgById(result.lastInsertRowid);
+  }
+
+  return undefined;
+}
+
+async function updateJoueurRg(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const keys = Object.keys(body);
+  if (!keys.length) {
+    throw new AppError(400, 'No fields provided');
+  }
+
+  const sets = keys.map((key) => `"${key}" = ?`).join(', ');
+  await dbRun(
+    `UPDATE "${JOUEURRG_TABLE}" SET ${sets} WHERE "${JOUEURRG_PK}" = ?`,
+    [...Object.values(body), id],
+  );
+
+  return getJoueurRgById(id);
 }
 
 function computeApproxScore(query: string, nom: string, prenom: string, surnom: string): number {
@@ -216,7 +316,7 @@ export async function getJoueurByIdWithVille(
 ): Promise<Record<string, unknown> | undefined> {
   return dbGet<Record<string, unknown>>(
     `SELECT
-      jr.*, 
+      ${JOUEURRG_SELECT_SQL_WITH_ALIAS},
       vb.NOM AS VILLE_NOM,
       vd.NOM AS VILLE_DECES_NOM
      FROM JOUEURRG jr
@@ -294,12 +394,170 @@ export async function getJoueurHistoryById(idJoueur: string | number): Promise<J
   );
 }
 
+export async function createJoueurHistoryById(
+  idJoueur: string | number,
+  payload: { saison: string; poste: number | string },
+): Promise<JoueurHistoryRow | undefined> {
+  const joueurId = String(idJoueur ?? '').trim();
+  if (!joueurId) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+
+  const joueur = await dbGet<{ IDJOUEUR: string }>('SELECT IDJOUEUR FROM JOUEURRG WHERE IDJOUEUR = ?', [joueurId]);
+  if (!joueur) {
+    return undefined;
+  }
+
+  const saison = normalizeSaison(payload.saison);
+  const posteId = await normalizePosteJoueur(payload.poste);
+
+  const existing = await dbGet<{ JOCLEUNIK: number }>(
+    'SELECT JOCLEUNIK FROM JOUEUR WHERE IDJOUEUR = ? AND SAISON = ? LIMIT 1',
+    [joueurId, saison],
+  );
+  if (existing) {
+    throw new AppError(400, 'Une ligne existe deja pour cette saison.');
+  }
+
+  await dbRun(
+    `INSERT INTO JOUEUR (
+      IDJOUEUR, SAISON, INTERNATIONAL, BUTTOTAL, POSTE, PASSETOTAL,
+      JAUNETOTAL, ROUGETOTAL, TITULAIRETOTAL, REMPTOTAL, TEMPSTOTAL
+    ) VALUES (?, ?, 0, 0, ?, 0, 0, 0, 0, 0, 0)`,
+    [joueurId, saison, posteId],
+  );
+
+  return dbGet<JoueurHistoryRow>(
+    `SELECT
+      j.JOCLEUNIK,
+      j.SAISON,
+      j.POSTE,
+      COALESCE(p.POS_NOM, '') AS POSTE_NOM,
+      COALESCE(j.TITULAIRETOTAL, 0) AS TITULAIRETOTAL,
+      COALESCE(j.REMPTOTAL, 0) AS REMPTOTAL,
+      COALESCE(j.BUTTOTAL, 0) AS BUTTOTAL,
+      COALESCE(j.PASSETOTAL, 0) AS PASSETOTAL,
+      COALESCE(j.JAUNETOTAL, 0) AS JAUNETOTAL,
+      COALESCE(j.ROUGETOTAL, 0) AS ROUGETOTAL
+     FROM JOUEUR j
+     LEFT JOIN Poste p ON p.POS_ID = j.POSTE
+     WHERE j.IDJOUEUR = ? AND j.SAISON = ?
+     ORDER BY j.JOCLEUNIK DESC
+     LIMIT 1`,
+    [joueurId, saison],
+  );
+}
+
+export async function updateJoueurHistoryById(
+  idJoueur: string | number,
+  historyId: string,
+  payload: { saison: string; poste: number | string },
+): Promise<JoueurHistoryRow | undefined> {
+  const joueurId = String(idJoueur ?? '').trim();
+  const rowId = Number(historyId);
+
+  if (!joueurId) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+  if (!Number.isInteger(rowId) || rowId <= 0) {
+    throw new AppError(400, 'Identifiant historique invalide.');
+  }
+
+  const existing = await dbGet<{ JOCLEUNIK: number }>(
+    'SELECT JOCLEUNIK FROM JOUEUR WHERE JOCLEUNIK = ? AND IDJOUEUR = ? LIMIT 1',
+    [rowId, joueurId],
+  );
+  if (!existing) {
+    return undefined;
+  }
+
+  const saison = normalizeSaison(payload.saison);
+  const posteId = await normalizePosteJoueur(payload.poste);
+
+  const duplicate = await dbGet<{ JOCLEUNIK: number }>(
+    'SELECT JOCLEUNIK FROM JOUEUR WHERE IDJOUEUR = ? AND SAISON = ? AND JOCLEUNIK <> ? LIMIT 1',
+    [joueurId, saison, rowId],
+  );
+  if (duplicate) {
+    throw new AppError(400, 'Une ligne existe deja pour cette saison.');
+  }
+
+  await dbRun(
+    `UPDATE JOUEUR
+     SET SAISON = ?, POSTE = ?
+     WHERE JOCLEUNIK = ? AND IDJOUEUR = ?`,
+    [saison, posteId, rowId, joueurId],
+  );
+
+  return dbGet<JoueurHistoryRow>(
+    `SELECT
+      j.JOCLEUNIK,
+      j.SAISON,
+      j.POSTE,
+      COALESCE(p.POS_NOM, '') AS POSTE_NOM,
+      COALESCE(j.TITULAIRETOTAL, 0) AS TITULAIRETOTAL,
+      COALESCE(j.REMPTOTAL, 0) AS REMPTOTAL,
+      COALESCE(j.BUTTOTAL, 0) AS BUTTOTAL,
+      COALESCE(j.PASSETOTAL, 0) AS PASSETOTAL,
+      COALESCE(j.JAUNETOTAL, 0) AS JAUNETOTAL,
+      COALESCE(j.ROUGETOTAL, 0) AS ROUGETOTAL
+     FROM JOUEUR j
+     LEFT JOIN Poste p ON p.POS_ID = j.POSTE
+     WHERE j.JOCLEUNIK = ? AND j.IDJOUEUR = ?
+     LIMIT 1`,
+    [rowId, joueurId],
+  );
+}
+
+export async function deleteJoueurHistoryById(idJoueur: string | number, historyId: string): Promise<boolean> {
+  const joueurId = String(idJoueur ?? '').trim();
+  const rowId = Number(historyId);
+
+  if (!joueurId) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+  if (!Number.isInteger(rowId) || rowId <= 0) {
+    throw new AppError(400, 'Identifiant historique invalide.');
+  }
+
+  const result = await dbRun('DELETE FROM JOUEUR WHERE JOCLEUNIK = ? AND IDJOUEUR = ?', [rowId, joueurId]);
+  return result.changes > 0;
+}
+
+function normalizeSaison(value: unknown): string {
+  const saison = String(value ?? '').trim();
+  if (!/^\d{4}-\d{4}$/.test(saison)) {
+    throw new AppError(400, 'Saison invalide (format xxxx-yyyy).');
+  }
+  return saison;
+}
+
+async function normalizePosteJoueur(value: unknown): Promise<number> {
+  const posteId = Number(value);
+  if (!Number.isInteger(posteId) || posteId <= 0) {
+    throw new AppError(400, 'Poste invalide.');
+  }
+
+  const poste = await dbGet<{ POS_ID: number }>('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1', [posteId]);
+  if (!poste) {
+    throw new AppError(400, 'Le poste selectionne est introuvable.');
+  }
+  return posteId;
+}
+
 export default {
   ...baseService,
+  getAll: getJoueurRgAll,
+  getById: getJoueurRgById,
+  create: createJoueurRg,
+  update: updateJoueurRg,
   getJoueursGridBySeason,
   getJoueurPostes,
   getJoueurByIdWithVille,
   getJoueurHistoryById,
+  createJoueurHistoryById,
+  updateJoueurHistoryById,
+  deleteJoueurHistoryById,
   getJoueurSuggestions,
   createJoueurWithWizard,
 };

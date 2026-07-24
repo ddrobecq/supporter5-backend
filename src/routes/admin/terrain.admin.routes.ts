@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import ctrl from '../../controllers/terrain.controller';
 import { checkTerrainIntegrity } from '../../lib/integrityChecker';
+import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
 
@@ -9,15 +10,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-// Vérifier les contraintes d'intégrité avant suppression
-router.get('/:id/can-delete', async (req, res, next) => {
-  try {
-    const result = await checkTerrainIntegrity(req.params.id);
-    res.status(200).json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+bindCanDeleteRoute(router, checkTerrainIntegrity);
 
 router.delete('/:id', ctrl.remove);
 

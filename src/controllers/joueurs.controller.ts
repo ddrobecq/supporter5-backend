@@ -1,4 +1,6 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { parseSuggestQuery } from '../lib/requestQuery';
+import { sendNotFound } from '../lib/responseHelpers';
 import joueursService from '../services/joueurs.service';
 import { AppError } from '../types';
 import type { NextFunction, Request, Response } from 'express';
@@ -33,7 +35,7 @@ export async function getJoueurById(req: Request, res: Response, next: NextFunct
 	try {
 		const item = await joueursService.getJoueurByIdWithVille(req.params.id);
 		if (!item) {
-			res.status(404).json({ message: 'Not found' });
+			sendNotFound(res);
 			return;
 		}
 		res.status(200).json(item);
@@ -51,11 +53,54 @@ export async function getJoueurHistory(req: Request, res: Response, next: NextFu
 	}
 }
 
+export async function createJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await joueursService.createJoueurHistoryById(req.params.id, req.body as {
+			saison: string;
+			poste: number | string;
+		});
+		if (!row) {
+			sendNotFound(res);
+			return;
+		}
+		res.status(201).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function updateJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await joueursService.updateJoueurHistoryById(req.params.id, req.params.historyId, req.body as {
+			saison: string;
+			poste: number | string;
+		});
+		if (!row) {
+			sendNotFound(res);
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function deleteJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const removed = await joueursService.deleteJoueurHistoryById(req.params.id, req.params.historyId);
+		if (!removed) {
+			sendNotFound(res);
+			return;
+		}
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getJoueurSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const search = String(req.query.search ?? '').trim();
-		const rawLimit = Number(req.query.limit ?? 12);
-		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 30) : 12;
+		const { search, limit } = parseSuggestQuery(req);
 		const result = await joueursService.getJoueurSuggestions(search, limit);
 		res.status(200).json(result);
 	} catch (error) {

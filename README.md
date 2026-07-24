@@ -11,30 +11,81 @@ Le serveur démarre sur le port **3000** et se connecte a la base SQLite via `SQ
 
 ---
 
-## 📖 Routes Publiques (GET — Lectures seules)
+## 📖 Routes publiques
 
-### Rencontres
+### Health check
 ```
-GET /api/rencontres?limit=20&page=1&saison=2004-2005&sort=DATE&order=desc&search=comment
+GET /health
+```
+
+### Auth
+```
+POST /api/auth/login
+```
+
+### Lecture (GET)
+```
+GET /api/rencontres
 GET /api/rencontres/:id
-```
+GET /api/rencontres/calendar
 
-### Joueurs (registre général)
-```
-GET /api/joueurs?limit=20&search=Mbappé&poste=4
+GET /api/joueurs
 GET /api/joueurs/:id
-```
+GET /api/joueurs/grid
+GET /api/joueurs/postes
+GET /api/joueurs/suggest
+GET /api/joueurs/:id/history
 
-### Statistiques (par saison)
-```
-GET /api/stats?saison=2004-2005&idjoueur=0001
+GET /api/clubs
+GET /api/clubs/:id
+GET /api/clubs/grid
+GET /api/clubs/grid/:id
+GET /api/clubs/grid/:id/profile
+GET /api/clubs/grid/:id/names-history
+GET /api/clubs/grid/:id/terrains-history
+GET /api/clubs/suggest
+
+GET /api/arbitre
+GET /api/arbitre/:id
+GET /api/arbitre/suggest
+
+GET /api/epreuves
+GET /api/epreuves/:id
+GET /api/epreuves/suggest
+
+GET /api/stats
 GET /api/stats/:id
+GET /api/matchs
+GET /api/matchs/:id
+GET /api/equipes
+GET /api/equipes/:id
+GET /api/saisons
+GET /api/saisons/:id
+GET /api/tours
+GET /api/tours/:id
+GET /api/natio
+GET /api/natio/:id
+GET /api/ville
+GET /api/ville/:id
+GET /api/terrains
+GET /api/terrains/:id
+GET /api/devises
+GET /api/devises/:id
+GET /api/circs
+GET /api/circs/:id
+
+GET /api/images/:entity/:id
 ```
 
-### Autres entités (même pattern)
-- `/api/matchs`, `/api/equipes`, `/api/saisons`, `/api/tours`, `/api/clubs`
+### Ecriture exposée hors /api/admin
+```
+POST   /api/terrains
+PUT    /api/terrains/:id
+DELETE /api/terrains/:id
+```
+Ces routes exigent aussi un JWT (`Authorization: Bearer ...`).
 
-### Pagination & Filtrage
+### Pagination, tri, recherche
 ```
 ?limit=50           # Par défaut 20, max 200
 ?page=2             # Par défaut 1
@@ -102,18 +153,60 @@ Puis redemarrer le backend.
 
 ---
 
-## 📝 Routes Admin (JWT requis — `/api/admin/*`)
+## 📝 Routes admin (JWT requis — `/api/admin/*`)
 
-### CRUD par entité (ex: rencontres, joueurs, stats, matchs, equipes, saisons, tours, clubs)
+### CRUD admin générique par entité
 
+Routes disponibles pour:
+- `/api/admin/rencontres`
+- `/api/admin/joueurs`
+- `/api/admin/stats`
+- `/api/admin/matchs`
+- `/api/admin/equipes`
+- `/api/admin/saisons`
+- `/api/admin/tours`
+- `/api/admin/clubs`
+- `/api/admin/natio`
+- `/api/admin/ville`
+- `/api/admin/arbitre`
+- `/api/admin/terrains`
+- `/api/admin/devises`
+- `/api/admin/circs`
+- `/api/admin/epreuves`
+
+Pattern commun:
 ```
-POST   /api/admin/{entité}              # Créer
-GET    /api/admin/{entité}/:id          # Lire
-PUT    /api/admin/{entité}/:id          # Mettre à jour
-DELETE /api/admin/{entité}/:id          # Supprimer
+POST   /api/admin/{entite}
+PUT    /api/admin/{entite}/:id
+DELETE /api/admin/{entite}/:id
 
-PATCH  /api/admin/{entité}/bulk         # Bulk Update
-DELETE /api/admin/{entité}/bulk         # Bulk Delete
+PATCH  /api/admin/{entite}/bulk
+DELETE /api/admin/{entite}/bulk
+```
+
+Note: les lectures `GET` passent par les routes publiques `/api/...`.
+
+### Endpoints admin spécifiques
+```
+GET    /api/admin/{entite}/:id/can-delete
+
+POST   /api/admin/joueurs/wizard-create
+POST   /api/admin/joueurs/:id/history
+PUT    /api/admin/joueurs/:id/history/:historyId
+DELETE /api/admin/joueurs/:id/history/:historyId
+
+POST   /api/admin/clubs/wizard-create
+PUT    /api/admin/clubs/:id/profile
+PUT    /api/admin/clubs/:id/colors
+POST   /api/admin/clubs/:id/names
+PUT    /api/admin/clubs/:id/names/:nameId
+DELETE /api/admin/clubs/:id/names/:nameId
+POST   /api/admin/clubs/:id/terrains
+PUT    /api/admin/clubs/:id/terrains/:terrainId
+DELETE /api/admin/clubs/:id/terrains/:terrainId
+
+POST   /api/admin/arbitre/wizard-create
+POST   /api/admin/epreuves/wizard-create
 ```
 
 ### Exemples
@@ -192,7 +285,7 @@ back/
     controllers/
       auth.controller.ts  # Handlers pour auth
       *.controller.ts     # Handlers CRUD pour entités
-  app.ts              # Express app avec middlewares
+    app.ts              # Express app avec middlewares
   src/server.ts       # Entry point (listen)
   package.json        # Dépendances
   tsconfig.json       # Config TypeScript

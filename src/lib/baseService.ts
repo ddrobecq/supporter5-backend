@@ -1,5 +1,5 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
-import { QueryParams, PaginatedResult } from '../types';
+import { AppError, QueryParams, PaginatedResult } from '../types';
 import { sanitizeSort, buildWhere } from './queryBuilder';
 
 function normalizeSearchText(value: string): string {
@@ -26,6 +26,8 @@ export interface EntityConfig {
   table: string;
   /** Nom exact de la clé primaire */
   pk: string;
+  /** Colonnes explicitement autorisées dans les réponses de lecture */
+  selectCols: readonly string[];
   /** Colonnes autorisées pour le tri (whitelist anti-injection) */
   allowedSortCols: readonly string[];
   /** Colonnes incluses dans la recherche LIKE */
@@ -37,7 +39,16 @@ export interface EntityConfig {
 }
 
 export function createEntityService(config: EntityConfig) {
-  const { table, pk, allowedSortCols, searchCols, filterCols = [], searchStrategy = 'sql' } = config;
+  const {
+    table,
+    pk,
+    selectCols,
+    allowedSortCols,
+    searchCols,
+    filterCols = [],
+    searchStrategy = 'sql',
+  } = config;
+  const selectClause = selectCols.map((col) => `"${col}"`).join(', ');
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
     const page   = Math.max(1, Number(params.page)  || 1);
@@ -50,7 +61,7 @@ export function createEntityService(config: EntityConfig) {
     if (searchStrategy === 'backend-memory' && searchValue) {
       const { where, bindings } = buildWhere({ ...params, search: undefined }, searchCols, filterCols);
       const allRows = await dbAll<Record<string, unknown>>(
-        `SELECT * FROM "${table}" ${where} ORDER BY "${sort}" ${order}`,
+        `SELECT ${selectClause} FROM "${table}" ${where} ORDER BY "${sort}" ${order}`,
         bindings,
       );
       const filteredRows = allRows.filter((row) => rowMatchesSearch(row, searchCols, searchValue));
@@ -63,18 +74,18 @@ export function createEntityService(config: EntityConfig) {
     const { where, bindings } = buildWhere(params, searchCols, filterCols);
     const row   = await dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM "${table}" ${where}`, bindings);
     const total = row?.total ?? 0;
-    const data  = await dbAll(`SELECT * FROM "${table}" ${where} ORDER BY "${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
+    const data  = await dbAll(`SELECT ${selectClause} FROM "${table}" ${where} ORDER BY "${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async function getById(id: string | number): Promise<Record<string, unknown> | undefined> {
-    return dbGet(`SELECT * FROM "${table}" WHERE "${pk}" = ?`, [id]);
+    return dbGet(`SELECT ${selectClause} FROM "${table}" WHERE "${pk}" = ?`, [id]);
   }
 
   async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const keys = Object.keys(body);
-    if (!keys.length) throw new Error('No fields provided');
+    if (!keys.length) throw new AppError(400, 'No fields provided');
     const cols   = keys.map((c) => `"${c}"`).join(', ');
     const marks  = keys.map(() => '?').join(', ');
     const result = await dbRun(`INSERT INTO "${table}" (${cols}) VALUES (${marks})`, Object.values(body));
@@ -91,7 +102,7 @@ export function createEntityService(config: EntityConfig) {
 
   async function update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
     const keys = Object.keys(body);
-    if (!keys.length) throw new Error('No fields provided');
+    if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
     await dbRun(`UPDATE "${table}" SET ${sets} WHERE "${pk}" = ?`, [...Object.values(body), id]);
     return getById(id);
@@ -100,7 +111,7 @@ export function createEntityService(config: EntityConfig) {
   async function bulkUpdate(ids: (string | number)[], body: Record<string, unknown>): Promise<number> {
     if (!ids.length) return 0;
     const keys = Object.keys(body);
-    if (!keys.length) throw new Error('No fields provided');
+    if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets   = keys.map((c) => `"${c}" = ?`).join(', ');
     const marks  = ids.map(() => '?').join(', ');
     const result = await dbRun(

@@ -79,11 +79,8 @@ export async function getEntityImage(
 ): Promise<ImageResult | null> {
   const config: ImageConfig | undefined = IMAGE_CONFIGS[entityType.toLowerCase()];
   if (!config) {
-    console.error(`[IMAGE] Unknown entity type: ${entityType}`);
     return null;
   }
-
-  console.log(`[IMAGE] Fetching ${entityType}#${id} from ${config.table}.${config.field}`);
 
   const row = await dbGet<Record<string, unknown>>(
     `SELECT ${config.field} FROM ${config.table} WHERE ${config.pk} = ?`,
@@ -91,22 +88,17 @@ export async function getEntityImage(
   );
 
   if (!row) {
-    console.warn(`[IMAGE] No row found for ${entityType}#${id}`);
     return null;
   }
 
   const raw = row[config.field];
-  console.log(`[IMAGE] Raw data from DB - Type: ${typeof raw}, Length: ${String(raw).length}`);
-  console.log(`[IMAGE] Raw data details:`, JSON.stringify(raw, null, 2).slice(0, 200));
-  
+
   const buffer = toBuffer(raw);
   if (!buffer || buffer.length === 0) {
-    console.warn(`[IMAGE] Buffer conversion failed or empty for ${entityType}#${id}`);
     return null;
   }
 
   const mimeType = detectMimeType(buffer);
-  console.log(`[IMAGE] ✓ Image ready - Size: ${buffer.length} bytes, MIME: ${mimeType}, First bytes: ${buffer.slice(0, 20).toString('hex')}`);
 
   return {
     buffer,

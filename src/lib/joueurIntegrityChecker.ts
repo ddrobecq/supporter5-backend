@@ -1,13 +1,5 @@
 import { dbAll } from '../config/database';
-
-export interface IntegrityCheckResult {
-  canDelete: boolean;
-  constraints: Array<{
-    table: string;
-    count: number;
-    description: string;
-  }>;
-}
+import type { IntegrityCheckResult } from '../types';
 
 export async function checkJoueurIntegrity(
   joueurId: string,

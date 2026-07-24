@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import ctrl from '../../controllers/devise.controller';
 import { checkDeviseIntegrity } from '../../lib/integrityChecker';
+import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
 
@@ -9,14 +10,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-router.get('/:id/can-delete', async (req, res, next) => {
-  try {
-    const result = await checkDeviseIntegrity(req.params.id);
-    res.status(200).json(result);
-  } catch (error) {
-    next(error);
-  }
-});
+bindCanDeleteRoute(router, checkDeviseIntegrity);
 
 router.delete('/:id', ctrl.remove);
 

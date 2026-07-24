@@ -1,4 +1,5 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { parseSuggestQuery } from '../lib/requestQuery';
 import epreuveService from '../services/epreuve.service';
 import type { NextFunction, Request, Response } from 'express';
 
@@ -6,9 +7,7 @@ const baseController = createEntityController(epreuveService);
 
 export async function getEpreuveSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const search = String(req.query.search ?? '').trim();
-		const rawLimit = Number(req.query.limit ?? 12);
-		const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 30) : 12;
+		const { search, limit } = parseSuggestQuery(req);
 		const result = await epreuveService.getEpreuveSuggestions(search, limit);
 		res.status(200).json(result);
 	} catch (error) {
