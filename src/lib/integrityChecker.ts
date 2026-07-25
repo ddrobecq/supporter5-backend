@@ -201,6 +201,56 @@ export async function checkCompetitionIntegrity(
 }
 
 /**
+ * Vérifie si un enregistrement TOUR peut être supprimé.
+ */
+export async function checkTourIntegrity(
+  tourId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  const participCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM PARTICIP WHERE TUCLEUNIK = ?',
+    [tourId],
+  );
+  if ((participCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'PARTICIP',
+      count: participCount[0]?.count ?? 0,
+      description: `${participCount[0]?.count ?? 0} participation(s) utilisent ce tour`,
+    });
+  }
+
+  const qualifCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM Qualif WHERE TUCLEUNIK = ?',
+    [tourId],
+  );
+  if ((qualifCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'Qualif',
+      count: qualifCount[0]?.count ?? 0,
+      description: `${qualifCount[0]?.count ?? 0} qualification(s) utilisent ce tour`,
+    });
+  }
+
+  const rencontresCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM RENCO WHERE TUCLEUNIK = ?',
+    [tourId],
+  );
+  if ((rencontresCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'RENCO',
+      count: rencontresCount[0]?.count ?? 0,
+      description: `${rencontresCount[0]?.count ?? 0} rencontre(s) utilisent ce tour`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}
+
+/**
  * Vérifie si un enregistrement CLUB peut être supprimé.
  * Les tables "propriétaires" du club (CLUB_NOM, CLUB_TERRAIN) sont supprimées
  * automatiquement lors de l'opération de suppression.

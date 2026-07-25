@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import ctrl from '../controllers/tours.controller';
+import ctrl, { getToursByCompetition } from '../controllers/tours.controller';
 const router = Router();
+router.get('/competition/:competitionId', getToursByCompetition);
 router.get('/', ctrl.getAll);
 router.get('/:id', ctrl.getById);
 export default router;
