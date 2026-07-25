@@ -175,6 +175,32 @@ export async function checkEpreuveIntegrity(
 }
 
 /**
+ * Vérifie si un enregistrement COMPET peut être supprimé.
+ */
+export async function checkCompetitionIntegrity(
+  competitionId: string | number,
+): Promise<IntegrityCheckResult> {
+  const constraints = [];
+
+  const tourCount = await dbAll<{ count: number }>(
+    'SELECT COUNT(*) as count FROM TOUR WHERE COCLEUNIK = ?',
+    [competitionId],
+  );
+  if ((tourCount[0]?.count ?? 0) > 0) {
+    constraints.push({
+      table: 'TOUR',
+      count: tourCount[0]?.count ?? 0,
+      description: `${tourCount[0]?.count ?? 0} tour(s) utilisent cette competition`,
+    });
+  }
+
+  return {
+    canDelete: constraints.length === 0,
+    constraints,
+  };
+}
+
+/**
  * Vérifie si un enregistrement CLUB peut être supprimé.
  * Les tables "propriétaires" du club (CLUB_NOM, CLUB_TERRAIN) sont supprimées
  * automatiquement lors de l'opération de suppression.

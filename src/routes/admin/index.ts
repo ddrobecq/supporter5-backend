@@ -15,6 +15,7 @@ import terrainAdmin    from './terrain.admin.routes';
 import deviseAdmin     from './devise.admin.routes';
 import circAdmin       from './circ.admin.routes';
 import epreuveAdmin    from './epreuve.admin.routes';
+import competitionAdmin from './competition.admin.routes';
 
 const router = Router();
 
@@ -36,5 +37,6 @@ router.use('/terrains',   terrainAdmin);
 router.use('/devises',    deviseAdmin);
 router.use('/circs',      circAdmin);
 router.use('/epreuves',   epreuveAdmin);
+router.use('/competitions', competitionAdmin);
 
 export default router;
