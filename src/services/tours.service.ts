@@ -5,6 +5,7 @@ import { createEntityService } from '../lib/baseService';
 export interface CompetitionTourGridRow {
   TUCLEUNIK: number;
   COCLEUNIK: number;
+  TDCLEUNIK: number;
   TU_ORDRE: number;
   TOUR: string;
   TYPE_ID: number;
@@ -61,11 +62,71 @@ function mapTourType(typeId: number): string {
   return `Type ${Number(typeId)}`;
 }
 
+async function resolveTourDefKeyFromType(typeId: number): Promise<number> {
+  const normalizedType = Number(typeId);
+  if (![1, 2].includes(normalizedType)) {
+    throw new AppError(400, 'Type de tour invalide.');
+  }
+
+  const row = await dbGet<{ TDCLEUNIK: number }>(
+    'SELECT "TDCLEUNIK" FROM "TOURDEF" WHERE "TDTYPETOUR" = ? ORDER BY "TDCLEUNIK" ASC LIMIT 1',
+    [normalizedType],
+  );
+
+  if (!row?.TDCLEUNIK) {
+    throw new AppError(400, 'Aucun TOURDEF disponible pour ce type de tour.');
+  }
+
+  return Number(row.TDCLEUNIK);
+}
+
+async function normalizeTourPayload(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const normalized = { ...body };
+  const maybeTourDefKey = Number(normalized.TDCLEUNIK);
+
+  // Frontend can send 1/2 as logical type markers; resolve them to a real TOURDEF key.
+  if (Number.isInteger(maybeTourDefKey) && [1, 2].includes(maybeTourDefKey)) {
+    normalized.TDCLEUNIK = await resolveTourDefKeyFromType(maybeTourDefKey);
+  }
+
+  return normalized;
+}
+
+async function getTourByIdDetailed(tourId: string | number): Promise<Record<string, unknown> | undefined> {
+  const id = normalizeTourId(tourId);
+  return dbGet<Record<string, unknown>>(
+    `SELECT
+       t."TDCLEUNIK",
+       t."TUCLEUNIK",
+       t."NB_PARTICIPANTS",
+       t."COCLEUNIK",
+       t."NOM",
+       t."DATE_DEBUT",
+       t."DATE_FIN",
+       t."TUHEURE",
+       t."NB_EQUIPE",
+       t."NB_GROUPE",
+       t."TU_ORDRE",
+       t."TU_FINAL",
+       t."TU_DATETIRAGE",
+       t."TU_HEURETIRAGE",
+       t."TU_SELECTION",
+       t."TU_COMMENT",
+       t."NB_MATCH",
+       td."TDTYPETOUR" AS "TDTYPETOUR"
+     FROM "TOUR" t
+     LEFT JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
+     WHERE t."TUCLEUNIK" = ?`,
+    [id],
+  );
+}
+
 async function getToursByCompetition(competitionId: string | number): Promise<CompetitionTourGridRow[]> {
   const id = normalizeCompetitionId(competitionId);
   const rows = await dbAll<{
     TUCLEUNIK: number;
     COCLEUNIK: number;
+    TDCLEUNIK: number;
     TU_ORDRE: number;
     TOUR: string;
     TYPE_ID: number | null;
@@ -73,6 +134,7 @@ async function getToursByCompetition(competitionId: string | number): Promise<Co
     `SELECT
        t."TUCLEUNIK" AS "TUCLEUNIK",
        t."COCLEUNIK" AS "COCLEUNIK",
+       t."TDCLEUNIK" AS "TDCLEUNIK",
        t."TU_ORDRE" AS "TU_ORDRE",
        t."NOM" AS "TOUR",
        td."TDTYPETOUR" AS "TYPE_ID"
@@ -88,6 +150,7 @@ async function getToursByCompetition(competitionId: string | number): Promise<Co
     return {
       TUCLEUNIK: Number(row.TUCLEUNIK),
       COCLEUNIK: Number(row.COCLEUNIK),
+      TDCLEUNIK: Number(row.TDCLEUNIK),
       TU_ORDRE: Number(row.TU_ORDRE),
       TOUR: String(row.TOUR ?? ''),
       TYPE_ID: typeId,
@@ -172,6 +235,9 @@ async function removeTourWithResequence(tourId: string | number): Promise<boolea
 
 export default {
   ...baseService,
+  create: async (body: Record<string, unknown>) => baseService.create(await normalizeTourPayload(body)),
+  update: async (id: string | number, body: Record<string, unknown>) => baseService.update(id, await normalizeTourPayload(body)),
+  getTourByIdDetailed,
   getToursByCompetition,
   moveTour,
   removeTourWithResequence,

@@ -13,6 +13,19 @@ export async function getToursByCompetition(req: Request, res: Response, next: N
 	}
 }
 
+export async function getTourByIdDetailed(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await toursService.getTourByIdDetailed(req.params.id);
+		if (!row) {
+			res.status(404).json({ message: 'Not found' });
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function moveTour(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const direction = req.body?.direction === 'down' ? 'down' : 'up';
