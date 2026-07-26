@@ -12,6 +12,35 @@ export interface CompetitionTourGridRow {
   TYPE: string;
 }
 
+export interface TourParticipantRow {
+  PACLEUNIK: number;
+  TUCLEUNIK: number;
+  IDCLUB: string;
+  CLUB: string;
+  GROUPE: string;
+}
+
+export interface TourRencontreRow {
+  RECLEUNIK: number;
+  DATE: string;
+  HEURE: string;
+  DOMICILE: string;
+  EXTERIEUR: string;
+  IDCIRC: string | null;
+  ETAT: number;
+  TUCLEUNIK: number;
+  SAISON: string;
+  READMIN: number;
+  COMMENT: string | null;
+  VID_ID: number | null;
+  BUTDOM: number;
+  BUTEXT: number;
+  TABDOM: number;
+  TABEXT: number;
+  PADOMSource: string;
+  PAEXTSource: string;
+}
+
 /** TOUR = tours / phases de compétition */
 const baseService = createEntityService({
   table:           'TOUR',
@@ -233,6 +262,197 @@ async function removeTourWithResequence(tourId: string | number): Promise<boolea
   return true;
 }
 
+async function getTourParticipants(tourId: string | number): Promise<TourParticipantRow[]> {
+  const id = normalizeTourId(tourId);
+  const rows = await dbAll<TourParticipantRow>(
+    `SELECT
+       p."PACLEUNIK" AS "PACLEUNIK",
+       p."TUCLEUNIK" AS "TUCLEUNIK",
+       p."IDCLUB" AS "IDCLUB",
+       c."CLUB" AS "CLUB",
+       COALESCE(p."GROUPE", '') AS "GROUPE"
+     FROM "PARTICIP" p
+     LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+     WHERE p."TUCLEUNIK" = ?
+     ORDER BY c."CLUB" ASC, p."IDCLUB" ASC`,
+    [id],
+  );
+
+  return rows.map((row) => ({
+    PACLEUNIK: Number(row.PACLEUNIK),
+    TUCLEUNIK: Number(row.TUCLEUNIK),
+    IDCLUB: String(row.IDCLUB ?? '').trim(),
+    CLUB: String(row.CLUB ?? '').trim(),
+    GROUPE: String(row.GROUPE ?? '').trim(),
+  }));
+}
+
+async function addTourParticipant(tourId: string | number, clubIdInput: string): Promise<TourParticipantRow> {
+  const tourIdValue = normalizeTourId(tourId);
+  const clubId = String(clubIdInput ?? '').trim();
+
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+
+  const clubExists = await dbGet<{ IDCLUB: string }>('SELECT "IDCLUB" FROM "CLUB" WHERE "IDCLUB" = ?', [clubId]);
+  if (!clubExists) {
+    throw new AppError(404, 'Club introuvable.');
+  }
+
+  const existing = await dbGet<TourParticipantRow>(
+    `SELECT
+       p."PACLEUNIK" AS "PACLEUNIK",
+       p."TUCLEUNIK" AS "TUCLEUNIK",
+       p."IDCLUB" AS "IDCLUB",
+       c."CLUB" AS "CLUB",
+       COALESCE(p."GROUPE", '') AS "GROUPE"
+     FROM "PARTICIP" p
+     LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+     WHERE p."TUCLEUNIK" = ? AND p."IDCLUB" = ?`,
+    [tourIdValue, clubId],
+  );
+
+  if (existing) {
+    return {
+      PACLEUNIK: Number(existing.PACLEUNIK),
+      TUCLEUNIK: Number(existing.TUCLEUNIK),
+      IDCLUB: String(existing.IDCLUB ?? '').trim(),
+      CLUB: String(existing.CLUB ?? '').trim(),
+      GROUPE: String(existing.GROUPE ?? '').trim(),
+    };
+  }
+
+  await dbRun(
+    `INSERT INTO "PARTICIP" (
+      "IDCLUB",
+      "TUCLEUNIK",
+      "GROUPE",
+      "PAClassement",
+      "PANbMatch",
+      "PANbPoints",
+      "PANbVD",
+      "PANbVE",
+      "PANbND",
+      "PANbNE",
+      "PANbDD",
+      "PANbDE",
+      "PANbBPD",
+      "PANbBCD",
+      "PABonus",
+      "PANbBPE",
+      "PANbBCE",
+      "PADiff",
+      "PANbBP",
+      "PANbV",
+      "PANbTaBP",
+      "PANbTaBC",
+      "PADiffTaB",
+      "PANbBC",
+      "PASource",
+      "PARatio",
+      "PAMalus"
+    ) VALUES (?, ?, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0)`,
+    [clubId, tourIdValue],
+  );
+
+  const inserted = await dbGet<TourParticipantRow>(
+    `SELECT
+       p."PACLEUNIK" AS "PACLEUNIK",
+       p."TUCLEUNIK" AS "TUCLEUNIK",
+       p."IDCLUB" AS "IDCLUB",
+       c."CLUB" AS "CLUB",
+       COALESCE(p."GROUPE", '') AS "GROUPE"
+     FROM "PARTICIP" p
+     LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+     WHERE p."TUCLEUNIK" = ? AND p."IDCLUB" = ?`,
+    [tourIdValue, clubId],
+  );
+
+  if (!inserted) {
+    throw new AppError(500, 'Impossible d\'ajouter le participant.');
+  }
+
+  return {
+    PACLEUNIK: Number(inserted.PACLEUNIK),
+    TUCLEUNIK: Number(inserted.TUCLEUNIK),
+    IDCLUB: String(inserted.IDCLUB ?? '').trim(),
+    CLUB: String(inserted.CLUB ?? '').trim(),
+    GROUPE: String(inserted.GROUPE ?? '').trim(),
+  };
+}
+
+async function removeTourParticipants(tourId: string | number, clubIds: string[]): Promise<number> {
+  const tourIdValue = normalizeTourId(tourId);
+  const normalizedClubIds = clubIds
+    .map((clubId) => String(clubId ?? '').trim())
+    .filter((clubId) => clubId.length > 0);
+
+  if (normalizedClubIds.length === 0) {
+    return 0;
+  }
+
+  const placeholders = normalizedClubIds.map(() => '?').join(', ');
+  const result = await dbRun(
+    `DELETE FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?
+       AND "IDCLUB" IN (${placeholders})`,
+    [tourIdValue, ...normalizedClubIds],
+  );
+
+  return Number(result.changes ?? 0);
+}
+
+async function getTourRencontres(tourId: string | number): Promise<TourRencontreRow[]> {
+  const id = normalizeTourId(tourId);
+  const rows = await dbAll<TourRencontreRow>(
+    `SELECT
+       "RECLEUNIK",
+       "DATE",
+       "HEURE",
+       "DOMICILE",
+       "EXTERIEUR",
+       "IDCIRC",
+       "ETAT",
+       "TUCLEUNIK",
+       "SAISON",
+       "READMIN",
+       "COMMENT",
+       "VID_ID",
+       "BUTDOM",
+       "BUTEXT",
+       "TABDOM",
+       "TABEXT",
+       "PADOMSource",
+       "PAEXTSource"
+     FROM "RENCO"
+     WHERE "TUCLEUNIK" = ?
+     ORDER BY "RECLEUNIK" ASC`,
+    [id],
+  );
+
+  return rows.map((row) => ({
+    RECLEUNIK: Number(row.RECLEUNIK),
+    DATE: String(row.DATE ?? ''),
+    HEURE: String(row.HEURE ?? ''),
+    DOMICILE: String(row.DOMICILE ?? '').trim(),
+    EXTERIEUR: String(row.EXTERIEUR ?? '').trim(),
+    IDCIRC: row.IDCIRC === null ? null : String(row.IDCIRC ?? '').trim(),
+    ETAT: Number(row.ETAT ?? 1) || 1,
+    TUCLEUNIK: Number(row.TUCLEUNIK),
+    SAISON: String(row.SAISON ?? '').trim(),
+    READMIN: Number(row.READMIN ?? 0) || 0,
+    COMMENT: row.COMMENT === null ? null : String(row.COMMENT ?? ''),
+    VID_ID: row.VID_ID === null ? null : Number(row.VID_ID),
+    BUTDOM: Number(row.BUTDOM ?? 0) || 0,
+    BUTEXT: Number(row.BUTEXT ?? 0) || 0,
+    TABDOM: Number(row.TABDOM ?? 0) || 0,
+    TABEXT: Number(row.TABEXT ?? 0) || 0,
+    PADOMSource: String(row.PADOMSource ?? ''),
+    PAEXTSource: String(row.PAEXTSource ?? ''),
+  }));
+}
+
 export default {
   ...baseService,
   create: async (body: Record<string, unknown>) => baseService.create(await normalizeTourPayload(body)),
@@ -241,4 +461,8 @@ export default {
   getToursByCompetition,
   moveTour,
   removeTourWithResequence,
+  getTourParticipants,
+  addTourParticipant,
+  removeTourParticipants,
+  getTourRencontres,
 };

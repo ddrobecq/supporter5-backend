@@ -49,6 +49,47 @@ export async function removeTour(req: Request, res: Response, next: NextFunction
 	}
 }
 
+export async function getTourParticipants(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await toursService.getTourParticipants(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function addTourParticipant(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const clubId = String(req.body?.clubId ?? '').trim();
+		const data = await toursService.addTourParticipant(req.params.id, clubId);
+		res.status(201).json(data);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function removeTourParticipants(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const rawIds: unknown[] = Array.isArray(req.body?.clubIds) ? req.body.clubIds : [];
+		const clubIds = rawIds
+			.map((clubId: unknown) => String(clubId ?? '').trim())
+			.filter((clubId: string) => clubId.length > 0);
+		const removed = await toursService.removeTourParticipants(req.params.id, clubIds);
+		res.status(200).json({ removed });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function getTourRencontres(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await toursService.getTourRencontres(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
 export default {
 	...baseController,
 };

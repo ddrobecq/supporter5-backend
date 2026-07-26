@@ -14,7 +14,7 @@ if (!resolvedDbPath) {
 }
 
 const db = new Database(resolvedDbPath);
-db.pragma('foreign_keys = ON');
+db.pragma('foreign_keys = OFF');
 
 export interface DbRunResult {
   changes: number;
