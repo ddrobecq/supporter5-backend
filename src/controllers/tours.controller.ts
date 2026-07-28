@@ -61,7 +61,8 @@ export async function getTourParticipants(req: Request, res: Response, next: Nex
 export async function addTourParticipant(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const clubId = String(req.body?.clubId ?? '').trim();
-		const data = await toursService.addTourParticipant(req.params.id, clubId);
+		const groupe = String(req.body?.groupe ?? '').trim();
+		const data = await toursService.addTourParticipant(req.params.id, clubId, groupe);
 		res.status(201).json(data);
 	} catch (error) {
 		next(error);

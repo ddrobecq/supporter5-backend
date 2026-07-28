@@ -287,12 +287,16 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
   }));
 }
 
-async function addTourParticipant(tourId: string | number, clubIdInput: string): Promise<TourParticipantRow> {
+async function addTourParticipant(tourId: string | number, clubIdInput: string, groupeInput = ''): Promise<TourParticipantRow> {
   const tourIdValue = normalizeTourId(tourId);
   const clubId = String(clubIdInput ?? '').trim();
+  const groupe = String(groupeInput ?? '').trim();
 
   if (!clubId) {
     throw new AppError(400, 'Identifiant de club invalide.');
+  }
+  if (groupe.length > 20) {
+    throw new AppError(400, 'Nom de groupe invalide (20 caracteres max).');
   }
 
   const clubExists = await dbGet<{ IDCLUB: string }>('SELECT "IDCLUB" FROM "CLUB" WHERE "IDCLUB" = ?', [clubId]);
@@ -314,12 +318,35 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string):
   );
 
   if (existing) {
+    const existingGroupe = String(existing.GROUPE ?? '').trim();
+    if (groupe !== existingGroupe) {
+      await dbRun(
+        `UPDATE "PARTICIP"
+         SET "GROUPE" = ?
+         WHERE "TUCLEUNIK" = ? AND "IDCLUB" = ?`,
+        [groupe, tourIdValue, clubId],
+      );
+    }
+
+    const updated = await dbGet<TourParticipantRow>(
+      `SELECT
+         p."PACLEUNIK" AS "PACLEUNIK",
+         p."TUCLEUNIK" AS "TUCLEUNIK",
+         p."IDCLUB" AS "IDCLUB",
+         c."CLUB" AS "CLUB",
+         COALESCE(p."GROUPE", '') AS "GROUPE"
+       FROM "PARTICIP" p
+       LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+       WHERE p."TUCLEUNIK" = ? AND p."IDCLUB" = ?`,
+      [tourIdValue, clubId],
+    );
+
     return {
-      PACLEUNIK: Number(existing.PACLEUNIK),
-      TUCLEUNIK: Number(existing.TUCLEUNIK),
-      IDCLUB: String(existing.IDCLUB ?? '').trim(),
-      CLUB: String(existing.CLUB ?? '').trim(),
-      GROUPE: String(existing.GROUPE ?? '').trim(),
+      PACLEUNIK: Number(updated?.PACLEUNIK ?? existing.PACLEUNIK),
+      TUCLEUNIK: Number(updated?.TUCLEUNIK ?? existing.TUCLEUNIK),
+      IDCLUB: String(updated?.IDCLUB ?? existing.IDCLUB ?? '').trim(),
+      CLUB: String(updated?.CLUB ?? existing.CLUB ?? '').trim(),
+      GROUPE: String(updated?.GROUPE ?? existing.GROUPE ?? '').trim(),
     };
   }
 
@@ -352,8 +379,8 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string):
       "PASource",
       "PARatio",
       "PAMalus"
-    ) VALUES (?, ?, '', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0)`,
-    [clubId, tourIdValue],
+    ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0)`,
+    [clubId, tourIdValue, groupe],
   );
 
   const inserted = await dbGet<TourParticipantRow>(
