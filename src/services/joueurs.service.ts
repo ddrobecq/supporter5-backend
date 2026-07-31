@@ -81,6 +81,7 @@ export interface JoueurGridRow {
 export interface PosteOption {
   POS_ID: number;
   POS_NOM: string;
+  POS_TYPE?: number;
 }
 
 export interface JoueurHistoryRow {
@@ -304,16 +305,19 @@ export async function createJoueurWithWizard(payload: { nom: string; prenom?: st
 
 export async function getJoueurPostes(): Promise<PosteOption[]> {
   return dbAll<PosteOption>(
-    `SELECT POS_ID, POS_NOM
+    `SELECT POS_ID, POS_NOM, POS_TYPE
      FROM Poste
-     WHERE POS_TYPE = 1
-     ORDER BY POS_NOM ASC, POS_ID ASC`,
+     ORDER BY POS_TYPE ASC, POS_NOM ASC, POS_ID ASC`,
   );
 }
 
-export async function getJoueurByIdWithVille(
-  id: string | number,
-): Promise<Record<string, unknown> | undefined> {
+export interface PosteOption {
+  POS_ID: number;
+  POS_NOM: string;
+  POS_TYPE?: number;
+}
+
+export async function getJoueurByIdWithVille(id: string | number): Promise<Record<string, unknown> | undefined> {
   return dbGet<Record<string, unknown>>(
     `SELECT
       ${JOUEURRG_SELECT_SQL_WITH_ALIAS},
@@ -327,7 +331,7 @@ export async function getJoueurByIdWithVille(
   );
 }
 
-export async function getJoueursGridBySeason(season: string, search: string): Promise<JoueurGridRow[]> {
+export async function getJoueursGridBySeason(season: string, search: string, posType = 1): Promise<JoueurGridRow[]> {
   const normalizedSearch = search.trim().toLowerCase();
   const likeSearch = `%${normalizedSearch}%`;
 
@@ -360,7 +364,7 @@ export async function getJoueursGridBySeason(season: string, search: string): Pr
         AND (t1.DATE || '-' || printf('%010d', t1.TNCLEUNIK)) = latest.latest_key
      ) tx ON tx.IDJOUEUR = j.IDJOUEUR
      WHERE j.SAISON = ?
-       AND p.POS_TYPE = 1
+       AND p.POS_TYPE = ?
        AND (
          ? = ''
          OR LOWER(COALESCE(jr.SURNOM, '')) LIKE ?
@@ -369,7 +373,7 @@ export async function getJoueursGridBySeason(season: string, search: string): Pr
          OR LOWER(COALESCE(p.POS_NOM, '')) LIKE ?
        )
      ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
-    [season, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
+    [season, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
   );
 }
 

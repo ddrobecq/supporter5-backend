@@ -15,7 +15,9 @@ export async function getJoueursGrid(req: Request, res: Response, next: NextFunc
 		}
 
 		const search = String(req.query.search ?? '').trim();
-		const data = await joueursService.getJoueursGridBySeason(season, search);
+		const posTypeRaw = req.query.posType;
+		const posType = posTypeRaw != null ? parseInt(String(posTypeRaw), 10) : undefined;
+		const data = await joueursService.getJoueursGridBySeason(season, search, posType);
 		res.status(200).json({ data });
 	} catch (error) {
 		next(error);

@@ -14,4 +14,5 @@ export const IMAGE_CONFIGS: Record<string, ImageConfig> = {
   competition: { table: 'COMPET', pk: 'COCLEUNIK', field: 'LOGO' },
   club:     { table: 'CLUB',     pk: 'IDCLUB',    field: 'ECUSSON' },
   joueurrg: { table: 'JOUEURRG', pk: 'IDJOUEUR',  field: 'PHOTO' },
+  natio:    { table: 'NATIO',    pk: 'IDNATIO',   field: 'NAT_DRAPEAU' },
 };

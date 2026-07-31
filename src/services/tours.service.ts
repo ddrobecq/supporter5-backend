@@ -18,6 +18,20 @@ export interface TourParticipantRow {
   IDCLUB: string;
   CLUB: string;
   GROUPE: string;
+  PAClassement?: number;
+  PANbMatch?: number;
+  PANbPoints?: number;
+  PANbVD?: number;
+  PANbVE?: number;
+  PANbND?: number;
+  PANbNE?: number;
+  PANbDD?: number;
+  PANbDE?: number;
+  PANbBP?: number;
+  PANbBC?: number;
+  PADiff?: number;
+  PARatio?: number;
+  TDCalculDiffBut?: number;
 }
 
 export interface TourRencontreRow {
@@ -270,11 +284,27 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
        p."TUCLEUNIK" AS "TUCLEUNIK",
        p."IDCLUB" AS "IDCLUB",
        c."CLUB" AS "CLUB",
-       COALESCE(p."GROUPE", '') AS "GROUPE"
+       COALESCE(p."GROUPE", '') AS "GROUPE",
+       COALESCE(p."PAClassement", 0) AS "PAClassement",
+       COALESCE(p."PANbMatch", 0) AS "PANbMatch",
+       COALESCE(p."PANbPoints", 0) AS "PANbPoints",
+       COALESCE(p."PANbVD", 0) AS "PANbVD",
+       COALESCE(p."PANbVE", 0) AS "PANbVE",
+       COALESCE(p."PANbND", 0) AS "PANbND",
+       COALESCE(p."PANbNE", 0) AS "PANbNE",
+       COALESCE(p."PANbDD", 0) AS "PANbDD",
+       COALESCE(p."PANbDE", 0) AS "PANbDE",
+       COALESCE(p."PANbBP", 0) AS "PANbBP",
+       COALESCE(p."PANbBC", 0) AS "PANbBC",
+       COALESCE(p."PADiff", 0) AS "PADiff",
+       COALESCE(p."PARatio", 0) AS "PARatio",
+       COALESCE(td."TDCalculDiffBut", 1) AS "TDCalculDiffBut"
      FROM "PARTICIP" p
      LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+     JOIN "TOUR" t ON t."TUCLEUNIK" = p."TUCLEUNIK"
+     JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
      WHERE p."TUCLEUNIK" = ?
-     ORDER BY c."CLUB" ASC, p."IDCLUB" ASC`,
+     ORDER BY COALESCE(p."GROUPE", '') ASC, COALESCE(p."PAClassement", 999999) ASC, p."PANbPoints" DESC, c."CLUB" ASC, p."IDCLUB" ASC`,
     [id],
   );
 
@@ -284,6 +314,20 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     IDCLUB: String(row.IDCLUB ?? '').trim(),
     CLUB: String(row.CLUB ?? '').trim(),
     GROUPE: String(row.GROUPE ?? '').trim(),
+    PAClassement: Number(row.PAClassement ?? 0),
+    PANbMatch: Number(row.PANbMatch ?? 0),
+    PANbPoints: Number(row.PANbPoints ?? 0),
+    PANbVD: Number(row.PANbVD ?? 0),
+    PANbVE: Number(row.PANbVE ?? 0),
+    PANbND: Number(row.PANbND ?? 0),
+    PANbNE: Number(row.PANbNE ?? 0),
+    PANbDD: Number(row.PANbDD ?? 0),
+    PANbDE: Number(row.PANbDE ?? 0),
+    PANbBP: Number(row.PANbBP ?? 0),
+    PANbBC: Number(row.PANbBC ?? 0),
+    PADiff: Number(row.PADiff ?? 0),
+    PARatio: Number(row.PARatio ?? 0),
+    TDCalculDiffBut: Number(row.TDCalculDiffBut ?? 1),
   }));
 }
 

@@ -4,9 +4,16 @@ import { AppError } from '../types';
 
 export interface CalendarMatchRow {
   RECLEUNIK: string | number;
+  TUCLEUNIK: number;
   DATE: string;
   HEURE: string;
   ETAT: number;
+  IDCIRC: string | null;
+  CIRC: string | null;
+  TOUR_NOM: string;
+  COMPET_NOM: string;
+  SAISON: string;
+  CO_ANNEE: number;
   DOMICILE: string;
   EXTERIEUR: string;
   BUTDOM: number;
@@ -47,6 +54,33 @@ export interface RencontreDetailRow {
   EXTERIEUR_TEXTE: string | number | null;
   DOMICILE_NOM_EFFECTIF: string;
   EXTERIEUR_NOM_EFFECTIF: string;
+  SUPPORTED_CLUB_ID: string;
+  IS_SUPPORTED_CLUB_MATCH: number;
+  SUPPORTED_CLUB_SIDE: 'home' | 'away' | 'none';
+}
+
+type SupportedClubSide = 'home' | 'away' | 'none';
+
+export interface RencontreHighlightEventRow {
+  EVCLEUNIK: number;
+  MINUTE: number;
+  PERIODE: number;
+  TYPE_EVENT: number;
+  ADVERSAIRE: number;
+  JOUEUR1: string | null;
+  JOUEUR2: string | null;
+  COMMENT: string | null;
+  SIDE: 'home' | 'away' | null;
+  TEXT: string;
+}
+
+export interface RencontreHighlightsRow {
+  RECLEUNIK: number;
+  MACLEUNIK: number | null;
+  SUPPORTED_CLUB_ID: string;
+  IS_SUPPORTED_CLUB_MATCH: number;
+  SUPPORTED_CLUB_SIDE: SupportedClubSide;
+  EVENTS: RencontreHighlightEventRow[];
 }
 
 interface RencontresRow {
@@ -88,6 +122,14 @@ interface TourDefRules {
   VALEUR_BONUS_V: number;
   VALEUR_BONUS_N: number;
   VALEUR_BONUS_D: number;
+  TDCLEFTRI: string;
+}
+
+type SortDirection = '+' | '-';
+
+interface ParticipantSortCriterion {
+  direction: SortDirection;
+  field: keyof ParticipantStats;
 }
 
 interface ParticipantStats {
@@ -133,6 +175,113 @@ function toNum(value: unknown, fallback = 0): number {
 
 function toText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function normalizeClubIdentifier(value: unknown): string {
+  const raw = toText(value);
+  if (!raw) return '';
+  if (/^\d+$/.test(raw)) {
+    return String(Number(raw));
+  }
+  return raw.toUpperCase();
+}
+
+function getSupportedClubId(): string {
+  const configured = toText(process.env.SUPPORTED_CLUB);
+  return configured || '1001';
+}
+
+function resolveSupportedClubSide(
+  domicileClubId: string,
+  exterieurClubId: string,
+  supportedClubId: string,
+): SupportedClubSide {
+  const normalizedSupported = normalizeClubIdentifier(supportedClubId);
+  const normalizedDom = normalizeClubIdentifier(domicileClubId);
+  const normalizedExt = normalizeClubIdentifier(exterieurClubId);
+
+  if (normalizedSupported && normalizedSupported === normalizedDom) {
+    return 'home';
+  }
+  if (normalizedSupported && normalizedSupported === normalizedExt) {
+    return 'away';
+  }
+  return 'none';
+}
+
+function resolvePlayerDisplayName(prenom: unknown, nom: unknown, fallbackId: unknown): string {
+  const prenomText = toText(prenom);
+  const nomText = toText(nom);
+  const full = [prenomText, nomText].filter(Boolean).join(' ');
+  if (full) return full;
+  return toText(fallbackId);
+}
+
+function buildSupportedEventText(eventRow: Record<string, unknown>): string {
+  const comment = toText(eventRow.COMMENT);
+  const adversaire = toInt(eventRow.ADVERSAIRE, 0) === 1;
+
+  const typeEvent = toInt(eventRow.TYPE_EVENT, 0);
+  const periode = toInt(eventRow.PERIODE, 0);
+
+  if (adversaire) {
+    let baseText = '';
+    if (typeEvent === 1) {
+      baseText = 'But de';
+    } else if (typeEvent === 2) {
+      return comment;
+    } else if (typeEvent === 3) {
+      baseText = 'Carton jaune pour';
+    } else if (typeEvent === 4) {
+      baseText = 'Second carton jaune et expulsion pour';
+    } else if (typeEvent === 5) {
+      baseText = 'Carton rouge pour';
+    } else if (typeEvent === 6) {
+      baseText = 'Penalty sifflé pour';
+    } else if (typeEvent === 7) {
+      baseText = periode === 5 ? 'Tir au but marqué par' : 'Penalty marqué par';
+    } else if (typeEvent === 8) {
+      baseText = periode === 5 ? 'Tir au but manqué par' : 'Penalty manqué par';
+    } else if (typeEvent === 9) {
+      baseText = 'Blessure de';
+    }
+    return comment ? (baseText ? `${baseText} ${comment}` : comment) : baseText;
+  }
+
+  const joueur1 = resolvePlayerDisplayName(eventRow.J1_PRENOM, eventRow.J1_NOM, eventRow.JOUEUR1);
+  const joueur2 = resolvePlayerDisplayName(eventRow.J2_PRENOM, eventRow.J2_NOM, eventRow.JOUEUR2);
+
+  let baseText = '';
+  if (typeEvent === 1) {
+    baseText = joueur2 ? `But de ${joueur1} sur une passe de ${joueur2}` : `But de ${joueur1}`;
+  } else if (typeEvent === 2) {
+    baseText = `${joueur2} remplace ${joueur1}`;
+  } else if (typeEvent === 3) {
+    baseText = `Carton jaune pour ${joueur1}`;
+  } else if (typeEvent === 4) {
+    baseText = `Second carton jaune et expulsion pour ${joueur1}`;
+  } else if (typeEvent === 5) {
+    baseText = `Carton rouge pour ${joueur1}`;
+  } else if (typeEvent === 6) {
+    baseText = 'Penalty siffle';
+  } else if (typeEvent === 7) {
+    baseText = periode === 5
+      ? `Tir au but marque par ${joueur1}`
+      : `Penalty marque par ${joueur1}`;
+  } else if (typeEvent === 8) {
+    baseText = periode === 5
+      ? `Tir au but manque par ${joueur1}`
+      : `Penalty manque par ${joueur1}`;
+  } else if (typeEvent === 9) {
+    baseText = `${joueur1} sort sur blessure`;
+  } else {
+    baseText = 'Evenement';
+  }
+
+  if (comment) {
+    return `${baseText} ${comment}`;
+  }
+  return baseText;
 }
 
 function readRencontreRowById(id: string | number): RencontresRow | undefined {
@@ -200,7 +349,8 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
       td."BONUS_NB_BUT",
       td."VALEUR_BONUS_V",
       td."VALEUR_BONUS_N",
-      td."VALEUR_BONUS_D"
+      td."VALEUR_BONUS_D",
+      td."TDCLEFTRI"
      FROM "TOUR" t
      JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
      WHERE t."TUCLEUNIK" = ?
@@ -223,6 +373,7 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
     VALEUR_BONUS_V: toNum(row.VALEUR_BONUS_V),
     VALEUR_BONUS_N: toNum(row.VALEUR_BONUS_N),
     VALEUR_BONUS_D: toNum(row.VALEUR_BONUS_D),
+    TDCLEFTRI: toText(row.TDCLEFTRI),
   };
 }
 
@@ -399,16 +550,76 @@ function finalizeParticipantStats(stats: ParticipantStats): ParticipantStats {
   return stats;
 }
 
-export function sortParticipantsByPointsDesc(rows: ParticipantStats[]): ParticipantStats[] {
+const DEFAULT_SORT_CRITERIA: ParticipantSortCriterion[] = [{ direction: '-', field: 'PANbPoints' }];
+
+function hasParticipantStatsField(field: string): field is keyof ParticipantStats {
+  const sample = createEmptyParticipantStats('__sample__');
+  return Object.prototype.hasOwnProperty.call(sample, field);
+}
+
+function parseParticipantSortCriteria(raw: string): ParticipantSortCriterion[] {
+  const lines = String(raw ?? '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  const parsed: ParticipantSortCriterion[] = [];
+
+  for (const line of lines) {
+    const match = line.match(/^([+-]).*\t\s*([A-Za-z0-9_]+)\s*$/);
+    if (!match) continue;
+
+    const direction = match[1] as SortDirection;
+    const field = match[2].trim();
+    if (!hasParticipantStatsField(field)) continue;
+    if (field === 'IDCLUB') continue;
+
+    parsed.push({ direction, field });
+  }
+
+  if (parsed.length === 0) {
+    return DEFAULT_SORT_CRITERIA;
+  }
+
+  return parsed;
+}
+
+function compareParticipantsByCriteria(
+  a: ParticipantStats,
+  b: ParticipantStats,
+  criteria: ParticipantSortCriterion[],
+): number {
+  for (const criterion of criteria) {
+    const left = toNum(a[criterion.field]);
+    const right = toNum(b[criterion.field]);
+    if (left === right) continue;
+    if (criterion.direction === '-') {
+      return right - left;
+    }
+    return left - right;
+  }
+  return 0;
+}
+
+export function sortParticipantsByPointsDesc(
+  rows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[] = DEFAULT_SORT_CRITERIA,
+): ParticipantStats[] {
   return [...rows].sort((a, b) => {
-    if (b.PANbPoints !== a.PANbPoints) {
-      return b.PANbPoints - a.PANbPoints;
+    const compare = compareParticipantsByCriteria(a, b, criteria);
+    if (compare !== 0) {
+      return compare;
     }
     return a.IDCLUB.localeCompare(b.IDCLUB, 'fr', { sensitivity: 'base' });
   });
 }
 
-function writeParticipantStats(tourId: number, groupName: string, rankedRows: ParticipantStats[]): void {
+function writeParticipantStats(
+  tourId: number,
+  groupName: string,
+  rankedRows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[],
+): void {
   const updateStmt = db.prepare(
     `UPDATE "PARTICIP" SET
       "PAClassement" = ?,
@@ -438,9 +649,18 @@ function writeParticipantStats(tourId: number, groupName: string, rankedRows: Pa
        AND COALESCE("GROUPE", '') = ?`,
   );
 
+  let previous: ParticipantStats | null = null;
+  let currentRank = 1;
+
   rankedRows.forEach((row, index) => {
+    if (previous == null) {
+      currentRank = 1;
+    } else if (compareParticipantsByCriteria(previous, row, criteria) !== 0) {
+      currentRank = index + 1;
+    }
+
     updateStmt.run(
-      index + 1,
+      currentRank,
       row.PANbMatch,
       row.PANbPoints,
       row.PANbVD,
@@ -466,6 +686,8 @@ function writeParticipantStats(tourId: number, groupName: string, rankedRows: Pa
       row.IDCLUB,
       groupName,
     );
+
+    previous = row;
   });
 }
 
@@ -557,8 +779,9 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
   });
 
   const finalized = Array.from(statsByClub.values()).map((row) => finalizeParticipantStats(row));
-  const ranked = sortParticipantsByPointsDesc(finalized);
-  writeParticipantStats(tourId, groupName, ranked);
+  const criteria = parseParticipantSortCriteria(rules.TDCLEFTRI);
+  const ranked = sortParticipantsByPointsDesc(finalized, criteria);
+  writeParticipantStats(tourId, groupName, ranked, criteria);
 }
 
 function recomputeAllGroupsForTour(tourId: number): void {
@@ -731,9 +954,16 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
   return dbAll<CalendarMatchRow>(
     `SELECT
       r.RECLEUNIK,
+      r.TUCLEUNIK,
       r.DATE,
       r.HEURE,
       r.ETAT,
+      r.IDCIRC,
+      c.CIRC,
+      COALESCE(t.NOM, '') AS TOUR_NOM,
+      COALESCE(co.NOM, '') AS COMPET_NOM,
+      COALESCE(co.SAISON, r.SAISON, '') AS SAISON,
+      COALESCE(co.CO_ANNEE, 0) AS CO_ANNEE,
       r.DOMICILE,
       r.EXTERIEUR,
       r.BUTDOM,
@@ -743,6 +973,9 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
       COALESCE(cd.CLUB, r.DOMICILE) AS DOMICILE_NOM,
       COALESCE(ce.CLUB, r.EXTERIEUR) AS EXTERIEUR_NOM
      FROM RENCO r
+         LEFT JOIN CIRC c ON c.IDCIRC = r.IDCIRC
+         LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
+         LEFT JOIN COMPET co ON co.COCLEUNIK = t.COCLEUNIK
      LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
      LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
      WHERE r.DATE = ?
@@ -752,7 +985,7 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
 }
 
 export async function getRencontreDetailById(id: string | number): Promise<RencontreDetailRow | undefined> {
-  return dbAll<RencontreDetailRow>(
+  return dbAll<Omit<RencontreDetailRow, 'SUPPORTED_CLUB_ID' | 'IS_SUPPORTED_CLUB_MATCH' | 'SUPPORTED_CLUB_SIDE'>>(
     `SELECT
       r.RECLEUNIK,
       r.DATE,
@@ -813,13 +1046,388 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
      WHERE r.RECLEUNIK = ?
      LIMIT 1`,
     [id],
-  ).then((rows) => rows[0]);
+  ).then((rows) => {
+    const detail = rows[0];
+    if (!detail) {
+      return undefined;
+    }
+
+    const supportedClubId = getSupportedClubId();
+    const supportedSide = resolveSupportedClubSide(detail.DOMICILE, detail.EXTERIEUR, supportedClubId);
+
+    return {
+      ...detail,
+      SUPPORTED_CLUB_ID: supportedClubId,
+      IS_SUPPORTED_CLUB_MATCH: supportedSide === 'none' ? 0 : 1,
+      SUPPORTED_CLUB_SIDE: supportedSide,
+    };
+  });
+}
+
+export async function getRencontreHighlightsById(id: string | number): Promise<RencontreHighlightsRow | undefined> {
+  const recleunik = toInt(id);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) {
+    throw new AppError(400, 'Identifiant de rencontre invalide.');
+  }
+
+  const baseRow = db.prepare(
+    `SELECT
+      r."RECLEUNIK",
+      r."DOMICILE",
+      r."EXTERIEUR",
+      m."MACLEUNIK"
+     FROM "RENCO" r
+     LEFT JOIN "MATCH" m ON m."RECLEUNIK" = r."RECLEUNIK"
+     WHERE r."RECLEUNIK" = ?
+     LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!baseRow) {
+    return undefined;
+  }
+
+  const domicile = toText(baseRow.DOMICILE);
+  const exterieur = toText(baseRow.EXTERIEUR);
+  const macleunik = baseRow.MACLEUNIK == null ? null : toInt(baseRow.MACLEUNIK);
+  const supportedClubId = getSupportedClubId();
+  const supportedSide = resolveSupportedClubSide(domicile, exterieur, supportedClubId);
+
+  if (!macleunik) {
+    return {
+      RECLEUNIK: recleunik,
+      MACLEUNIK: null,
+      SUPPORTED_CLUB_ID: supportedClubId,
+      IS_SUPPORTED_CLUB_MATCH: supportedSide === 'none' ? 0 : 1,
+      SUPPORTED_CLUB_SIDE: supportedSide,
+      EVENTS: [],
+    };
+  }
+
+  const eventsRaw = db.prepare(
+    `SELECT
+      e."EVCLEUNIK",
+      e."MINUTE",
+      e."PERIODE",
+      e."TYPE_EVENT",
+      e."ADVERSAIRE",
+      e."JOUEUR1",
+      e."JOUEUR2",
+      e."COMMENT",
+      j1."PRENOM" AS "J1_PRENOM",
+      j1."NOM" AS "J1_NOM",
+      j2."PRENOM" AS "J2_PRENOM",
+      j2."NOM" AS "J2_NOM"
+     FROM "EVENT" e
+     LEFT JOIN "JOUEURRG" j1 ON j1."IDJOUEUR" = e."JOUEUR1"
+     LEFT JOIN "JOUEURRG" j2 ON j2."IDJOUEUR" = e."JOUEUR2"
+     WHERE e."MACLEUNIK" = ?
+     ORDER BY e."PERIODE" ASC, e."MINUTE" ASC, e."EVCLEUNIK" ASC`,
+  ).all(macleunik) as Array<Record<string, unknown>>;
+
+  const events: RencontreHighlightEventRow[] = eventsRaw.map((row) => {
+    const adversaire = toInt(row.ADVERSAIRE, 0) === 1;
+    let side: 'home' | 'away' | null = null;
+    if (supportedSide === 'home') {
+      side = adversaire ? 'away' : 'home';
+    } else if (supportedSide === 'away') {
+      side = adversaire ? 'home' : 'away';
+    }
+
+    return {
+      EVCLEUNIK: toInt(row.EVCLEUNIK),
+      MINUTE: toInt(row.MINUTE),
+      PERIODE: toInt(row.PERIODE),
+      TYPE_EVENT: toInt(row.TYPE_EVENT),
+      ADVERSAIRE: adversaire ? 1 : 0,
+      JOUEUR1: row.JOUEUR1 == null ? null : toText(row.JOUEUR1),
+      JOUEUR2: row.JOUEUR2 == null ? null : toText(row.JOUEUR2),
+      COMMENT: row.COMMENT == null ? null : String(row.COMMENT),
+      SIDE: side,
+      TEXT: buildSupportedEventText(row),
+    };
+  });
+
+  return {
+    RECLEUNIK: recleunik,
+    MACLEUNIK: macleunik,
+    SUPPORTED_CLUB_ID: supportedClubId,
+    IS_SUPPORTED_CLUB_MATCH: supportedSide === 'none' ? 0 : 1,
+    SUPPORTED_CLUB_SIDE: supportedSide,
+    EVENTS: events,
+  };
+}
+
+export interface TourMatchWithNamesRow {
+  RECLEUNIK: number;
+  DATE: string;
+  HEURE: string | null;
+  DOMICILE: string;
+  EXTERIEUR: string;
+  DOMICILE_NOM: string;
+  EXTERIEUR_NOM: string;
+  BUTDOM: number;
+  BUTEXT: number;
+  TABDOM: number;
+  TABEXT: number;
+  ETAT: number;
+  IDCIRC: string | null;
+}
+
+export async function getTourMatchesForRencontre(id: string | number): Promise<TourMatchWithNamesRow[]> {
+  const recleunik = toInt(id);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) {
+    throw new AppError(400, 'Identifiant de rencontre invalide.');
+  }
+
+  const rows = db.prepare(
+    `SELECT
+       r."RECLEUNIK",
+       r."DATE",
+       r."HEURE",
+       r."DOMICILE",
+       r."EXTERIEUR",
+       r."BUTDOM",
+       r."BUTEXT",
+       r."TABDOM",
+       r."TABEXT",
+       r."ETAT",
+       r."IDCIRC",
+       COALESCE(cd."CLUB", r."DOMICILE") AS "DOMICILE_NOM",
+       COALESCE(ce."CLUB", r."EXTERIEUR") AS "EXTERIEUR_NOM"
+     FROM "RENCO" r
+     LEFT JOIN "CLUB" cd ON cd."IDCLUB" = r."DOMICILE"
+     LEFT JOIN "CLUB" ce ON ce."IDCLUB" = r."EXTERIEUR"
+     WHERE r."TUCLEUNIK" = (SELECT "TUCLEUNIK" FROM "RENCO" WHERE "RECLEUNIK" = ?)
+       AND r."IDCIRC" IS (SELECT "IDCIRC" FROM "RENCO" WHERE "RECLEUNIK" = ?)
+       AND r."RECLEUNIK" != ?
+     ORDER BY r."DATE" ASC, r."HEURE" ASC, r."RECLEUNIK" ASC`,
+  ).all(recleunik, recleunik, recleunik) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    RECLEUNIK: toInt(row.RECLEUNIK),
+    DATE: toText(row.DATE),
+    HEURE: row.HEURE == null ? null : toText(row.HEURE),
+    DOMICILE: toText(row.DOMICILE),
+    EXTERIEUR: toText(row.EXTERIEUR),
+    DOMICILE_NOM: toText(row.DOMICILE_NOM),
+    EXTERIEUR_NOM: toText(row.EXTERIEUR_NOM),
+    BUTDOM: toInt(row.BUTDOM),
+    BUTEXT: toInt(row.BUTEXT),
+    TABDOM: toInt(row.TABDOM),
+    TABEXT: toInt(row.TABEXT),
+    ETAT: toInt(row.ETAT, 1) || 1,
+    IDCIRC: row.IDCIRC == null ? null : toText(row.IDCIRC),
+  }));
+}
+
+const COMPO_FIELDS = [
+  'GOAL','DLG','DLD','DCG','DCD','LIB','STO',
+  'MDLD','MDLG','MDCD','MDCG','MOLD','MOLG','MOCD','MOCG','MOCC','MDCC',
+  'ALD','ALG','ACD','ACG','AVC',
+  'REMP1','REMP2','REMP3','REMP4','REMP5','REMP6',
+  'REMP7','REMP8','REMP9','REMP10','REMP11',
+  'ENTRAINEUR',
+] as const;
+
+export interface CompositionRow {
+  EQCLEUNIK: number | null;
+  MACLEUNIK: number | null;
+  [key: string]: unknown;
+}
+
+export async function getCompositionForRencontre(id: string | number): Promise<CompositionRow | null> {
+  const recleunik = toInt(id);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+
+  const row = db.prepare(
+    `SELECT e.*, m."RECLEUNIK"
+     FROM "MATCH" m
+     LEFT JOIN "EQUIPE" e ON e."MACLEUNIK" = m."MACLEUNIK"
+     WHERE m."RECLEUNIK" = ? LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!row) return null;
+  return row as CompositionRow;
+}
+
+export async function upsertCompositionForRencontre(
+  id: string | number,
+  payload: Record<string, unknown>,
+): Promise<CompositionRow | null> {
+  const recleunik = toInt(id);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+
+  const matchRow = db.prepare(
+    `SELECT m."MACLEUNIK", r."SAISON", r."DATE"
+     FROM "MATCH" m INNER JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
+     WHERE m."RECLEUNIK" = ? LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!matchRow) throw new AppError(404, 'Match introuvable pour cette rencontre.');
+
+  const macleunik = toInt(matchRow.MACLEUNIK);
+  const saison = toText(matchRow.SAISON);
+  const date = matchRow.DATE == null ? null : toText(matchRow.DATE);
+
+  const existing = db.prepare('SELECT "EQCLEUNIK" FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
+
+  const fieldsToSave: string[] = [];
+  const values: unknown[] = [];
+  for (const field of COMPO_FIELDS) {
+    fieldsToSave.push(field);
+    const val = payload[field];
+    values.push(val === '' || val == null ? null : toText(val));
+  }
+
+  if (existing) {
+    const sets = fieldsToSave.map((f) => `"${f}" = ?`).join(', ');
+    db.prepare(`UPDATE "EQUIPE" SET ${sets} WHERE "MACLEUNIK" = ?`).run(...values, macleunik);
+  } else {
+    const cols = ['MACLEUNIK', 'SAISON', 'DATE', ...fieldsToSave].map((f) => `"${f}"`).join(', ');
+    const marks = ['?', '?', '?', ...fieldsToSave.map(() => '?')].join(', ');
+    db.prepare(`INSERT INTO "EQUIPE" (${cols}) VALUES (${marks})`).run(macleunik, saison, date, ...values);
+  }
+
+  return getCompositionForRencontre(id);
+}
+
+export interface SquadPlayerRow {
+  IDJOUEUR: string;
+  NOM: string;
+  PRENOM: string;
+  SURNOM: string | null;
+  POSTE: number | null;
+  POS_TYPE: number | null;
+}
+
+export async function getSquadForRencontre(id: string | number): Promise<SquadPlayerRow[]> {
+  const recleunik = toInt(id);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+
+  const rencoRow = db.prepare(
+    `SELECT "SAISON", "DATE" FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!rencoRow) return [];
+
+  const saison = toText(rencoRow.SAISON);
+  const matchDate = rencoRow.DATE == null ? null : toText(rencoRow.DATE);
+
+  // A player is available if:
+  // - they have no transactions at all (historical data), OR
+  // - their last transaction across ALL seasons on/before the match date is not a departure (STATUT != 1)
+  // STATUT=1=departure, STATUT=2=arrival, STATUT=3=contract/renewal
+  const rows = db.prepare(
+    `SELECT jr."IDJOUEUR", jr."NOM", jr."PRENOM", jr."SURNOM", jr."POSTE", p."POS_TYPE"
+     FROM "JOUEURRG" jr
+     INNER JOIN "JOUEUR" j ON j."IDJOUEUR" = jr."IDJOUEUR" AND j."SAISON" = ?
+     INNER JOIN "Poste" p ON p."POS_ID" = j."POSTE" AND p."POS_TYPE" IN (1, 2)
+     WHERE (
+       NOT EXISTS (
+         SELECT 1 FROM "TRANSAC" t WHERE t."IDJOUEUR" = jr."IDJOUEUR"
+       )
+       OR COALESCE((
+         SELECT t_last."STATUT"
+         FROM "TRANSAC" t_last
+         WHERE t_last."IDJOUEUR" = jr."IDJOUEUR"
+           AND t_last."DATE" <= ?
+         ORDER BY t_last."DATE" DESC, t_last."TNCLEUNIK" DESC
+         LIMIT 1
+       ), 1) != 1
+     )
+     ORDER BY COALESCE(NULLIF(TRIM(jr."SURNOM"), ''), jr."NOM")`,
+  ).all(saison, matchDate) as SquadPlayerRow[];
+
+  return rows.map((row) => ({
+    IDJOUEUR: toText(row.IDJOUEUR),
+    NOM: toText(row.NOM),
+    PRENOM: toText(row.PRENOM),
+    SURNOM: row.SURNOM == null ? null : toText(row.SURNOM),
+    POSTE: row.POSTE == null ? null : toInt(row.POSTE),
+    POS_TYPE: row.POS_TYPE == null ? null : toInt(row.POS_TYPE as unknown),
+  }));
+}
+
+export interface EventPayload {
+  adversaire: number;
+  minute: number;
+  periode: number;
+  typeEvent: number;
+  joueur1: string | null;
+  joueur2: string | null;
+  comment: string | null;
+}
+
+export async function createEventForRencontre(rencontreId: string | number, payload: EventPayload): Promise<void> {
+  const recleunik = toInt(rencontreId);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+
+  const row = db.prepare(
+    `SELECT m."MACLEUNIK", r."SAISON", r."DATE"
+     FROM "MATCH" m INNER JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
+     WHERE m."RECLEUNIK" = ? LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!row) throw new AppError(404, 'Match introuvable pour cette rencontre.');
+
+  db.prepare(
+    `INSERT INTO "EVENT" ("MACLEUNIK","SAISON","DATE","MINUTE","PERIODE","TYPE_EVENT","ADVERSAIRE","JOUEUR1","JOUEUR2","COMMENT")
+     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    toInt(row.MACLEUNIK),
+    toText(row.SAISON),
+    row.DATE == null ? '' : toText(row.DATE),
+    payload.minute,
+    payload.periode,
+    payload.typeEvent,
+    payload.adversaire,
+    payload.joueur1 || null,
+    payload.joueur2 || null,
+    payload.comment || null,
+  );
+}
+
+export async function updateEventForRencontre(evcleunik: string | number, payload: EventPayload): Promise<void> {
+  const id = toInt(evcleunik);
+  if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
+
+  const result = db.prepare(
+    `UPDATE "EVENT" SET "MINUTE"=?,"PERIODE"=?,"TYPE_EVENT"=?,"ADVERSAIRE"=?,"JOUEUR1"=?,"JOUEUR2"=?,"COMMENT"=?
+     WHERE "EVCLEUNIK"=?`,
+  ).run(
+    payload.minute,
+    payload.periode,
+    payload.typeEvent,
+    payload.adversaire,
+    payload.joueur1 || null,
+    payload.joueur2 || null,
+    payload.comment || null,
+    id,
+  );
+
+  if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
+}
+
+export async function deleteEventForRencontre(evcleunik: string | number): Promise<void> {
+  const id = toInt(evcleunik);
+  if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
+
+  const result = db.prepare(`DELETE FROM "EVENT" WHERE "EVCLEUNIK" = ?`).run(id);
+  if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
 }
 
 export default {
   ...baseService,
   getCalendarByDate,
   getRencontreDetailById,
+  getRencontreHighlightsById,
+  getTourMatchesForRencontre,
+  getCompositionForRencontre,
+  upsertCompositionForRencontre,
+  getSquadForRencontre,
+  createEventForRencontre,
+  updateEventForRencontre,
+  deleteEventForRencontre,
   createWithImpact,
   updateWithImpact,
   removeWithImpact,
