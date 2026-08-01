@@ -785,6 +785,10 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
 }
 
 function recomputeAllGroupsForTour(tourId: number): void {
+  if (!Number.isInteger(tourId) || tourId <= 0) {
+    return;
+  }
+
   const groups = db.prepare(
     `SELECT DISTINCT COALESCE("GROUPE", '') AS "GROUPE"
      FROM "PARTICIP"
@@ -820,7 +824,7 @@ function assertValidRencontreBody(body: Record<string, unknown>): void {
   if (domicile === exterieur) {
     throw new AppError(400, 'DOMICILE et EXTERIEUR doivent etre differents.');
   }
-  if (!Number.isInteger(tourId) || tourId <= 0) {
+  if (!Number.isInteger(tourId) || tourId < 0) {
     throw new AppError(400, 'TUCLEUNIK invalide.');
   }
 }
