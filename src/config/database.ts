@@ -22,6 +22,29 @@ try {
   throw new Error(`Unable to create SQLite directory "${dbDirectory}": ${details}`);
 }
 
+function applyPendingUploadedDatabase(dbPath: string): void {
+  const pendingPath = `${dbPath}.pending-upload`;
+  if (!fs.existsSync(pendingPath)) {
+    return;
+  }
+
+  const backupPath = `${dbPath}.backup-before-pending`;
+
+  try {
+    if (fs.existsSync(dbPath)) {
+      fs.copyFileSync(dbPath, backupPath);
+    }
+
+    fs.copyFileSync(pendingPath, dbPath);
+    fs.unlinkSync(pendingPath);
+  } catch (error) {
+    const details = error instanceof Error ? error.message : String(error);
+    throw new Error(`Unable to apply pending SQLite upload "${pendingPath}": ${details}`);
+  }
+}
+
+applyPendingUploadedDatabase(resolvedDbPath);
+
 const db = new Database(resolvedDbPath);
 db.pragma('foreign_keys = OFF');
 
