@@ -1,16 +1,25 @@
 import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
+import fs from 'node:fs';
 import path from 'node:path';
 
 dotenv.config();
 
-const configuredDbPath = (process.env.SQLITE_DB_PATH ?? '/data/supporter.sqlite').trim();
+const configuredDbPath = (process.env.SQLITE_DB_PATH ?? './data/supporter.sqlite').trim();
 const resolvedDbPath = path.isAbsolute(configuredDbPath)
   ? configuredDbPath
   : path.resolve(process.cwd(), configuredDbPath);
 
 if (!resolvedDbPath) {
   throw new Error('Missing SQLITE_DB_PATH environment variable');
+}
+
+const dbDirectory = path.dirname(resolvedDbPath);
+try {
+  fs.mkdirSync(dbDirectory, { recursive: true });
+} catch (error) {
+  const details = error instanceof Error ? error.message : String(error);
+  throw new Error(`Unable to create SQLite directory "${dbDirectory}": ${details}`);
 }
 
 const db = new Database(resolvedDbPath);

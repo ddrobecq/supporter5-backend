@@ -302,7 +302,7 @@ back/
 |-----|--------|-------------|
 | `NODE_ENV` | `development` | `production` ou `development` |
 | `PORT` | `3000` | Port du serveur |
-| `SQLITE_DB_PATH` | `/data/supporter.sqlite` | Chemin du fichier SQLite |
+| `SQLITE_DB_PATH` | `./data/supporter.sqlite` | Chemin du fichier SQLite |
 | `ADMIN_USERNAME` | — | Nom d'utilisateur (ex: `admin`) |
 | `ADMIN_PASSWORD_HASH` | — | Hash bcrypt du mot de passe |
 | `JWT_SECRET` | — | Clé secrète JWT (min 32 chars) |
@@ -342,7 +342,15 @@ DELETE /api/admin/rencontres/bulk
 2. Définir les env vars (`SQLITE_DB_PATH`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_HASH`, `JWT_SECRET`)
 4. Git push → déploiement automatique
 
-**Important** : Le backend utilise un fichier SQLite. Configure `SQLITE_DB_PATH` selon l'environnement.
+**Important** : Le backend utilise un fichier SQLite.
+
+- Sans disque persistant Render: utiliser `SQLITE_DB_PATH=./data/supporter.sqlite`.
+  La base sera recréée à chaque redéploiement/redémarrage (stockage éphémère).
+- Avec disque persistant Render (recommandé):
+  1. Ajouter un Persistent Disk dans Render (ex: mount path `/var/data`)
+  2. Définir `SQLITE_DB_PATH=/var/data/supporter.sqlite`
+
+Le backend crée automatiquement le dossier parent du fichier SQLite au démarrage.
 
 ---
 

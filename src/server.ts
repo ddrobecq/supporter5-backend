@@ -7,7 +7,7 @@ import app from './app';
 
 const port = process.env.PORT ?? 3000;
 
-const configuredDbPath = (process.env.SQLITE_DB_PATH ?? '/data/supporter.sqlite').trim();
+const configuredDbPath = (process.env.SQLITE_DB_PATH ?? './data/supporter.sqlite').trim();
 const resolvedDbPath = path.isAbsolute(configuredDbPath)
   ? configuredDbPath
   : path.resolve(process.cwd(), configuredDbPath);
