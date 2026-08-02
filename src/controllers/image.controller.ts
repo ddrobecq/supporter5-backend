@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import { getEntityImage } from '../lib/imageService';
+import { getEntityImage, setEntityImage } from '../lib/imageService';
 
 /**
  * GET /api/images/:entity/:id
@@ -27,4 +27,31 @@ export async function getImage(req: Request, res: Response): Promise<void> {
   res.setHeader('Content-Length', result.buffer.length);
   res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
   res.end(result.buffer);
+}
+
+/**
+ * PUT /api/admin/images/:entity/:id
+ * Body: { image: string | null }
+ */
+export async function updateImage(req: Request, res: Response): Promise<void> {
+  const { entity, id } = req.params;
+
+  if (!entity || !id) {
+    res.status(400).json({ message: 'Paramètres manquants.' });
+    return;
+  }
+
+  const body = req.body as { image?: unknown };
+  if (!Object.prototype.hasOwnProperty.call(body ?? {}, 'image')) {
+    res.status(400).json({ message: 'Champ image manquant.' });
+    return;
+  }
+
+  const updated = await setEntityImage(entity, id, body.image);
+  if (!updated) {
+    res.status(404).json({ message: 'Entité ou image introuvable.' });
+    return;
+  }
+
+  res.status(204).send();
 }

@@ -1,4 +1,4 @@
-import { dbGet } from '../config/database';
+import { dbGet, dbRun } from '../config/database';
 import { IMAGE_CONFIGS, type ImageConfig } from './imageConfig';
 
 export interface ImageResult {
@@ -16,8 +16,13 @@ function detectMimeType(buf: Buffer): string {
     buf[2] === 0x4e && buf[3] === 0x47
   ) return 'image/png';
   if (buf.length >= 3 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
-  const head = buf.slice(0, 256).toString('utf8').trimStart().toLowerCase();
-  if (head.startsWith('<svg') || head.startsWith('<?xml')) return 'image/svg+xml';
+  const head = buf
+    .slice(0, 512)
+    .toString('utf8')
+    .replace(/^\uFEFF/, '')
+    .trimStart()
+    .toLowerCase();
+  if (head.startsWith('<svg') || head.startsWith('<?xml') || head.includes('<svg')) return 'image/svg+xml';
   return 'application/octet-stream';
 }
 
@@ -37,6 +42,12 @@ function toBuffer(raw: unknown): Buffer | null {
   if (typeof raw === 'string') {
     const trimmed = raw.trim();
     if (!trimmed) return null;
+
+    // SVG/XML en texte brut
+    const normalizedText = trimmed.replace(/^\uFEFF/, '');
+    if (normalizedText.startsWith('<svg') || normalizedText.startsWith('<?xml')) {
+      return Buffer.from(normalizedText, 'utf8');
+    }
 
     // MySQL/turso textual hex wrappers: x'ABCD...' or 0xABCD...
     const xQuotedHex = /^x'([0-9a-fA-F]+)'$/i.exec(trimmed);
@@ -61,15 +72,26 @@ function toBuffer(raw: unknown): Buffer | null {
       return Buffer.from(compactHex, 'hex');
     }
 
-    // Fallback : base64 pur
-    try {
-      return Buffer.from(trimmed, 'base64');
-    } catch {
-      return null;
+    // Base64 pur
+    if (/^[A-Za-z0-9+/=\r\n\t\s]+$/.test(trimmed)) {
+      try {
+        return Buffer.from(trimmed, 'base64');
+      } catch {
+        return null;
+      }
     }
+
+    return Buffer.from(trimmed, 'utf8');
   }
 
   return null;
+}
+
+function normalizeImageInput(value: unknown): Buffer | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+  return toBuffer(value);
 }
 
 /** Retourne l'image d'une entité ou null si absente. */
@@ -104,4 +126,32 @@ export async function getEntityImage(
     buffer,
     mimeType,
   };
+}
+
+export async function setEntityImage(
+  entityType: string,
+  id: string,
+  imageValue: unknown,
+): Promise<boolean> {
+  const config: ImageConfig | undefined = IMAGE_CONFIGS[entityType.toLowerCase()];
+  if (!config) {
+    return false;
+  }
+
+  const exists = await dbGet<Record<string, unknown>>(
+    `SELECT ${config.pk} FROM ${config.table} WHERE ${config.pk} = ?`,
+    [id],
+  );
+  if (!exists) {
+    return false;
+  }
+
+  const buffer = normalizeImageInput(imageValue);
+
+  await dbRun(
+    `UPDATE ${config.table} SET ${config.field} = ? WHERE ${config.pk} = ?`,
+    [buffer, id],
+  );
+
+  return true;
 }

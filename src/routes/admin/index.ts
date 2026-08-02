@@ -18,6 +18,7 @@ import deviseAdmin     from './devise.admin.routes';
 import circAdmin       from './circ.admin.routes';
 import epreuveAdmin    from './epreuve.admin.routes';
 import competitionAdmin from './competition.admin.routes';
+import imagesAdmin     from './images.admin.routes';
 import systemAdmin     from './system.admin.routes';
 
 const router = Router();
@@ -43,6 +44,7 @@ router.use('/devises',    deviseAdmin);
 router.use('/circs',      circAdmin);
 router.use('/epreuves',   epreuveAdmin);
 router.use('/competitions', competitionAdmin);
+router.use('/images', imagesAdmin);
 router.use('/system', systemAdmin);
 
 export default router;
