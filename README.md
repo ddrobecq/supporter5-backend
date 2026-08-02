@@ -304,6 +304,7 @@ back/
 | `PORT` | `3000` | Port du serveur |
 | `SQLITE_DB_PATH` | `./data/supporter.sqlite` | Chemin du fichier SQLite |
 | `SQLITE_UPLOAD_MAX_MB` | `512` | Taille max de l upload SQLite admin (MB) |
+| `SQLITE_UPLOAD_TMP_DIR` | system tmp | Dossier temporaire pour l upload SQLite |
 | `ADMIN_USERNAME` | — | Nom d'utilisateur (ex: `admin`) |
 | `ADMIN_PASSWORD_HASH` | — | Hash bcrypt du mot de passe |
 | `JWT_SECRET` | — | Clé secrète JWT (min 32 chars) |

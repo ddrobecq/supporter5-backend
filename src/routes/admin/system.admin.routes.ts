@@ -1,5 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import ctrl from '../../controllers/system.controller';
 import { AppError } from '../../types';
 
@@ -11,8 +14,30 @@ function getUploadMaxBytes(): number {
   return mb * 1024 * 1024;
 }
 
+function resolveUploadTempDir(): string {
+  const configured = (process.env.SQLITE_UPLOAD_TMP_DIR ?? '').trim();
+  const tempDir = configured
+    ? (path.isAbsolute(configured) ? configured : path.resolve(process.cwd(), configured))
+    : path.join(os.tmpdir(), 'supporter-upload');
+
+  fs.mkdirSync(tempDir, { recursive: true });
+  return tempDir;
+}
+
+const uploadTempDir = resolveUploadTempDir();
+
+const uploadStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => {
+    cb(null, uploadTempDir);
+  },
+  filename: (_req, file, cb) => {
+    const safeName = String(file.originalname ?? 'database.sqlite').replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, `${Date.now()}-${safeName}`);
+  },
+});
+
 const upload = multer({
-  storage: multer.memoryStorage(),
+  storage: uploadStorage,
   limits: {
     fileSize: getUploadMaxBytes(),
   },

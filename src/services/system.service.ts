@@ -45,19 +45,30 @@ export async function uploadSqliteDatabase(file: Express.Multer.File): Promise<{
 
   assertAllowedExtension(file.originalname);
 
-  if (!file.buffer || file.buffer.length < 1024) {
-    throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
-  }
-
   const resolvedDbPath = resolveDbPath();
   const dbDirectory = path.dirname(resolvedDbPath);
   await fs.mkdir(dbDirectory, { recursive: true });
 
   const tempPath = `${resolvedDbPath}.upload-${Date.now()}.tmp`;
   const pendingPath = getPendingUploadPath(resolvedDbPath);
+  const sourcePath = typeof file.path === 'string' && file.path.length > 0 ? file.path : null;
+
+  if (sourcePath) {
+    const stats = await fs.stat(sourcePath).catch(() => null);
+    if (!stats || stats.size < 1024) {
+      throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
+    }
+  } else if (!file.buffer || file.buffer.length < 1024) {
+    throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
+  }
 
   try {
-    await fs.writeFile(tempPath, file.buffer);
+    if (sourcePath) {
+      await fs.copyFile(sourcePath, tempPath);
+    } else {
+      await fs.writeFile(tempPath, file.buffer);
+    }
+
     try {
       await fs.rename(tempPath, resolvedDbPath);
     } catch (error) {
@@ -67,11 +78,14 @@ export async function uploadSqliteDatabase(file: Express.Multer.File): Promise<{
 
       // Windows can lock the active SQLite file while the backend process is running.
       // Store the upload and apply it at next startup before opening the DB connection.
-      await fs.writeFile(pendingPath, file.buffer);
+      await fs.copyFile(tempPath, pendingPath);
     }
   } finally {
     // Cleanup if rename failed.
     fs.rm(tempPath, { force: true }).catch(() => undefined);
+    if (sourcePath) {
+      fs.rm(sourcePath, { force: true }).catch(() => undefined);
+    }
   }
 
   return {
