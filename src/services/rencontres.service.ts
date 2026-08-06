@@ -1815,6 +1815,7 @@ export interface SquadPlayerRow {
   SURNOM: string | null;
   POSTE: number | null;
   POS_TYPE: number | null;
+  IDNATIO: string | null;
 }
 
 export async function getSquadForRencontre(id: string | number): Promise<SquadPlayerRow[]> {
@@ -1835,7 +1836,7 @@ export async function getSquadForRencontre(id: string | number): Promise<SquadPl
   // - their last transaction across ALL seasons on/before the match date is not a departure (STATUT != 1)
   // STATUT=1=departure, STATUT=2=arrival, STATUT=3=contract/renewal
   const rows = db.prepare(
-    `SELECT jr."IDJOUEUR", jr."NOM", jr."PRENOM", jr."SURNOM", jr."POSTE", p."POS_TYPE"
+    `SELECT jr."IDJOUEUR", jr."NOM", jr."PRENOM", jr."SURNOM", jr."POSTE", p."POS_TYPE", jr."IDNATIO"
      FROM "JOUEURRG" jr
      INNER JOIN "JOUEUR" j ON j."IDJOUEUR" = jr."IDJOUEUR" AND j."SAISON" = ?
      INNER JOIN "Poste" p ON p."POS_ID" = j."POSTE" AND p."POS_TYPE" IN (1, 2)
@@ -1862,6 +1863,7 @@ export async function getSquadForRencontre(id: string | number): Promise<SquadPl
     SURNOM: row.SURNOM == null ? null : toText(row.SURNOM),
     POSTE: row.POSTE == null ? null : toInt(row.POSTE),
     POS_TYPE: row.POS_TYPE == null ? null : toInt(row.POS_TYPE as unknown),
+    IDNATIO: row.IDNATIO == null ? null : toText(row.IDNATIO),
   }));
 }
 
