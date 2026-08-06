@@ -30,6 +30,27 @@ function resolveDbPath(): string {
     : path.resolve(process.cwd(), configuredDbPath);
 }
 
+export async function getSqliteDatabaseDownloadInfo(): Promise<{ path: string; fileName: string; size: number }> {
+  const resolvedDbPath = resolveDbPath();
+
+  let stats: Awaited<ReturnType<typeof fs.stat>>;
+  try {
+    stats = await fs.stat(resolvedDbPath);
+  } catch {
+    throw new AppError(404, 'Base SQLite introuvable sur le serveur.');
+  }
+
+  if (!stats.isFile()) {
+    throw new AppError(400, 'Le chemin SQLITE_DB_PATH ne pointe pas vers un fichier.');
+  }
+
+  return {
+    path: resolvedDbPath,
+    fileName: path.basename(resolvedDbPath),
+    size: stats.size,
+  };
+}
+
 function assertAllowedExtension(originalName: string): void {
   const ext = path.extname(String(originalName ?? '')).toLowerCase();
   if (ALLOWED_EXTENSIONS.has(ext)) {
@@ -134,6 +155,7 @@ export function scheduleBackendRestart(delayMs = 350): { scheduledInMs: number; 
 }
 
 export default {
+  getSqliteDatabaseDownloadInfo,
   uploadSqliteDatabase,
   scheduleBackendRestart,
 };

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
+import { getSqliteDatabaseDownloadInfo, scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
 
 function readBackendVersion(): string {
   try {
@@ -21,6 +21,20 @@ export async function uploadDatabaseHandler(req: Request, res: Response, next: N
     res.status(200).json({
       message: 'Base SQLite importee sur le serveur. Redemarrez le service pour l utiliser immediatement.',
       ...result,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function downloadDatabaseHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { path: dbPath, fileName } = await getSqliteDatabaseDownloadInfo();
+
+    res.download(dbPath, fileName, (error) => {
+      if (error) {
+        next(error);
+      }
     });
   } catch (error) {
     next(error);
@@ -54,6 +68,7 @@ export async function versionHandler(_req: Request, res: Response, next: NextFun
 
 export default {
   uploadDatabaseHandler,
+  downloadDatabaseHandler,
   restartBackendHandler,
   versionHandler,
 };
