@@ -110,6 +110,17 @@ interface ParticipantDbRow {
   GROUPE: string;
 }
 
+interface PaSourceRef {
+  tourId: number;
+  groupName: string;
+  rank: number;
+}
+
+interface SourceTourMeta {
+  typeId: number;
+  allerRetour: number;
+}
+
 interface TourDefRules {
   VALEUR_VD: number;
   VALEUR_VE: number;
@@ -175,6 +186,404 @@ function toNum(value: unknown, fallback = 0): number {
 
 function toText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function parsePaSource(value: unknown): PaSourceRef | null {
+  const raw = toText(value);
+  if (!raw) {
+    return null;
+  }
+
+  const parts = raw.split(',');
+  if (parts.length !== 3) {
+    return null;
+  }
+
+  const tourId = toInt(parts[0], 0);
+  const groupName = String(parts[1] ?? '').trim();
+  const rank = toInt(parts[2], 0);
+
+  if (!Number.isInteger(tourId) || tourId <= 0) {
+    return null;
+  }
+  if (!Number.isInteger(rank) || rank <= 0) {
+    return null;
+  }
+
+  return { tourId, groupName, rank };
+}
+
+function getClubNameById(clubId: string, cache: Map<string, string>): string {
+  const normalized = toText(clubId);
+  if (!normalized) {
+    return '';
+  }
+
+  const cached = cache.get(normalized);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const row = db.prepare('SELECT COALESCE("CLUB", "IDCLUB") AS "CLUB" FROM "CLUB" WHERE "IDCLUB" = ? LIMIT 1')
+    .get(normalized) as Record<string, unknown> | undefined;
+
+  const label = row ? toText(row.CLUB) : normalized;
+  cache.set(normalized, label || normalized);
+  return label || normalized;
+}
+
+function resolveProgrammedCandidatesFromSource(
+  sourceValue: string,
+  visited: Set<string> = new Set(),
+  cache: Map<string, string[]> = new Map(),
+  clubNameCache: Map<string, string> = new Map(),
+): string[] {
+  const normalizedSource = toText(sourceValue);
+  if (!normalizedSource) {
+    return [];
+  }
+
+  const cached = cache.get(normalizedSource);
+  if (cached) {
+    return [...cached];
+  }
+
+  const parsed = parsePaSource(normalizedSource);
+  if (!parsed) {
+    cache.set(normalizedSource, []);
+    return [];
+  }
+
+  const cycleKey = `${parsed.tourId}|${parsed.groupName}|${parsed.rank}`;
+  if (visited.has(cycleKey)) {
+    cache.set(normalizedSource, []);
+    return [];
+  }
+
+  visited.add(cycleKey);
+
+  const rows = db.prepare(
+    `SELECT
+       COALESCE("IDCLUB", '') AS "IDCLUB",
+       COALESCE("PASource", '') AS "PASource"
+     FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?
+       AND COALESCE("GROUPE", '') = ?
+       AND COALESCE("PAClassement", 0) = ?`,
+  ).all(parsed.tourId, parsed.groupName, parsed.rank) as Array<Record<string, unknown>>;
+
+  const names = new Set<string>();
+
+  rows.forEach((row) => {
+    const clubId = toText(row.IDCLUB);
+    if (clubId) {
+      names.add(getClubNameById(clubId, clubNameCache));
+      return;
+    }
+
+    const nestedSource = toText(row.PASource);
+    if (!nestedSource) {
+      return;
+    }
+
+    resolveProgrammedCandidatesFromSource(nestedSource, visited, cache, clubNameCache)
+      .forEach((name) => names.add(name));
+  });
+
+  visited.delete(cycleKey);
+  const resolved = [...names];
+  cache.set(normalizedSource, resolved);
+  return resolved;
+}
+
+function resolveProgrammedClubIdFromSource(sourceValue: string): string | null {
+  const parsed = parsePaSource(sourceValue);
+  if (!parsed) {
+    return null;
+  }
+
+  const rows = db.prepare(
+    `SELECT COALESCE("IDCLUB", '') AS "IDCLUB"
+     FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?
+       AND COALESCE("GROUPE", '') = ?
+       AND COALESCE("PAClassement", 0) = ?`,
+  ).all(parsed.tourId, parsed.groupName, parsed.rank) as Array<Record<string, unknown>>;
+
+  const resolved = Array.from(new Set(rows.map((row) => toText(row.IDCLUB)).filter((value) => value.length > 0)));
+  if (resolved.length !== 1) {
+    return null;
+  }
+
+  return resolved[0];
+}
+
+function isTourCompleted(tourId: number): boolean {
+  if (!Number.isInteger(tourId) || tourId <= 0) {
+    return false;
+  }
+
+  const tour = db.prepare(
+    `SELECT COALESCE("NB_MATCH", 0) AS "NB_MATCH"
+     FROM "TOUR"
+     WHERE "TUCLEUNIK" = ?
+     LIMIT 1`,
+  ).get(tourId) as Record<string, unknown> | undefined;
+
+  const expectedMatches = toInt(tour?.NB_MATCH, 0);
+  if (expectedMatches <= 0) {
+    return false;
+  }
+
+  const counters = db.prepare(
+    `SELECT
+       COUNT(*) AS "TOTAL",
+       SUM(CASE WHEN COALESCE("ETAT", 0) = 3 THEN 1 ELSE 0 END) AS "DONE"
+     FROM "RENCO"
+     WHERE "TUCLEUNIK" = ?`,
+  ).get(tourId) as Record<string, unknown> | undefined;
+
+  const total = toInt(counters?.TOTAL, 0);
+  const done = toInt(counters?.DONE, 0);
+
+  if (total < expectedMatches) {
+    return false;
+  }
+
+  return done >= expectedMatches && total === done;
+}
+
+function getSourceTourMeta(tourId: number, cache: Map<number, SourceTourMeta>): SourceTourMeta {
+  const cached = cache.get(tourId);
+  if (cached) {
+    return cached;
+  }
+
+  const row = db.prepare(
+    `SELECT
+       COALESCE(td."TDTYPETOUR", 1) AS "TYPE_ID",
+       COALESCE(td."ALLER_RETOUR", 0) AS "ALLER_RETOUR"
+     FROM "TOUR" t
+     LEFT JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
+     WHERE t."TUCLEUNIK" = ?
+     LIMIT 1`,
+  ).get(tourId) as Record<string, unknown> | undefined;
+
+  const meta: SourceTourMeta = {
+    typeId: toInt(row?.TYPE_ID, 1),
+    allerRetour: toInt(row?.ALLER_RETOUR, 0),
+  };
+
+  cache.set(tourId, meta);
+  return meta;
+}
+
+function parseEliminatoireGroupParticipantIds(groupName: string): { leftParticipantId: number; rightParticipantId: number } | null {
+  const raw = toText(groupName);
+  if (!raw) {
+    return null;
+  }
+
+  const match = raw.match(/^(\d+)\s*vs\s*(\d+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const leftParticipantId = toInt(match[1], 0);
+  const rightParticipantId = toInt(match[2], 0);
+  if (!Number.isInteger(leftParticipantId) || leftParticipantId <= 0 || !Number.isInteger(rightParticipantId) || rightParticipantId <= 0) {
+    return null;
+  }
+
+  return { leftParticipantId, rightParticipantId };
+}
+
+function resolveParticipantClubIdForEliminatoireParticipant(participant: Record<string, unknown>): string {
+  const directClubId = toText(participant.IDCLUB);
+  if (directClubId) {
+    return directClubId;
+  }
+
+  const nestedSource = toText(participant.PASource);
+  if (!nestedSource) {
+    return '';
+  }
+
+  return resolveProgrammedClubIdFromSource(nestedSource) ?? '';
+}
+
+function isEliminatoireSourceDuelCompleted(
+  source: PaSourceRef,
+  allerRetour: number,
+): boolean {
+  const pair = parseEliminatoireGroupParticipantIds(source.groupName);
+  if (!pair) {
+    return false;
+  }
+
+  const participants = db.prepare(
+    `SELECT
+       "PACLEUNIK",
+       COALESCE("IDCLUB", '') AS "IDCLUB",
+       COALESCE("PASource", '') AS "PASource"
+     FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?
+       AND "PACLEUNIK" IN (?, ?)`,
+  ).all(source.tourId, pair.leftParticipantId, pair.rightParticipantId) as Array<Record<string, unknown>>;
+
+  if (participants.length < 2) {
+    return false;
+  }
+
+  const leftParticipant = participants.find((row) => toInt(row.PACLEUNIK, 0) === pair.leftParticipantId);
+  const rightParticipant = participants.find((row) => toInt(row.PACLEUNIK, 0) === pair.rightParticipantId);
+  if (!leftParticipant || !rightParticipant) {
+    return false;
+  }
+
+  const leftClubId = resolveParticipantClubIdForEliminatoireParticipant(leftParticipant);
+  const rightClubId = resolveParticipantClubIdForEliminatoireParticipant(rightParticipant);
+  if (!leftClubId || !rightClubId) {
+    return false;
+  }
+
+  const requiredCompletedMatches = allerRetour === 1 ? 2 : 1;
+  const counters = db.prepare(
+    `SELECT
+       COUNT(*) AS "TOTAL",
+       SUM(CASE WHEN COALESCE("ETAT", 0) = 3 THEN 1 ELSE 0 END) AS "DONE"
+     FROM "RENCO"
+     WHERE "TUCLEUNIK" = ?
+       AND (
+         (COALESCE("DOMICILE", '') = ? AND COALESCE("EXTERIEUR", '') = ?)
+         OR
+         (COALESCE("DOMICILE", '') = ? AND COALESCE("EXTERIEUR", '') = ?)
+       )`,
+  ).get(source.tourId, leftClubId, rightClubId, rightClubId, leftClubId) as Record<string, unknown> | undefined;
+
+  const total = toInt(counters?.TOTAL, 0);
+  const done = toInt(counters?.DONE, 0);
+  if (total < requiredCompletedMatches) {
+    return false;
+  }
+
+  return done >= requiredCompletedMatches;
+}
+
+function canResolveSourceForPropagation(sourceValue: string, metaCache: Map<number, SourceTourMeta>): boolean {
+  const parsed = parsePaSource(sourceValue);
+  if (!parsed) {
+    return false;
+  }
+
+  const sourceTourMeta = getSourceTourMeta(parsed.tourId, metaCache);
+
+  // Ligue: keep existing global completion rule at tour level.
+  if (sourceTourMeta.typeId === 1) {
+    return isTourCompleted(parsed.tourId);
+  }
+
+  // Eliminatoire: readiness is based on the referenced duel completion.
+  if (sourceTourMeta.typeId === 2) {
+    const duelCompleted = isEliminatoireSourceDuelCompleted(parsed, sourceTourMeta.allerRetour);
+    if (duelCompleted) {
+      return true;
+    }
+
+    // Fallback for unexpected source format in eliminatoire tours.
+    return isTourCompleted(parsed.tourId);
+  }
+
+  return isTourCompleted(parsed.tourId);
+}
+
+function propagateProgrammedParticipantsAndMatches(): void {
+  const sourceTourMetaCache = new Map<number, SourceTourMeta>();
+  const unresolved = db.prepare(
+    `SELECT
+       "PACLEUNIK",
+       "TUCLEUNIK",
+       COALESCE("PASource", '') AS "PASource"
+     FROM "PARTICIP"
+     WHERE COALESCE("PASource", '') <> ''
+       AND ("IDCLUB" IS NULL OR TRIM(COALESCE("IDCLUB", '')) = '')
+     ORDER BY "PACLEUNIK" ASC`,
+  ).all() as Array<Record<string, unknown>>;
+
+  const resolvedSources = new Set<string>();
+
+  unresolved.forEach((row) => {
+    const paSource = toText(row.PASource);
+    if (!canResolveSourceForPropagation(paSource, sourceTourMetaCache)) {
+      return;
+    }
+
+    const resolvedClubId = resolveProgrammedClubIdFromSource(paSource);
+    if (!resolvedClubId) {
+      return;
+    }
+
+    db.prepare(
+      `UPDATE "PARTICIP"
+       SET "IDCLUB" = ?
+       WHERE "PACLEUNIK" = ?`,
+    ).run(resolvedClubId, toInt(row.PACLEUNIK));
+
+    resolvedSources.add(paSource);
+  });
+
+  resolvedSources.forEach((source) => {
+    const resolvedClubId = resolveProgrammedClubIdFromSource(source);
+    if (!resolvedClubId) {
+      return;
+    }
+
+    db.prepare(
+      `UPDATE "RENCO"
+       SET "DOMICILE" = ?
+       WHERE COALESCE("PADOMSource", '') = ?
+         AND TRIM(COALESCE("DOMICILE", '')) = ''`,
+    ).run(resolvedClubId, source);
+
+    db.prepare(
+      `UPDATE "RENCO"
+       SET "EXTERIEUR" = ?
+       WHERE COALESCE("PAEXTSource", '') = ?
+         AND TRIM(COALESCE("EXTERIEUR", '')) = ''`,
+    ).run(resolvedClubId, source);
+  });
+
+  db.prepare(
+    `UPDATE "RENCO"
+     SET "ETAT" = 1
+     WHERE COALESCE("ETAT", 0) = 5
+       AND TRIM(COALESCE("DOMICILE", '')) <> ''
+       AND TRIM(COALESCE("EXTERIEUR", '')) <> ''`,
+  ).run();
+}
+
+function resolveMatchSideDisplayName(
+  clubIdValue: unknown,
+  sourceValue: unknown,
+  fallbackValue: unknown,
+  candidateCache: Map<string, string[]>,
+  clubNameCache: Map<string, string>,
+): string {
+  const clubId = toText(clubIdValue);
+  if (clubId) {
+    return getClubNameById(clubId, clubNameCache);
+  }
+
+  const source = toText(sourceValue);
+  if (source) {
+    const candidates = resolveProgrammedCandidatesFromSource(source, new Set(), candidateCache, clubNameCache);
+    if (candidates.length > 0) {
+      return candidates.join('/');
+    }
+    return `Programme (${source})`;
+  }
+
+  return toText(fallbackValue);
 }
 
 function normalizeClubIdentifier(value: unknown): string {
@@ -816,14 +1225,25 @@ function collectImpactedGroups(row: RencontresRow): string[] {
 function assertValidRencontreBody(body: Record<string, unknown>): void {
   const domicile = toText(body.DOMICILE);
   const exterieur = toText(body.EXTERIEUR);
+  const paDomSource = toText(body.PADOMSource);
+  const paExtSource = toText(body.PAEXTSource);
   const tourId = toInt(body.TUCLEUNIK);
 
-  if (!domicile || !exterieur) {
-    throw new AppError(400, 'DOMICILE et EXTERIEUR sont requis.');
+  if (!domicile && !paDomSource) {
+    throw new AppError(400, 'DOMICILE ou PADOMSource est requis.');
   }
-  if (domicile === exterieur) {
+  if (!exterieur && !paExtSource) {
+    throw new AppError(400, 'EXTERIEUR ou PAEXTSource est requis.');
+  }
+
+  if (domicile && exterieur && domicile === exterieur) {
     throw new AppError(400, 'DOMICILE et EXTERIEUR doivent etre differents.');
   }
+
+  if (paDomSource && paExtSource && paDomSource === paExtSource) {
+    throw new AppError(400, 'PADOMSource et PAEXTSource doivent etre differents.');
+  }
+
   if (!Number.isInteger(tourId) || tourId < 0) {
     throw new AppError(400, 'TUCLEUNIK invalide.');
   }
@@ -854,6 +1274,7 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
       throw new AppError(500, 'Rencontre creee introuvable.');
     }
 
+    propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(insertedRow.TUCLEUNIK);
 
     return insertedId;
@@ -896,6 +1317,8 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
       recomputeAllGroupsForTour(tourId);
     });
 
+    propagateProgrammedParticipantsAndMatches();
+
     return true;
   });
 
@@ -919,6 +1342,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     }
 
     db.prepare('DELETE FROM "RENCO" WHERE "RECLEUNIK" = ?').run(rencontreId);
+    propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
     return true;
   });
@@ -955,7 +1379,7 @@ const baseService = createEntityService({
 });
 
 export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[]> {
-  return dbAll<CalendarMatchRow>(
+  const rows = await dbAll<CalendarMatchRow & { PADOMSource?: string | null; PAEXTSource?: string | null }>(
     `SELECT
       r.RECLEUNIK,
       r.TUCLEUNIK,
@@ -974,6 +1398,8 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
       r.BUTEXT,
       r.TABDOM,
       r.TABEXT,
+      r.PADOMSource,
+      r.PAEXTSource,
       COALESCE(cd.CLUB, r.DOMICILE) AS DOMICILE_NOM,
       COALESCE(ce.CLUB, r.EXTERIEUR) AS EXTERIEUR_NOM
      FROM RENCO r
@@ -986,6 +1412,27 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
      ORDER BY r.HEURE ASC, r.RECLEUNIK ASC`,
     [date],
   );
+
+  const candidateCache = new Map<string, string[]>();
+  const clubNameCache = new Map<string, string>();
+
+  return rows.map((row) => ({
+    ...row,
+    DOMICILE_NOM: resolveMatchSideDisplayName(
+      row.DOMICILE,
+      row.PADOMSource,
+      row.DOMICILE_NOM,
+      candidateCache,
+      clubNameCache,
+    ),
+    EXTERIEUR_NOM: resolveMatchSideDisplayName(
+      row.EXTERIEUR,
+      row.PAEXTSource,
+      row.EXTERIEUR_NOM,
+      candidateCache,
+      clubNameCache,
+    ),
+  }));
 }
 
 export async function getRencontreDetailById(id: string | number): Promise<RencontreDetailRow | undefined> {
@@ -1056,11 +1503,32 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       return undefined;
     }
 
+    const candidateCache = new Map<string, string[]>();
+    const clubNameCache = new Map<string, string>();
+
+    const domicileEffectiveName = resolveMatchSideDisplayName(
+      detail.DOMICILE,
+      detail.PADOMSource,
+      detail.DOMICILE_NOM_EFFECTIF,
+      candidateCache,
+      clubNameCache,
+    );
+
+    const exterieurEffectiveName = resolveMatchSideDisplayName(
+      detail.EXTERIEUR,
+      detail.PAEXTSource,
+      detail.EXTERIEUR_NOM_EFFECTIF,
+      candidateCache,
+      clubNameCache,
+    );
+
     const supportedClubId = getSupportedClubId();
     const supportedSide = resolveSupportedClubSide(detail.DOMICILE, detail.EXTERIEUR, supportedClubId);
 
     return {
       ...detail,
+      DOMICILE_NOM_EFFECTIF: domicileEffectiveName,
+      EXTERIEUR_NOM_EFFECTIF: exterieurEffectiveName,
       SUPPORTED_CLUB_ID: supportedClubId,
       IS_SUPPORTED_CLUB_MATCH: supportedSide === 'none' ? 0 : 1,
       SUPPORTED_CLUB_SIDE: supportedSide,
@@ -1196,6 +1664,8 @@ export async function getTourMatchesForRencontre(id: string | number): Promise<T
        r."TABEXT",
        r."ETAT",
        r."IDCIRC",
+      r."PADOMSource",
+      r."PAEXTSource",
        COALESCE(cd."CLUB", r."DOMICILE") AS "DOMICILE_NOM",
        COALESCE(ce."CLUB", r."EXTERIEUR") AS "EXTERIEUR_NOM"
      FROM "RENCO" r
@@ -1207,14 +1677,29 @@ export async function getTourMatchesForRencontre(id: string | number): Promise<T
      ORDER BY r."DATE" ASC, r."HEURE" ASC, r."RECLEUNIK" ASC`,
   ).all(recleunik, recleunik, recleunik) as Array<Record<string, unknown>>;
 
+  const candidateCache = new Map<string, string[]>();
+  const clubNameCache = new Map<string, string>();
+
   return rows.map((row) => ({
     RECLEUNIK: toInt(row.RECLEUNIK),
     DATE: toText(row.DATE),
     HEURE: row.HEURE == null ? null : toText(row.HEURE),
     DOMICILE: toText(row.DOMICILE),
     EXTERIEUR: toText(row.EXTERIEUR),
-    DOMICILE_NOM: toText(row.DOMICILE_NOM),
-    EXTERIEUR_NOM: toText(row.EXTERIEUR_NOM),
+    DOMICILE_NOM: resolveMatchSideDisplayName(
+      row.DOMICILE,
+      row.PADOMSource,
+      row.DOMICILE_NOM,
+      candidateCache,
+      clubNameCache,
+    ),
+    EXTERIEUR_NOM: resolveMatchSideDisplayName(
+      row.EXTERIEUR,
+      row.PAEXTSource,
+      row.EXTERIEUR_NOM,
+      candidateCache,
+      clubNameCache,
+    ),
     BUTDOM: toInt(row.BUTDOM),
     BUTEXT: toInt(row.BUTEXT),
     TABDOM: toInt(row.TABDOM),

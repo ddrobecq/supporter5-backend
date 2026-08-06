@@ -18,6 +18,7 @@ export interface TourParticipantRow {
   IDCLUB: string;
   CLUB: string;
   GROUPE: string;
+  PASource?: string;
   PAClassement?: number;
   PANbMatch?: number;
   PANbPoints?: number;
@@ -285,6 +286,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
        p."IDCLUB" AS "IDCLUB",
        c."CLUB" AS "CLUB",
        COALESCE(p."GROUPE", '') AS "GROUPE",
+      COALESCE(p."PASource", '') AS "PASource",
        COALESCE(p."PAClassement", 0) AS "PAClassement",
        COALESCE(p."PANbMatch", 0) AS "PANbMatch",
        COALESCE(p."PANbPoints", 0) AS "PANbPoints",
@@ -314,6 +316,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     IDCLUB: String(row.IDCLUB ?? '').trim(),
     CLUB: String(row.CLUB ?? '').trim(),
     GROUPE: String(row.GROUPE ?? '').trim(),
+    PASource: String(row.PASource ?? '').trim(),
     PAClassement: Number(row.PAClassement ?? 0),
     PANbMatch: Number(row.PANbMatch ?? 0),
     PANbPoints: Number(row.PANbPoints ?? 0),
@@ -331,16 +334,160 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
   }));
 }
 
-async function addTourParticipant(tourId: string | number, clubIdInput: string, groupeInput = ''): Promise<TourParticipantRow> {
+function isValidPaSource(value: string): boolean {
+  const parts = value.split(',').map((part) => part.trim());
+  if (parts.length !== 3) {
+    return false;
+  }
+
+  const [tourId, , rank] = parts;
+  return /^\d+$/.test(tourId) && /^\d+$/.test(rank);
+}
+
+async function addTourParticipant(
+  tourId: string | number,
+  clubIdInput: string,
+  groupeInput = '',
+  paSourceInput = '',
+): Promise<TourParticipantRow> {
   const tourIdValue = normalizeTourId(tourId);
   const clubId = String(clubIdInput ?? '').trim();
   const groupe = String(groupeInput ?? '').trim();
+  const paSource = String(paSourceInput ?? '').trim();
 
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
   if (groupe.length > 20) {
     throw new AppError(400, 'Nom de groupe invalide (20 caracteres max).');
+  }
+
+  if (!clubId && !paSource) {
+    throw new AppError(400, 'clubId ou paSource est requis.');
+  }
+
+  if (clubId && paSource) {
+    throw new AppError(400, 'Utilisez soit clubId, soit paSource, pas les deux.');
+  }
+
+  if (paSource && !isValidPaSource(paSource)) {
+    throw new AppError(400, 'Format paSource invalide (TUCLEUNIK,GROUPE,CLASSEMENT).');
+  }
+
+  if (!clubId) {
+    const existingProgrammed = await dbGet<TourParticipantRow>(
+      `SELECT
+         p."PACLEUNIK" AS "PACLEUNIK",
+         p."TUCLEUNIK" AS "TUCLEUNIK",
+         p."IDCLUB" AS "IDCLUB",
+         COALESCE(c."CLUB", '') AS "CLUB",
+         COALESCE(p."GROUPE", '') AS "GROUPE",
+         COALESCE(p."PASource", '') AS "PASource"
+       FROM "PARTICIP" p
+       LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+       WHERE p."TUCLEUNIK" = ?
+         AND COALESCE(p."PASource", '') = ?
+         AND (p."IDCLUB" IS NULL OR TRIM(COALESCE(p."IDCLUB", '')) = '')
+       LIMIT 1`,
+      [tourIdValue, paSource],
+    );
+
+    if (existingProgrammed) {
+      const existingGroupe = String(existingProgrammed.GROUPE ?? '').trim();
+      if (groupe !== existingGroupe) {
+        await dbRun(
+          `UPDATE "PARTICIP"
+           SET "GROUPE" = ?
+           WHERE "PACLEUNIK" = ?`,
+          [groupe, Number(existingProgrammed.PACLEUNIK)],
+        );
+      }
+
+      const updatedProgrammed = await dbGet<TourParticipantRow>(
+        `SELECT
+           p."PACLEUNIK" AS "PACLEUNIK",
+           p."TUCLEUNIK" AS "TUCLEUNIK",
+           p."IDCLUB" AS "IDCLUB",
+           COALESCE(c."CLUB", '') AS "CLUB",
+           COALESCE(p."GROUPE", '') AS "GROUPE",
+           COALESCE(p."PASource", '') AS "PASource"
+         FROM "PARTICIP" p
+         LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+         WHERE p."PACLEUNIK" = ?
+         LIMIT 1`,
+        [Number(existingProgrammed.PACLEUNIK)],
+      );
+
+      return {
+        PACLEUNIK: Number(updatedProgrammed?.PACLEUNIK ?? existingProgrammed.PACLEUNIK),
+        TUCLEUNIK: Number(updatedProgrammed?.TUCLEUNIK ?? existingProgrammed.TUCLEUNIK),
+        IDCLUB: String(updatedProgrammed?.IDCLUB ?? existingProgrammed.IDCLUB ?? '').trim(),
+        CLUB: String(updatedProgrammed?.CLUB ?? existingProgrammed.CLUB ?? '').trim(),
+        GROUPE: String(updatedProgrammed?.GROUPE ?? existingProgrammed.GROUPE ?? '').trim(),
+        PASource: String(updatedProgrammed?.PASource ?? existingProgrammed.PASource ?? '').trim(),
+      };
+    }
+
+    await dbRun(
+      `INSERT INTO "PARTICIP" (
+        "IDCLUB",
+        "TUCLEUNIK",
+        "GROUPE",
+        "PAClassement",
+        "PANbMatch",
+        "PANbPoints",
+        "PANbVD",
+        "PANbVE",
+        "PANbND",
+        "PANbNE",
+        "PANbDD",
+        "PANbDE",
+        "PANbBPD",
+        "PANbBCD",
+        "PABonus",
+        "PANbBPE",
+        "PANbBCE",
+        "PADiff",
+        "PANbBP",
+        "PANbV",
+        "PANbTaBP",
+        "PANbTaBC",
+        "PADiffTaB",
+        "PANbBC",
+        "PASource",
+        "PARatio",
+        "PAMalus"
+      ) VALUES ('', ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0)`,
+      [tourIdValue, groupe, paSource],
+    );
+
+    const insertedProgrammed = await dbGet<TourParticipantRow>(
+      `SELECT
+         p."PACLEUNIK" AS "PACLEUNIK",
+         p."TUCLEUNIK" AS "TUCLEUNIK",
+         p."IDCLUB" AS "IDCLUB",
+         COALESCE(c."CLUB", '') AS "CLUB",
+         COALESCE(p."GROUPE", '') AS "GROUPE",
+         COALESCE(p."PASource", '') AS "PASource"
+       FROM "PARTICIP" p
+       LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+       WHERE p."TUCLEUNIK" = ?
+         AND COALESCE(p."PASource", '') = ?
+         AND (p."IDCLUB" IS NULL OR TRIM(COALESCE(p."IDCLUB", '')) = '')
+       ORDER BY p."PACLEUNIK" DESC
+       LIMIT 1`,
+      [tourIdValue, paSource],
+    );
+
+    if (!insertedProgrammed) {
+      throw new AppError(500, 'Impossible d\'ajouter le participant programme.');
+    }
+
+    return {
+      PACLEUNIK: Number(insertedProgrammed.PACLEUNIK),
+      TUCLEUNIK: Number(insertedProgrammed.TUCLEUNIK),
+      IDCLUB: String(insertedProgrammed.IDCLUB ?? '').trim(),
+      CLUB: String(insertedProgrammed.CLUB ?? '').trim(),
+      GROUPE: String(insertedProgrammed.GROUPE ?? '').trim(),
+      PASource: String(insertedProgrammed.PASource ?? '').trim(),
+    };
   }
 
   const clubExists = await dbGet<{ IDCLUB: string }>('SELECT "IDCLUB" FROM "CLUB" WHERE "IDCLUB" = ?', [clubId]);
@@ -354,7 +501,8 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string, 
        p."TUCLEUNIK" AS "TUCLEUNIK",
        p."IDCLUB" AS "IDCLUB",
        c."CLUB" AS "CLUB",
-       COALESCE(p."GROUPE", '') AS "GROUPE"
+       COALESCE(p."GROUPE", '') AS "GROUPE",
+       COALESCE(p."PASource", '') AS "PASource"
      FROM "PARTICIP" p
      LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
      WHERE p."TUCLEUNIK" = ? AND p."IDCLUB" = ?`,
@@ -378,7 +526,8 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string, 
          p."TUCLEUNIK" AS "TUCLEUNIK",
          p."IDCLUB" AS "IDCLUB",
          c."CLUB" AS "CLUB",
-         COALESCE(p."GROUPE", '') AS "GROUPE"
+         COALESCE(p."GROUPE", '') AS "GROUPE",
+         COALESCE(p."PASource", '') AS "PASource"
        FROM "PARTICIP" p
        LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
        WHERE p."TUCLEUNIK" = ? AND p."IDCLUB" = ?`,
@@ -391,6 +540,7 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string, 
       IDCLUB: String(updated?.IDCLUB ?? existing.IDCLUB ?? '').trim(),
       CLUB: String(updated?.CLUB ?? existing.CLUB ?? '').trim(),
       GROUPE: String(updated?.GROUPE ?? existing.GROUPE ?? '').trim(),
+      PASource: String(updated?.PASource ?? existing.PASource ?? '').trim(),
     };
   }
 
@@ -433,7 +583,8 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string, 
        p."TUCLEUNIK" AS "TUCLEUNIK",
        p."IDCLUB" AS "IDCLUB",
        c."CLUB" AS "CLUB",
-       COALESCE(p."GROUPE", '') AS "GROUPE"
+       COALESCE(p."GROUPE", '') AS "GROUPE",
+       COALESCE(p."PASource", '') AS "PASource"
      FROM "PARTICIP" p
      LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
      WHERE p."TUCLEUNIK" = ? AND p."IDCLUB" = ?`,
@@ -450,25 +601,47 @@ async function addTourParticipant(tourId: string | number, clubIdInput: string, 
     IDCLUB: String(inserted.IDCLUB ?? '').trim(),
     CLUB: String(inserted.CLUB ?? '').trim(),
     GROUPE: String(inserted.GROUPE ?? '').trim(),
+    PASource: String(inserted.PASource ?? '').trim(),
   };
 }
 
-async function removeTourParticipants(tourId: string | number, clubIds: string[]): Promise<number> {
+async function removeTourParticipants(
+  tourId: string | number,
+  clubIds: string[],
+  participantIds: Array<string | number> = [],
+): Promise<number> {
   const tourIdValue = normalizeTourId(tourId);
   const normalizedClubIds = clubIds
     .map((clubId) => String(clubId ?? '').trim())
     .filter((clubId) => clubId.length > 0);
+  const normalizedParticipantIds = participantIds
+    .map((participantId) => Number(participantId))
+    .filter((participantId) => Number.isInteger(participantId) && participantId > 0);
 
-  if (normalizedClubIds.length === 0) {
+  if (normalizedClubIds.length === 0 && normalizedParticipantIds.length === 0) {
     return 0;
   }
 
-  const placeholders = normalizedClubIds.map(() => '?').join(', ');
+  const whereClauses: string[] = [];
+  const whereParams: Array<string | number> = [];
+
+  if (normalizedParticipantIds.length > 0) {
+    const participantPlaceholders = normalizedParticipantIds.map(() => '?').join(', ');
+    whereClauses.push(`"PACLEUNIK" IN (${participantPlaceholders})`);
+    whereParams.push(...normalizedParticipantIds);
+  }
+
+  if (normalizedClubIds.length > 0) {
+    const clubPlaceholders = normalizedClubIds.map(() => '?').join(', ');
+    whereClauses.push(`"IDCLUB" IN (${clubPlaceholders})`);
+    whereParams.push(...normalizedClubIds);
+  }
+
   const result = await dbRun(
     `DELETE FROM "PARTICIP"
      WHERE "TUCLEUNIK" = ?
-       AND "IDCLUB" IN (${placeholders})`,
-    [tourIdValue, ...normalizedClubIds],
+       AND (${whereClauses.join(' OR ')})`,
+    [tourIdValue, ...whereParams],
   );
 
   return Number(result.changes ?? 0);

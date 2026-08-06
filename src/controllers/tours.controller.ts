@@ -62,7 +62,8 @@ export async function addTourParticipant(req: Request, res: Response, next: Next
 	try {
 		const clubId = String(req.body?.clubId ?? '').trim();
 		const groupe = String(req.body?.groupe ?? '').trim();
-		const data = await toursService.addTourParticipant(req.params.id, clubId, groupe);
+		const paSource = String(req.body?.paSource ?? '').trim();
+		const data = await toursService.addTourParticipant(req.params.id, clubId, groupe, paSource);
 		res.status(201).json(data);
 	} catch (error) {
 		next(error);
@@ -71,11 +72,17 @@ export async function addTourParticipant(req: Request, res: Response, next: Next
 
 export async function removeTourParticipants(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const rawIds: unknown[] = Array.isArray(req.body?.clubIds) ? req.body.clubIds : [];
-		const clubIds = rawIds
+		const rawClubIds: unknown[] = Array.isArray(req.body?.clubIds) ? req.body.clubIds : [];
+		const clubIds = rawClubIds
 			.map((clubId: unknown) => String(clubId ?? '').trim())
 			.filter((clubId: string) => clubId.length > 0);
-		const removed = await toursService.removeTourParticipants(req.params.id, clubIds);
+
+		const rawParticipantIds: unknown[] = Array.isArray(req.body?.participantIds) ? req.body.participantIds : [];
+		const participantIds = rawParticipantIds
+			.map((participantId: unknown) => Number(participantId))
+			.filter((participantId: number) => Number.isInteger(participantId) && participantId > 0);
+
+		const removed = await toursService.removeTourParticipants(req.params.id, clubIds, participantIds);
 		res.status(200).json({ removed });
 	} catch (error) {
 		next(error);
