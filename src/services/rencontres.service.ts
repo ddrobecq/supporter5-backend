@@ -1724,12 +1724,40 @@ export interface CompositionRow {
   [key: string]: unknown;
 }
 
+export async function upsertArbitreForRencontre(rencontreId: string | number, idarbitre: string | null): Promise<void> {
+  const recleunik = toInt(rencontreId);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
+
+  const matchRow = db.prepare(
+    `SELECT m."MACLEUNIK" FROM "MATCH" m WHERE m."RECLEUNIK" = ? LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  const normalizedArbitre = idarbitre ? String(idarbitre).trim() || null : null;
+
+  if (matchRow) {
+    db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
+      .run(normalizedArbitre, toInt(matchRow.MACLEUNIK));
+    return;
+  }
+
+  // No MATCH row yet: create one with the rencontre's SAISON and sensible defaults.
+  const rencoRow = db.prepare(`SELECT "SAISON" FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`)
+    .get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!rencoRow) throw new AppError(404, 'Rencontre introuvable.');
+
+  db.prepare(
+    `INSERT INTO "MATCH" ("RECLEUNIK", "SAISON", "IDARBITRE", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "LIEU", "MADUREE")
+     VALUES (?, ?, ?, 0, 1, 0, 0, 0, 0, 0, 'N', 90)`,
+  ).run(recleunik, toText(rencoRow.SAISON), normalizedArbitre);
+}
+
 export async function getCompositionForRencontre(id: string | number): Promise<CompositionRow | null> {
   const recleunik = toInt(id);
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const row = db.prepare(
-    `SELECT e.*, m."RECLEUNIK"
+    `SELECT e.*, m."RECLEUNIK", m."MACLEUNIK" AS "MATCH_MACLEUNIK", COALESCE(m."IDARBITRE", '') AS "IDARBITRE"
      FROM "MATCH" m
      LEFT JOIN "EQUIPE" e ON e."MACLEUNIK" = m."MACLEUNIK"
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
@@ -1913,6 +1941,7 @@ export default {
   getTourMatchesForRencontre,
   getCompositionForRencontre,
   upsertCompositionForRencontre,
+  upsertArbitreForRencontre,
   getSquadForRencontre,
   createEventForRencontre,
   updateEventForRencontre,

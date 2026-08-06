@@ -91,6 +91,18 @@ export async function saveComposition(req: Request, res: Response, next: NextFun
 	}
 }
 
+export async function setArbitre(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const id = String(req.params.id ?? '').trim();
+		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
+		const idarbitre = req.body?.IDARBITRE === '' ? null : (String(req.body?.IDARBITRE ?? '').trim() || null);
+		await rencontresService.upsertArbitreForRencontre(id, idarbitre);
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getSquad(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const id = String(req.params.id ?? '').trim();
