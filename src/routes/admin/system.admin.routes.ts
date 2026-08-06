@@ -60,5 +60,6 @@ router.post('/database/upload', (req, res, next) => {
   });
 }, ctrl.uploadDatabaseHandler);
 router.post('/restart', ctrl.restartBackendHandler);
+router.get('/version', ctrl.versionHandler);
 
 export default router;
