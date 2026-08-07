@@ -26,6 +26,7 @@ export interface CalendarMatchRow {
 
 export interface RencontreDetailRow {
   RECLEUNIK: number;
+  MACLEUNIK: number | null;
   DATE: string | null;
   HEURE: string | null;
   ETAT: number;
@@ -54,6 +55,14 @@ export interface RencontreDetailRow {
   EXTERIEUR_TEXTE: string | number | null;
   DOMICILE_NOM_EFFECTIF: string;
   EXTERIEUR_NOM_EFFECTIF: string;
+  IDARBITRE: string | null;
+  ARBITRE_NOM: string;
+  ARBITRE_PRENOM: string;
+  TECLEUNIK: string | null;
+  TERRAIN_NOM: string;
+  TERRAIN_VILLE: string;
+  TERRAIN_DISPLAY: string;
+  NBSPECT: number;
   SUPPORTED_CLUB_ID: string;
   IS_SUPPORTED_CLUB_MATCH: number;
   SUPPORTED_CLUB_SIDE: 'home' | 'away' | 'none';
@@ -1439,6 +1448,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
   return dbAll<Omit<RencontreDetailRow, 'SUPPORTED_CLUB_ID' | 'IS_SUPPORTED_CLUB_MATCH' | 'SUPPORTED_CLUB_SIDE'>>(
     `SELECT
       r.RECLEUNIK,
+      m.MACLEUNIK,
       r.DATE,
       r.HEURE,
       r.ETAT,
@@ -1488,12 +1498,23 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
           )
         ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
         LIMIT 1
-      ), COALESCE(ce.CLUB, ''), '') AS EXTERIEUR_NOM_EFFECTIF
+      ), COALESCE(ce.CLUB, ''), '') AS EXTERIEUR_NOM_EFFECTIF,
+      NULLIF(TRIM(COALESCE(m.IDARBITRE, '')), '') AS IDARBITRE,
+      COALESCE(a.NOM, '') AS ARBITRE_NOM,
+      COALESCE(a.PRENOM, '') AS ARBITRE_PRENOM,
+      NULLIF(TRIM(COALESCE(m.TECLEUNIK, '')), '') AS TECLEUNIK,
+      COALESCE(te.STADE, '') AS TERRAIN_NOM,
+      COALESCE(vt.NOM, '') AS TERRAIN_VILLE,
+      COALESCE(m.NBSPECT, 0) AS NBSPECT
      FROM RENCO r
+     LEFT JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
      LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
      LEFT JOIN TOURDEF td ON td.TDCLEUNIK = t.TDCLEUNIK
      LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
      LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
+     LEFT JOIN ARBITRE a ON a.IDARBITRE = m.IDARBITRE
+     LEFT JOIN TERRAIN te ON te.TECLEUNIK = m.TECLEUNIK
+    LEFT JOIN VILLE vt ON vt.VICLEUNIK = te.IDVILLE
      WHERE r.RECLEUNIK = ?
      LIMIT 1`,
     [id],
@@ -1524,11 +1545,25 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
 
     const supportedClubId = getSupportedClubId();
     const supportedSide = resolveSupportedClubSide(detail.DOMICILE, detail.EXTERIEUR, supportedClubId);
+    const terrainId = toText(detail.TECLEUNIK);
+    const terrainName = toText(detail.TERRAIN_NOM);
+    const terrainVille = toText(detail.TERRAIN_VILLE);
+    const opponentClubId = supportedSide === 'home'
+      ? toText(detail.EXTERIEUR)
+      : supportedSide === 'away'
+        ? toText(detail.DOMICILE)
+        : '';
+    const isSupportedClubTerrain = terrainId ? clubHasTerrain(supportedClubId, terrainId) : false;
+    const isOpponentClubTerrain = terrainId && opponentClubId ? clubHasTerrain(opponentClubId, terrainId) : false;
+    const terrainDisplay = terrainName && !isSupportedClubTerrain && !isOpponentClubTerrain && terrainVille
+      ? `${terrainName} (${terrainVille})`
+      : terrainName;
 
     return {
       ...detail,
       DOMICILE_NOM_EFFECTIF: domicileEffectiveName,
       EXTERIEUR_NOM_EFFECTIF: exterieurEffectiveName,
+      TERRAIN_DISPLAY: terrainDisplay,
       SUPPORTED_CLUB_ID: supportedClubId,
       IS_SUPPORTED_CLUB_MATCH: supportedSide === 'none' ? 0 : 1,
       SUPPORTED_CLUB_SIDE: supportedSide,
@@ -1724,32 +1759,109 @@ export interface CompositionRow {
   [key: string]: unknown;
 }
 
-export async function upsertArbitreForRencontre(rencontreId: string | number, idarbitre: string | null): Promise<void> {
-  const recleunik = toInt(rencontreId);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
-
+function ensureMatchRowForRencontre(recleunik: number): { macleunik: number; saison: string } {
   const matchRow = db.prepare(
-    `SELECT m."MACLEUNIK" FROM "MATCH" m WHERE m."RECLEUNIK" = ? LIMIT 1`,
+    `SELECT m."MACLEUNIK", m."SAISON" FROM "MATCH" m WHERE m."RECLEUNIK" = ? LIMIT 1`,
   ).get(recleunik) as Record<string, unknown> | undefined;
 
-  const normalizedArbitre = idarbitre ? String(idarbitre).trim() || null : null;
-
   if (matchRow) {
-    db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
-      .run(normalizedArbitre, toInt(matchRow.MACLEUNIK));
-    return;
+    return {
+      macleunik: toInt(matchRow.MACLEUNIK),
+      saison: toText(matchRow.SAISON),
+    };
   }
 
-  // No MATCH row yet: create one with the rencontre's SAISON and sensible defaults.
   const rencoRow = db.prepare(`SELECT "SAISON" FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`)
     .get(recleunik) as Record<string, unknown> | undefined;
 
   if (!rencoRow) throw new AppError(404, 'Rencontre introuvable.');
 
+  const inserted = db.prepare(
+    `INSERT INTO "MATCH" ("RECLEUNIK", "SAISON", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "LIEU", "MADUREE")
+     VALUES (?, ?, 0, 1, 0, 0, 0, 0, 0, 'N', 90)`,
+  ).run(recleunik, toText(rencoRow.SAISON));
+
+  return {
+    macleunik: toInt(inserted.lastInsertRowid),
+    saison: toText(rencoRow.SAISON),
+  };
+}
+
+export async function upsertArbitreForRencontre(rencontreId: string | number, idarbitre: string | null): Promise<void> {
+  const recleunik = toInt(rencontreId);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
+
+  const normalizedArbitre = idarbitre ? String(idarbitre).trim() || null : null;
+
+  const { macleunik } = ensureMatchRowForRencontre(recleunik);
+  db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
+    .run(normalizedArbitre, macleunik);
+}
+
+export interface RencontreMatchMetaPayload {
+  IDARBITRE?: string | null;
+  TECLEUNIK?: string | null;
+  NBSPECT?: number;
+  LIEU?: string | null;
+}
+
+function clubHasTerrain(clubId: string, tecleunik: string): boolean {
+  if (!clubId || !tecleunik) return false;
+  const row = db.prepare(
+    `SELECT 1
+     FROM "CLUB_TERRAIN"
+     WHERE "IDCLUB" = ? AND CAST("TECLEUNIK" AS TEXT) = ?
+     LIMIT 1`,
+  ).get(clubId, tecleunik) as Record<string, unknown> | undefined;
+  return !!row;
+}
+
+function resolveMatchLieuFromTerrain(recleunik: number, tecleunik: string | null): 'D' | 'E' | 'N' {
+  if (!tecleunik) return 'N';
+
+  const rencontre = db.prepare(
+    `SELECT "DOMICILE", "EXTERIEUR"
+     FROM "RENCO"
+     WHERE "RECLEUNIK" = ?
+     LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  if (!rencontre) return 'N';
+
+  const domicile = toText(rencontre.DOMICILE);
+  const exterieur = toText(rencontre.EXTERIEUR);
+  const supportedClubId = getSupportedClubId();
+  const supportedSide = resolveSupportedClubSide(domicile, exterieur, supportedClubId);
+
+  if (supportedSide === 'none') return 'N';
+
+  const opponentClubId = supportedSide === 'home' ? exterieur : domicile;
+
+  if (clubHasTerrain(supportedClubId, tecleunik)) {
+    return 'D';
+  }
+  if (clubHasTerrain(opponentClubId, tecleunik)) {
+    return 'E';
+  }
+  return 'N';
+}
+
+export async function upsertMatchMetaForRencontre(rencontreId: string | number, payload: RencontreMatchMetaPayload): Promise<void> {
+  const recleunik = toInt(rencontreId);
+  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
+
+  const { macleunik } = ensureMatchRowForRencontre(recleunik);
+  const normalizedArbitre = payload.IDARBITRE == null ? null : (String(payload.IDARBITRE).trim() || null);
+  const normalizedTerrain = payload.TECLEUNIK == null ? null : (String(payload.TECLEUNIK).trim() || null);
+  const rawNbSpect = toInt(payload.NBSPECT, 0);
+  const normalizedNbSpect = rawNbSpect === -1 ? -1 : Math.max(0, rawNbSpect);
+  const normalizedLieu = resolveMatchLieuFromTerrain(recleunik, normalizedTerrain);
+
   db.prepare(
-    `INSERT INTO "MATCH" ("RECLEUNIK", "SAISON", "IDARBITRE", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "LIEU", "MADUREE")
-     VALUES (?, ?, ?, 0, 1, 0, 0, 0, 0, 0, 'N', 90)`,
-  ).run(recleunik, toText(rencoRow.SAISON), normalizedArbitre);
+    `UPDATE "MATCH"
+     SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?, "LIEU" = ?
+     WHERE "MACLEUNIK" = ?`,
+  ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, macleunik);
 }
 
 export async function getCompositionForRencontre(id: string | number): Promise<CompositionRow | null> {
@@ -1949,6 +2061,7 @@ export default {
   getCompositionForRencontre,
   upsertCompositionForRencontre,
   upsertArbitreForRencontre,
+  upsertMatchMetaForRencontre,
   getSquadForRencontre,
   createEventForRencontre,
   updateEventForRencontre,

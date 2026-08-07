@@ -103,6 +103,23 @@ export async function setArbitre(req: Request, res: Response, next: NextFunction
 	}
 }
 
+export async function setMatchMeta(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const id = String(req.params.id ?? '').trim();
+		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
+
+		await rencontresService.upsertMatchMetaForRencontre(id, {
+			IDARBITRE: req.body?.IDARBITRE === '' ? null : req.body?.IDARBITRE,
+			TECLEUNIK: req.body?.TECLEUNIK === '' ? null : req.body?.TECLEUNIK,
+			NBSPECT: req.body?.NBSPECT,
+			LIEU: req.body?.LIEU === '' ? null : req.body?.LIEU,
+		});
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getSquad(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const id = String(req.params.id ?? '').trim();
