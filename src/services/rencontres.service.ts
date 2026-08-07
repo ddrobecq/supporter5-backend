@@ -1757,7 +1757,7 @@ export async function getCompositionForRencontre(id: string | number): Promise<C
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const row = db.prepare(
-    `SELECT e.*, m."RECLEUNIK", m."MACLEUNIK" AS "MATCH_MACLEUNIK", COALESCE(m."IDARBITRE", '') AS "IDARBITRE"
+    `SELECT e.*, m."RECLEUNIK", m."MACLEUNIK" AS "MATCH_MACLEUNIK", COALESCE(m."IDARBITRE", '') AS "IDARBITRE", COALESCE(m."MACOMPOADVERSAIRE", '') AS "MACOMPOADVERSAIRE"
      FROM "MATCH" m
      LEFT JOIN "EQUIPE" e ON e."MACLEUNIK" = m."MACLEUNIK"
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
@@ -1785,6 +1785,9 @@ export async function upsertCompositionForRencontre(
   const macleunik = toInt(matchRow.MACLEUNIK);
   const saison = toText(matchRow.SAISON);
   const date = matchRow.DATE == null ? null : toText(matchRow.DATE);
+  const opponentCompositionRaw = payload.MACOMPOADVERSAIRE;
+  const opponentComposition = opponentCompositionRaw == null ? null : String(opponentCompositionRaw);
+  const normalizedOpponentComposition = opponentComposition && opponentComposition.trim() ? opponentComposition : null;
 
   const existing = db.prepare('SELECT "EQCLEUNIK" FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
 
@@ -1804,6 +1807,8 @@ export async function upsertCompositionForRencontre(
     const marks = ['?', '?', '?', ...fieldsToSave.map(() => '?')].join(', ');
     db.prepare(`INSERT INTO "EQUIPE" (${cols}) VALUES (${marks})`).run(macleunik, saison, date, ...values);
   }
+
+  db.prepare(`UPDATE "MATCH" SET "MACOMPOADVERSAIRE" = ? WHERE "MACLEUNIK" = ?`).run(normalizedOpponentComposition, macleunik);
 
   return getCompositionForRencontre(id);
 }
