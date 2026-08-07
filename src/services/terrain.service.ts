@@ -18,7 +18,7 @@ function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly str
 const TABLE = 'TERRAIN';
 const PK = 'TECLEUNIK';
 const ALLOWED_SORT_COLS = ['TECLEUNIK', 'STADE', 'IDVILLE'];
-const SEARCH_COLS = ['TECLEUNIK', 'STADE'];
+const SEARCH_COLS = ['TECLEUNIK', 'STADE', 'VILLE_NOM'];
 const WRITABLE_COLS = ['TECLEUNIK', 'STADE', 'IDVILLE'] as const;
 
 function sanitizeWriteBody(

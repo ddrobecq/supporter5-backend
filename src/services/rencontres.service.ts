@@ -1545,9 +1545,19 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
 
     const supportedClubId = getSupportedClubId();
     const supportedSide = resolveSupportedClubSide(detail.DOMICILE, detail.EXTERIEUR, supportedClubId);
-    const terrainId = toText(detail.TECLEUNIK);
-    const terrainName = toText(detail.TERRAIN_NOM);
-    const terrainVille = toText(detail.TERRAIN_VILLE);
+    let terrainId = toText(detail.TECLEUNIK);
+    let terrainName = toText(detail.TERRAIN_NOM);
+    let terrainVille = toText(detail.TERRAIN_VILLE);
+
+    if (!terrainId && supportedSide !== 'none') {
+      const defaultTerrain = getLatestTerrainForClub(toText(detail.DOMICILE));
+      if (defaultTerrain) {
+        terrainId = defaultTerrain.TERRAIN_ID;
+        terrainName = defaultTerrain.TERRAIN_NOM;
+        terrainVille = defaultTerrain.TERRAIN_VILLE;
+      }
+    }
+
     const opponentClubId = supportedSide === 'home'
       ? toText(detail.EXTERIEUR)
       : supportedSide === 'away'
@@ -1561,6 +1571,9 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
 
     return {
       ...detail,
+      TECLEUNIK: terrainId || null,
+      TERRAIN_NOM: terrainName,
+      TERRAIN_VILLE: terrainVille,
       DOMICILE_NOM_EFFECTIF: domicileEffectiveName,
       EXTERIEUR_NOM_EFFECTIF: exterieurEffectiveName,
       TERRAIN_DISPLAY: terrainDisplay,
@@ -1803,6 +1816,48 @@ export interface RencontreMatchMetaPayload {
   TECLEUNIK?: string | null;
   NBSPECT?: number;
   LIEU?: string | null;
+}
+
+interface ClubLatestTerrainRow {
+  TERRAIN_ID: string;
+  TERRAIN_NOM: string;
+  TERRAIN_VILLE: string;
+}
+
+function getLatestTerrainForClub(clubId: string): ClubLatestTerrainRow | null {
+  const normalizedClubId = toText(clubId);
+  if (!normalizedClubId) {
+    return null;
+  }
+
+  const row = db.prepare(
+    `SELECT
+       NULLIF(TRIM(CAST(ct."TECLEUNIK" AS TEXT)), '') AS TERRAIN_ID,
+       COALESCE(t."STADE", '') AS TERRAIN_NOM,
+       COALESCE(v."NOM", '') AS TERRAIN_VILLE
+     FROM "CLUB_TERRAIN" ct
+     LEFT JOIN "TERRAIN" t ON t."TECLEUNIK" = ct."TECLEUNIK"
+     LEFT JOIN "VILLE" v ON v."VICLEUNIK" = t."IDVILLE"
+     WHERE ct."IDCLUB" = ?
+       AND NULLIF(TRIM(CAST(ct."TECLEUNIK" AS TEXT)), '') IS NOT NULL
+     ORDER BY REPLACE(COALESCE(ct."DATE", ''), '-', '') DESC, ct."CT_CLEUNIK" DESC
+     LIMIT 1`,
+  ).get(normalizedClubId) as Record<string, unknown> | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  const terrainId = toText(row.TERRAIN_ID);
+  if (!terrainId) {
+    return null;
+  }
+
+  return {
+    TERRAIN_ID: terrainId,
+    TERRAIN_NOM: toText(row.TERRAIN_NOM),
+    TERRAIN_VILLE: toText(row.TERRAIN_VILLE),
+  };
 }
 
 function clubHasTerrain(clubId: string, tecleunik: string): boolean {
