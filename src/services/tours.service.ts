@@ -391,7 +391,8 @@ async function addTourParticipant(
 
     if (existingProgrammed) {
       const existingGroupe = String(existingProgrammed.GROUPE ?? '').trim();
-      if (groupe !== existingGroupe) {
+      const shouldUpdateGroup = groupe.length > 0 && groupe !== existingGroupe;
+      if (shouldUpdateGroup) {
         await dbRun(
           `UPDATE "PARTICIP"
            SET "GROUPE" = ?
@@ -511,7 +512,8 @@ async function addTourParticipant(
 
   if (existing) {
     const existingGroupe = String(existing.GROUPE ?? '').trim();
-    if (groupe !== existingGroupe) {
+    const shouldUpdateGroup = groupe.length > 0 && groupe !== existingGroupe;
+    if (shouldUpdateGroup) {
       await dbRun(
         `UPDATE "PARTICIP"
          SET "GROUPE" = ?

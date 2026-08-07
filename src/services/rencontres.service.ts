@@ -817,6 +817,66 @@ function readParticipantByTourAndClub(tourId: number, clubId: string): Participa
   };
 }
 
+function readParticipantByTourAndMatchSide(
+  tourId: number,
+  clubId: string,
+  sourceValue: string,
+): { PACLEUNIK: number; GROUPE: string } | undefined {
+  const source = toText(sourceValue);
+  if (source) {
+    const rowBySource = db.prepare(
+      `SELECT
+         "PACLEUNIK",
+         COALESCE("GROUPE", '') AS "GROUPE"
+       FROM "PARTICIP"
+       WHERE "TUCLEUNIK" = ?
+         AND COALESCE("PASource", '') = ?
+       ORDER BY "PACLEUNIK" ASC
+       LIMIT 1`,
+    ).get(tourId, source) as Record<string, unknown> | undefined;
+
+    if (rowBySource) {
+      const participantId = toInt(rowBySource.PACLEUNIK, 0);
+      if (Number.isInteger(participantId) && participantId > 0) {
+        return {
+          PACLEUNIK: participantId,
+          GROUPE: toText(rowBySource.GROUPE),
+        };
+      }
+    }
+  }
+
+  const normalizedClubId = toText(clubId);
+  if (!normalizedClubId) {
+    return undefined;
+  }
+
+  const rowByClub = db.prepare(
+    `SELECT
+       "PACLEUNIK",
+       COALESCE("GROUPE", '') AS "GROUPE"
+     FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?
+       AND "IDCLUB" = ?
+     ORDER BY "PACLEUNIK" ASC
+     LIMIT 1`,
+  ).get(tourId, normalizedClubId) as Record<string, unknown> | undefined;
+
+  if (!rowByClub) {
+    return undefined;
+  }
+
+  const participantId = toInt(rowByClub.PACLEUNIK, 0);
+  if (!Number.isInteger(participantId) || participantId <= 0) {
+    return undefined;
+  }
+
+  return {
+    PACLEUNIK: participantId,
+    GROUPE: toText(rowByClub.GROUPE),
+  };
+}
+
 function isEliminatoireTour(tourId: number): boolean {
   const row = db.prepare(
     `SELECT COALESCE(td."TDTYPETOUR", 1) AS "TYPE_ID"
@@ -857,20 +917,37 @@ function buildNextEliminatoireMatchGroupLabel(tourId: number): string {
   return `Match ${String(nextIndex).padStart(2, '0')}`;
 }
 
-function assignEliminatoireGroupForMatch(tourId: number, domicile: string, exterieur: string): void {
+function assignEliminatoireGroupForMatch(
+  tourId: number,
+  domicile: string,
+  exterieur: string,
+  domicileSource: string,
+  exterieurSource: string,
+): void {
   if (!isEliminatoireTour(tourId)) {
     return;
   }
 
   const homeClubId = toText(domicile);
   const awayClubId = toText(exterieur);
-  if (!homeClubId || !awayClubId || homeClubId === awayClubId) {
+  const homeSource = toText(domicileSource);
+  const awaySource = toText(exterieurSource);
+  if (!homeClubId && !homeSource) {
+    return;
+  }
+  if (!awayClubId && !awaySource) {
+    return;
+  }
+  if (homeClubId && awayClubId && homeClubId === awayClubId) {
     return;
   }
 
-  const homeParticipant = readParticipantByTourAndClub(tourId, homeClubId);
-  const awayParticipant = readParticipantByTourAndClub(tourId, awayClubId);
+  const homeParticipant = readParticipantByTourAndMatchSide(tourId, homeClubId, homeSource);
+  const awayParticipant = readParticipantByTourAndMatchSide(tourId, awayClubId, awaySource);
   if (!homeParticipant || !awayParticipant) {
+    return;
+  }
+  if (homeParticipant.PACLEUNIK === awayParticipant.PACLEUNIK) {
     return;
   }
 
@@ -889,16 +966,16 @@ function assignEliminatoireGroupForMatch(tourId: number, domicile: string, exter
     db.prepare(
       `UPDATE "PARTICIP"
        SET "GROUPE" = ?
-       WHERE "TUCLEUNIK" = ? AND "IDCLUB" = ?`,
-    ).run(nextGroup, tourId, homeClubId);
+       WHERE "PACLEUNIK" = ?`,
+    ).run(nextGroup, homeParticipant.PACLEUNIK);
   }
 
   if (!awayGroup) {
     db.prepare(
       `UPDATE "PARTICIP"
        SET "GROUPE" = ?
-       WHERE "TUCLEUNIK" = ? AND "IDCLUB" = ?`,
-    ).run(nextGroup, tourId, awayClubId);
+       WHERE "PACLEUNIK" = ?`,
+    ).run(nextGroup, awayParticipant.PACLEUNIK);
   }
 }
 
@@ -1415,7 +1492,13 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
       throw new AppError(500, 'Rencontre creee introuvable.');
     }
 
-    assignEliminatoireGroupForMatch(insertedRow.TUCLEUNIK, insertedRow.DOMICILE, insertedRow.EXTERIEUR);
+    assignEliminatoireGroupForMatch(
+      insertedRow.TUCLEUNIK,
+      insertedRow.DOMICILE,
+      insertedRow.EXTERIEUR,
+      insertedRow.PADOMSource ?? '',
+      insertedRow.PAEXTSource ?? '',
+    );
 
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(insertedRow.TUCLEUNIK);
