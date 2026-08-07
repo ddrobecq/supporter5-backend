@@ -817,6 +817,138 @@ function readParticipantByTourAndClub(tourId: number, clubId: string): Participa
   };
 }
 
+function isEliminatoireTour(tourId: number): boolean {
+  const row = db.prepare(
+    `SELECT COALESCE(td."TDTYPETOUR", 1) AS "TYPE_ID"
+     FROM "TOUR" t
+     LEFT JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
+     WHERE t."TUCLEUNIK" = ?
+     LIMIT 1`,
+  ).get(tourId) as Record<string, unknown> | undefined;
+
+  return toInt(row?.TYPE_ID, 1) === 2;
+}
+
+function isGeneratedMatchGroupLabel(groupName: string): boolean {
+  return /^Match\s+\d+$/i.test(toText(groupName));
+}
+
+function buildNextEliminatoireMatchGroupLabel(tourId: number): string {
+  const rows = db.prepare(
+    `SELECT COALESCE("GROUPE", '') AS "GROUPE"
+     FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?`,
+  ).all(tourId) as Array<Record<string, unknown>>;
+
+  let maxIndex = 0;
+  rows.forEach((row) => {
+    const groupName = toText(row.GROUPE);
+    const match = /^Match\s+(\d+)$/i.exec(groupName);
+    if (!match) {
+      return;
+    }
+    const index = toInt(match[1], 0);
+    if (index > maxIndex) {
+      maxIndex = index;
+    }
+  });
+
+  const nextIndex = maxIndex + 1;
+  return `Match ${String(nextIndex).padStart(2, '0')}`;
+}
+
+function assignEliminatoireGroupForMatch(tourId: number, domicile: string, exterieur: string): void {
+  if (!isEliminatoireTour(tourId)) {
+    return;
+  }
+
+  const homeClubId = toText(domicile);
+  const awayClubId = toText(exterieur);
+  if (!homeClubId || !awayClubId || homeClubId === awayClubId) {
+    return;
+  }
+
+  const homeParticipant = readParticipantByTourAndClub(tourId, homeClubId);
+  const awayParticipant = readParticipantByTourAndClub(tourId, awayClubId);
+  if (!homeParticipant || !awayParticipant) {
+    return;
+  }
+
+  const homeGroup = toText(homeParticipant.GROUPE);
+  const awayGroup = toText(awayParticipant.GROUPE);
+  if (homeGroup && awayGroup) {
+    return;
+  }
+
+  const nextGroup = homeGroup || awayGroup || buildNextEliminatoireMatchGroupLabel(tourId);
+  if (!nextGroup) {
+    return;
+  }
+
+  if (!homeGroup) {
+    db.prepare(
+      `UPDATE "PARTICIP"
+       SET "GROUPE" = ?
+       WHERE "TUCLEUNIK" = ? AND "IDCLUB" = ?`,
+    ).run(nextGroup, tourId, homeClubId);
+  }
+
+  if (!awayGroup) {
+    db.prepare(
+      `UPDATE "PARTICIP"
+       SET "GROUPE" = ?
+       WHERE "TUCLEUNIK" = ? AND "IDCLUB" = ?`,
+    ).run(nextGroup, tourId, awayClubId);
+  }
+}
+
+function clearEliminatoireGroupForMatchIfUnused(tourId: number, domicile: string, exterieur: string): void {
+  if (!isEliminatoireTour(tourId)) {
+    return;
+  }
+
+  const homeClubId = toText(domicile);
+  const awayClubId = toText(exterieur);
+  if (!homeClubId || !awayClubId || homeClubId === awayClubId) {
+    return;
+  }
+
+  const remainingMatch = db.prepare(
+    `SELECT 1
+     FROM "RENCO"
+     WHERE "TUCLEUNIK" = ?
+       AND (
+         (COALESCE("DOMICILE", '') = ? AND COALESCE("EXTERIEUR", '') = ?)
+         OR
+         (COALESCE("DOMICILE", '') = ? AND COALESCE("EXTERIEUR", '') = ?)
+       )
+     LIMIT 1`,
+  ).get(tourId, homeClubId, awayClubId, awayClubId, homeClubId) as Record<string, unknown> | undefined;
+
+  if (remainingMatch) {
+    return;
+  }
+
+  const homeParticipant = readParticipantByTourAndClub(tourId, homeClubId);
+  const awayParticipant = readParticipantByTourAndClub(tourId, awayClubId);
+  if (!homeParticipant || !awayParticipant) {
+    return;
+  }
+
+  const homeGroup = toText(homeParticipant.GROUPE);
+  const awayGroup = toText(awayParticipant.GROUPE);
+  const canClear = homeGroup && awayGroup && homeGroup === awayGroup && isGeneratedMatchGroupLabel(homeGroup);
+  if (!canClear) {
+    return;
+  }
+
+  db.prepare(
+    `UPDATE "PARTICIP"
+     SET "GROUPE" = ''
+     WHERE "TUCLEUNIK" = ? AND "IDCLUB" IN (?, ?)`,
+  ).run(tourId, homeClubId, awayClubId);
+}
+
 function shouldCountMatch(row: RencontresRow): boolean {
   const readmin = toInt(row['READMIN'] ?? 0);
   if (readmin >= 1 && readmin <= 4) {
@@ -1283,6 +1415,8 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
       throw new AppError(500, 'Rencontre creee introuvable.');
     }
 
+    assignEliminatoireGroupForMatch(insertedRow.TUCLEUNIK, insertedRow.DOMICILE, insertedRow.EXTERIEUR);
+
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(insertedRow.TUCLEUNIK);
 
@@ -1351,6 +1485,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     }
 
     db.prepare('DELETE FROM "RENCO" WHERE "RECLEUNIK" = ?').run(rencontreId);
+    clearEliminatoireGroupForMatchIfUnused(row.TUCLEUNIK, row.DOMICILE, row.EXTERIEUR);
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
     return true;
