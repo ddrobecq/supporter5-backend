@@ -29,9 +29,10 @@ export async function uploadDatabaseHandler(req: Request, res: Response, next: N
 
 export async function downloadDatabaseHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { path: dbPath, fileName } = await getSqliteDatabaseDownloadInfo();
+    const { path: dbPath, fileName, cleanup } = await getSqliteDatabaseDownloadInfo();
 
-    res.download(dbPath, fileName, (error) => {
+    res.download(dbPath, fileName, async (error) => {
+      await cleanup();
       if (error) {
         next(error);
       }

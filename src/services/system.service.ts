@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { dbGet } from '../config/database';
+import { backupDatabaseTo, dbGet } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 
@@ -37,24 +37,31 @@ function resolveDbPath(): string {
     : path.resolve(process.cwd(), configuredDbPath);
 }
 
-export async function getSqliteDatabaseDownloadInfo(): Promise<{ path: string; fileName: string; size: number }> {
+export async function getSqliteDatabaseDownloadInfo(): Promise<{ path: string; fileName: string; size: number; cleanup: () => Promise<void> }> {
   const resolvedDbPath = resolveDbPath();
 
-  let stats: Awaited<ReturnType<typeof fs.stat>>;
   try {
-    stats = await fs.stat(resolvedDbPath);
-  } catch {
+    const srcStats = await fs.stat(resolvedDbPath);
+    if (!srcStats.isFile()) {
+      throw new AppError(400, 'Le chemin SQLITE_DB_PATH ne pointe pas vers un fichier.');
+    }
+  } catch (err) {
+    if (err instanceof AppError) throw err;
     throw new AppError(404, 'Base SQLite introuvable sur le serveur.');
   }
 
-  if (!stats.isFile()) {
-    throw new AppError(400, 'Le chemin SQLITE_DB_PATH ne pointe pas vers un fichier.');
-  }
+  // snapshot WAL-merged via Online Backup API — aucun verrou sur la base live
+  const snapshotPath = `${resolvedDbPath}.download-snapshot`;
+  await backupDatabaseTo(snapshotPath);
+
+  const stats = await fs.stat(snapshotPath);
+  const cleanup = (): Promise<void> => fs.unlink(snapshotPath).catch(() => undefined);
 
   return {
-    path: resolvedDbPath,
+    path: snapshotPath,
     fileName: path.basename(resolvedDbPath),
     size: stats.size,
+    cleanup,
   };
 }
 

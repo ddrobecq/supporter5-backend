@@ -37,6 +37,9 @@ function applyPendingUploadedDatabase(dbPath: string): void {
 
     fs.copyFileSync(pendingPath, dbPath);
     fs.unlinkSync(pendingPath);
+    if (fs.existsSync(backupPath)) {
+      fs.unlinkSync(backupPath);
+    }
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
     throw new Error(`Unable to apply pending SQLite upload "${pendingPath}": ${details}`);
@@ -47,6 +50,11 @@ applyPendingUploadedDatabase(resolvedDbPath);
 
 const db = new Database(resolvedDbPath);
 db.pragma('foreign_keys = OFF');
+
+/** Crée un snapshot cohérent (WAL inclus) via l'Online Backup API de SQLite. */
+export function backupDatabaseTo(destPath: string): Promise<void> {
+  return db.backup(destPath);
+}
 
 export interface DbRunResult {
   changes: number;
