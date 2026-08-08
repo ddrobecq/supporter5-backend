@@ -1,10 +1,12 @@
 import { Router } from 'express';
-import ctrl, { getJoueurById, getJoueurHistory, getJoueurPostes, getJoueurSuggestions, getJoueursGrid } from '../controllers/joueurs.controller';
+import ctrl, { getJoueurById, getJoueurHistory, getJoueurPostes, getJoueurSuggestions, getJoueurTransactionOptions, getJoueurTransactions, getJoueursGrid } from '../controllers/joueurs.controller';
 const router = Router();
 router.get('/grid', getJoueursGrid);
 router.get('/postes', getJoueurPostes);
 router.get('/suggest', getJoueurSuggestions);
 router.get('/:id/history', getJoueurHistory);
+router.get('/:id/transactions/options', getJoueurTransactionOptions);
+router.get('/:id/transactions', getJoueurTransactions);
 router.get('/', ctrl.getAll);
 router.get('/:id', getJoueurById);
 export default router;

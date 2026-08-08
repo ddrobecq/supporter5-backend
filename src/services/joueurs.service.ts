@@ -62,6 +62,8 @@ const JOUEURRG_SELECT_COLS = [
   'IDVILLE',
   'VILLE_DECES',
   'APPARITION',
+  'HAUTEUR',
+  'POIDS',
 ] as const;
 const JOUEURRG_SELECT_SQL = JOUEURRG_SELECT_COLS.map((col) => `"${col}"`).join(', ');
 const JOUEURRG_SELECT_SQL_WITH_ALIAS = JOUEURRG_SELECT_COLS.map((col) => `jr."${col}"`).join(', ');
@@ -95,6 +97,66 @@ export interface JoueurHistoryRow {
   PASSETOTAL: number;
   JAUNETOTAL: number;
   ROUGETOTAL: number;
+}
+
+export interface JoueurTransactionRow {
+  TNCLEUNIK: number;
+  DATE: string;
+  SAISON: string;
+  TYPE: number;
+  STATUT: number;
+  IDCLUB: string | null;
+  CLUB_NOM: string;
+  CLUB_IDNATIO: string | null;
+  SALAIRE: number | null;
+  INDEMNITES: number | null;
+  DVCLEUNIK: number;
+  DEVISE_SYMBOLE: string;
+  TN_ECHEANCE: string | null;
+  TYT_LIBELLE: string;
+  TYT_STATUT: number | null;
+  TYT_CLUB: number | null;
+  TYT_PHRASE_DEPART: string | null;
+  TYT_PHRASE_ARRIVEE: string | null;
+  TYT_PHRASE_NEUTRE: string | null;
+}
+
+export interface JoueurTransactionTypeOption {
+  TYT_CLEUNIK: number;
+  TYT_LIBELLE: string;
+  TYT_VISIBLE: number;
+  TYT_STATUT: number;
+  TYT_SALAIRE: number | null;
+  TYT_CLUB: number;
+  TYT_INDEMNITES: number;
+  TYT_ECHEANCE: number;
+  TYT_PHRASE_DEPART: string | null;
+  TYT_PHRASE_ARRIVEE: string | null;
+  TYT_PHRASE_NEUTRE: string | null;
+}
+
+export interface JoueurTransactionDeviseOption {
+  DVCLEUNIK: number;
+  NOM: string;
+  SYMBOLE: string;
+  DVDEFAUT: number;
+}
+
+export interface JoueurTransactionOptions {
+  types: JoueurTransactionTypeOption[];
+  devises: JoueurTransactionDeviseOption[];
+  defaultDeviseId: number | null;
+}
+
+interface JoueurTransactionUpsertPayload {
+  date: string;
+  type: number | string;
+  statut?: number | string;
+  idClub?: string | null;
+  salaire?: number | string | null;
+  indemnites?: number | string | null;
+  deviseId: number | string;
+  echeance?: string | null;
 }
 
 export interface JoueurSuggestionRow {
@@ -398,6 +460,389 @@ export async function getJoueurHistoryById(idJoueur: string | number): Promise<J
   );
 }
 
+export async function getJoueurTransactionsById(idJoueur: string | number): Promise<JoueurTransactionRow[]> {
+  const joueurId = String(idJoueur ?? '').trim();
+  if (!joueurId) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+
+  return dbAll<JoueurTransactionRow>(
+    `SELECT
+      t.TNCLEUNIK,
+      t.DATE,
+      t.SAISON,
+      t.TYPE,
+      t.STATUT,
+      t.IDCLUB,
+      COALESCE(c.CLUB, '') AS CLUB_NOM,
+      c.IDNATIO AS CLUB_IDNATIO,
+      t.SALAIRE,
+      t.INDEMNITES,
+      t.DVCLEUNIK,
+      COALESCE(d.SYMBOLE, '') AS DEVISE_SYMBOLE,
+      t.TN_ECHEANCE,
+      COALESCE(tt.TYT_LIBELLE, '') AS TYT_LIBELLE,
+      tt.TYT_STATUT,
+      tt.TYT_CLUB,
+      tt.TYT_PHRASE_DEPART,
+      tt.TYT_PHRASE_ARRIVEE,
+      tt.TYT_PHRASE_NEUTRE
+     FROM TRANSAC t
+     LEFT JOIN CLUB c ON c.IDCLUB = t.IDCLUB
+     LEFT JOIN DEVISE d ON d.DVCLEUNIK = t.DVCLEUNIK
+     LEFT JOIN TYPE_TRANSACTION tt ON tt.TYT_CLEUNIK = t.TYPE
+     WHERE t.IDJOUEUR = ?
+     ORDER BY t.DATE DESC, t.TNCLEUNIK DESC`,
+    [joueurId],
+  );
+}
+
+function normalizeJoueurId(idJoueur: string | number): string {
+  const joueurId = String(idJoueur ?? '').trim();
+  if (!joueurId) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+  return joueurId;
+}
+
+function normalizeTransactionId(transactionId: string | number): number {
+  const rowId = Number(transactionId);
+  if (!Number.isInteger(rowId) || rowId <= 0) {
+    throw new AppError(400, 'Identifiant transaction invalide.');
+  }
+  return rowId;
+}
+
+function normalizeIsoDate(value: unknown, fieldName: string): string {
+  const text = String(value ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new AppError(400, `${fieldName} invalide (format yyyy-mm-dd).`);
+  }
+  return text;
+}
+
+function normalizeOptionalIsoDate(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    throw new AppError(400, 'Date d echeance invalide (format yyyy-mm-dd).');
+  }
+  return text;
+}
+
+function seasonFromDate(isoDate: string): string {
+  const year = Number(isoDate.slice(0, 4));
+  const month = Number(isoDate.slice(5, 7));
+  const startYear = month >= 7 ? year : year - 1;
+  return `${startYear}-${startYear + 1}`;
+}
+
+function normalizeOptionalClubId(value: unknown): string | null {
+  const text = String(value ?? '').trim();
+  return text ? text : null;
+}
+
+function normalizeMoney(value: unknown, fieldName: string, allowNull: boolean): number | null {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return allowNull ? null : 0;
+  }
+  const amount = Number(text.replace(',', '.'));
+  if (!Number.isFinite(amount) || amount < 0) {
+    throw new AppError(400, `${fieldName} invalide.`);
+  }
+  return amount;
+}
+
+function normalizeDeviseId(value: unknown): number {
+  const deviseId = Number(value);
+  if (!Number.isInteger(deviseId) || deviseId <= 0) {
+    throw new AppError(400, 'Devise invalide.');
+  }
+  return deviseId;
+}
+
+function resolveTransactionStatut(transactionType: JoueurTransactionTypeOption, payloadStatut: unknown): number {
+  const typeStatut = Number(transactionType.TYT_STATUT);
+  const defaultStatut = typeStatut === 1 || typeStatut === 2 || typeStatut === 3 ? typeStatut : 3;
+  const statut = Number(payloadStatut);
+  return statut === 1 || statut === 2 || statut === 3 ? statut : defaultStatut;
+}
+
+async function getTransactionTypeById(typeId: number): Promise<JoueurTransactionTypeOption> {
+  const type = await dbGet<JoueurTransactionTypeOption>(
+    `SELECT
+      TYT_CLEUNIK,
+      TYT_LIBELLE,
+      TYT_VISIBLE,
+      TYT_STATUT,
+      TYT_SALAIRE,
+      TYT_CLUB,
+      TYT_INDEMNITES,
+      TYT_ECHEANCE,
+      TYT_PHRASE_DEPART,
+      TYT_PHRASE_ARRIVEE,
+      TYT_PHRASE_NEUTRE
+     FROM TYPE_TRANSACTION
+     WHERE TYT_CLEUNIK = ?`,
+    [typeId],
+  );
+  if (!type) {
+    throw new AppError(400, 'Type de transaction introuvable.');
+  }
+  return type;
+}
+
+async function ensureJoueurExists(joueurId: string): Promise<void> {
+  const joueur = await dbGet<{ IDJOUEUR: string }>('SELECT IDJOUEUR FROM JOUEURRG WHERE IDJOUEUR = ?', [joueurId]);
+  if (!joueur) {
+    throw new AppError(404, 'Joueur introuvable.');
+  }
+}
+
+async function ensureClubExists(clubId: string): Promise<void> {
+  const club = await dbGet<{ IDCLUB: string }>('SELECT IDCLUB FROM CLUB WHERE IDCLUB = ?', [clubId]);
+  if (!club) {
+    throw new AppError(400, 'Club introuvable.');
+  }
+}
+
+async function ensureDeviseExists(deviseId: number): Promise<void> {
+  const devise = await dbGet<{ DVCLEUNIK: number }>('SELECT DVCLEUNIK FROM DEVISE WHERE DVCLEUNIK = ?', [deviseId]);
+  if (!devise) {
+    throw new AppError(400, 'Devise introuvable.');
+  }
+}
+
+async function getJoueurTransactionById(idJoueur: string, transactionId: number): Promise<JoueurTransactionRow | undefined> {
+  return dbGet<JoueurTransactionRow>(
+    `SELECT
+      t.TNCLEUNIK,
+      t.DATE,
+      t.SAISON,
+      t.TYPE,
+      t.STATUT,
+      t.IDCLUB,
+      COALESCE(c.CLUB, '') AS CLUB_NOM,
+      c.IDNATIO AS CLUB_IDNATIO,
+      t.SALAIRE,
+      t.INDEMNITES,
+      t.DVCLEUNIK,
+      COALESCE(d.SYMBOLE, '') AS DEVISE_SYMBOLE,
+      t.TN_ECHEANCE,
+      COALESCE(tt.TYT_LIBELLE, '') AS TYT_LIBELLE,
+      tt.TYT_STATUT,
+      tt.TYT_CLUB,
+      tt.TYT_PHRASE_DEPART,
+      tt.TYT_PHRASE_ARRIVEE,
+      tt.TYT_PHRASE_NEUTRE
+     FROM TRANSAC t
+     LEFT JOIN CLUB c ON c.IDCLUB = t.IDCLUB
+     LEFT JOIN DEVISE d ON d.DVCLEUNIK = t.DVCLEUNIK
+     LEFT JOIN TYPE_TRANSACTION tt ON tt.TYT_CLEUNIK = t.TYPE
+     WHERE t.IDJOUEUR = ? AND t.TNCLEUNIK = ?
+     LIMIT 1`,
+    [idJoueur, transactionId],
+  );
+}
+
+export async function getJoueurTransactionOptions(_idJoueur: string | number): Promise<JoueurTransactionOptions> {
+  const types = await dbAll<JoueurTransactionTypeOption>(
+    `SELECT
+      TYT_CLEUNIK,
+      TYT_LIBELLE,
+      TYT_VISIBLE,
+      TYT_STATUT,
+      TYT_SALAIRE,
+      TYT_CLUB,
+      TYT_INDEMNITES,
+      TYT_ECHEANCE,
+      TYT_PHRASE_DEPART,
+      TYT_PHRASE_ARRIVEE,
+      TYT_PHRASE_NEUTRE
+     FROM TYPE_TRANSACTION
+     ORDER BY TYT_STATUT ASC, TYT_LIBELLE ASC, TYT_CLEUNIK ASC`,
+  );
+
+  const devises = await dbAll<JoueurTransactionDeviseOption>(
+    `SELECT DVCLEUNIK, NOM, SYMBOLE, DVDEFAUT
+     FROM DEVISE
+     ORDER BY DVDEFAUT DESC, NOM ASC, DVCLEUNIK ASC`,
+  );
+
+  return {
+    types,
+    devises,
+    defaultDeviseId: devises.find((devise) => Number(devise.DVDEFAUT) !== 0)?.DVCLEUNIK ?? devises[0]?.DVCLEUNIK ?? null,
+  };
+}
+
+export async function createJoueurTransactionById(
+  idJoueur: string | number,
+  payload: JoueurTransactionUpsertPayload,
+): Promise<JoueurTransactionRow> {
+  const joueurId = normalizeJoueurId(idJoueur);
+  await ensureJoueurExists(joueurId);
+
+  const date = normalizeIsoDate(payload.date, 'Date');
+  const season = seasonFromDate(date);
+  const typeId = Number(payload.type);
+  if (!Number.isInteger(typeId) || typeId <= 0) {
+    throw new AppError(400, 'Type de transaction invalide.');
+  }
+
+  const transactionType = await getTransactionTypeById(typeId);
+  const statut = resolveTransactionStatut(transactionType, payload.statut);
+
+  const clubId = normalizeOptionalClubId(payload.idClub);
+  if (Number(transactionType.TYT_CLUB) !== 0) {
+    if (!clubId) {
+      throw new AppError(400, 'Le club est requis pour ce type de transaction.');
+    }
+    await ensureClubExists(clubId);
+  }
+
+  const deviseId = normalizeDeviseId(payload.deviseId);
+  await ensureDeviseExists(deviseId);
+
+  const salaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0
+    ? normalizeMoney(payload.salaire, 'Salaire', true)
+    : null;
+
+  const indemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0
+    ? normalizeMoney(payload.indemnites, 'Indemnites', false) ?? 0
+    : 0;
+
+  const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
+    ? normalizeOptionalIsoDate(payload.echeance)
+    : null;
+
+  if (Number(transactionType.TYT_ECHEANCE ?? 0) !== 0 && !echeance) {
+    throw new AppError(400, 'La date d echeance est requise pour ce type de transaction.');
+  }
+
+  await dbRun(
+    `INSERT INTO TRANSAC (
+      DATE, TYPE, SALAIRE, IDCLUB, SAISON, IDJOUEUR, STATUT, INDEMNITES, DVCLEUNIK, TN_ECHEANCE
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      date,
+      typeId,
+      salaire,
+      Number(transactionType.TYT_CLUB) !== 0 ? clubId : null,
+      season,
+      joueurId,
+      statut,
+      indemnites,
+      deviseId,
+      echeance,
+    ],
+  );
+
+  const inserted = await dbGet<{ TNCLEUNIK: number }>(
+    `SELECT TNCLEUNIK
+     FROM TRANSAC
+     WHERE IDJOUEUR = ?
+     ORDER BY TNCLEUNIK DESC
+     LIMIT 1`,
+    [joueurId],
+  );
+
+  if (!inserted) {
+    throw new AppError(500, 'Creation de transaction echouee.');
+  }
+
+  const row = await getJoueurTransactionById(joueurId, inserted.TNCLEUNIK);
+  if (!row) {
+    throw new AppError(500, 'Transaction creee mais introuvable.');
+  }
+  return row;
+}
+
+export async function updateJoueurTransactionById(
+  idJoueur: string | number,
+  transactionId: string | number,
+  payload: JoueurTransactionUpsertPayload,
+): Promise<JoueurTransactionRow | undefined> {
+  const joueurId = normalizeJoueurId(idJoueur);
+  const rowId = normalizeTransactionId(transactionId);
+  await ensureJoueurExists(joueurId);
+
+  const existing = await dbGet<{ TNCLEUNIK: number }>(
+    'SELECT TNCLEUNIK FROM TRANSAC WHERE IDJOUEUR = ? AND TNCLEUNIK = ? LIMIT 1',
+    [joueurId, rowId],
+  );
+  if (!existing) {
+    return undefined;
+  }
+
+  const date = normalizeIsoDate(payload.date, 'Date');
+  const season = seasonFromDate(date);
+  const typeId = Number(payload.type);
+  if (!Number.isInteger(typeId) || typeId <= 0) {
+    throw new AppError(400, 'Type de transaction invalide.');
+  }
+
+  const transactionType = await getTransactionTypeById(typeId);
+  const statut = resolveTransactionStatut(transactionType, payload.statut);
+
+  const clubId = normalizeOptionalClubId(payload.idClub);
+  if (Number(transactionType.TYT_CLUB) !== 0) {
+    if (!clubId) {
+      throw new AppError(400, 'Le club est requis pour ce type de transaction.');
+    }
+    await ensureClubExists(clubId);
+  }
+
+  const deviseId = normalizeDeviseId(payload.deviseId);
+  await ensureDeviseExists(deviseId);
+
+  const salaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0
+    ? normalizeMoney(payload.salaire, 'Salaire', true)
+    : null;
+
+  const indemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0
+    ? normalizeMoney(payload.indemnites, 'Indemnites', false) ?? 0
+    : 0;
+
+  const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
+    ? normalizeOptionalIsoDate(payload.echeance)
+    : null;
+
+  if (Number(transactionType.TYT_ECHEANCE ?? 0) !== 0 && !echeance) {
+    throw new AppError(400, 'La date d echeance est requise pour ce type de transaction.');
+  }
+
+  await dbRun(
+    `UPDATE TRANSAC
+     SET DATE = ?, TYPE = ?, SALAIRE = ?, IDCLUB = ?, SAISON = ?, STATUT = ?, INDEMNITES = ?, DVCLEUNIK = ?, TN_ECHEANCE = ?
+     WHERE IDJOUEUR = ? AND TNCLEUNIK = ?`,
+    [
+      date,
+      typeId,
+      salaire,
+      Number(transactionType.TYT_CLUB) !== 0 ? clubId : null,
+      season,
+      statut,
+      indemnites,
+      deviseId,
+      echeance,
+      joueurId,
+      rowId,
+    ],
+  );
+
+  return getJoueurTransactionById(joueurId, rowId);
+}
+
+export async function deleteJoueurTransactionById(idJoueur: string | number, transactionId: string | number): Promise<boolean> {
+  const joueurId = normalizeJoueurId(idJoueur);
+  const rowId = normalizeTransactionId(transactionId);
+
+  const result = await dbRun('DELETE FROM TRANSAC WHERE IDJOUEUR = ? AND TNCLEUNIK = ?', [joueurId, rowId]);
+  return result.changes > 0;
+}
+
 export async function createJoueurHistoryById(
   idJoueur: string | number,
   payload: { saison: string; poste: number | string },
@@ -559,6 +1004,11 @@ export default {
   getJoueurPostes,
   getJoueurByIdWithVille,
   getJoueurHistoryById,
+  getJoueurTransactionsById,
+  getJoueurTransactionOptions,
+  createJoueurTransactionById,
+  updateJoueurTransactionById,
+  deleteJoueurTransactionById,
   createJoueurHistoryById,
   updateJoueurHistoryById,
   deleteJoueurHistoryById,

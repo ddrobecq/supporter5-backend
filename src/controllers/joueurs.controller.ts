@@ -55,6 +55,77 @@ export async function getJoueurHistory(req: Request, res: Response, next: NextFu
 	}
 }
 
+export async function getJoueurTransactions(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await joueursService.getJoueurTransactionsById(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function getJoueurTransactionOptions(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await joueursService.getJoueurTransactionOptions(req.params.id);
+		res.status(200).json(data);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function createJoueurTransaction(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await joueursService.createJoueurTransactionById(req.params.id, req.body as {
+			date: string;
+			type: number | string;
+			statut?: number | string;
+			idClub?: string | null;
+			salaire?: number | string | null;
+			indemnites?: number | string | null;
+			deviseId: number | string;
+			echeance?: string | null;
+		});
+		res.status(201).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function updateJoueurTransaction(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const row = await joueursService.updateJoueurTransactionById(req.params.id, req.params.transactionId, req.body as {
+			date: string;
+			type: number | string;
+			statut?: number | string;
+			idClub?: string | null;
+			salaire?: number | string | null;
+			indemnites?: number | string | null;
+			deviseId: number | string;
+			echeance?: string | null;
+		});
+		if (!row) {
+			sendNotFound(res);
+			return;
+		}
+		res.status(200).json(row);
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function deleteJoueurTransaction(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const removed = await joueursService.deleteJoueurTransactionById(req.params.id, req.params.transactionId);
+		if (!removed) {
+			sendNotFound(res);
+			return;
+		}
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function createJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const row = await joueursService.createJoueurHistoryById(req.params.id, req.body as {
