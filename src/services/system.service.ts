@@ -1,10 +1,17 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { dbGet } from '../config/database';
+import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 
 const ALLOWED_EXTENSIONS = new Set(['.sqlite', '.db']);
 const SQLITE_PENDING_SUFFIX = '.pending-upload';
+
+export interface SupportedClubContext {
+  clubId: string;
+  clubName: string;
+}
 
 function getPendingUploadPath(dbPath: string): string {
   return `${dbPath}${SQLITE_PENDING_SUFFIX}`;
@@ -154,8 +161,31 @@ export function scheduleBackendRestart(delayMs = 350): { scheduledInMs: number; 
   return { scheduledInMs: safeDelay, mode };
 }
 
+export async function getSupportedClubContext(): Promise<SupportedClubContext> {
+  const configuredId = getSupportedClubIdFromEnv();
+
+  const row = await dbGet<{ IDCLUB?: string | number | null; CLUB?: string | null }>(
+    `SELECT
+      CAST("IDCLUB" AS TEXT) AS "IDCLUB",
+      COALESCE("CLUB", '') AS "CLUB"
+     FROM "CLUB"
+     WHERE TRIM(CAST("IDCLUB" AS TEXT)) = ?
+     LIMIT 1`,
+    [configuredId],
+  );
+
+  const clubId = String(row?.IDCLUB ?? configuredId).trim() || configuredId;
+  const clubName = String(row?.CLUB ?? '').trim();
+
+  return {
+    clubId,
+    clubName,
+  };
+}
+
 export default {
   getSqliteDatabaseDownloadInfo,
   uploadSqliteDatabase,
   scheduleBackendRestart,
+  getSupportedClubContext,
 };

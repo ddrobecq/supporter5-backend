@@ -1,5 +1,6 @@
 import db, { dbAll } from '../config/database';
 import { createEntityService } from '../lib/baseService';
+import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 
 export interface CalendarMatchRow {
@@ -605,8 +606,7 @@ function normalizeClubIdentifier(value: unknown): string {
 }
 
 function getSupportedClubId(): string {
-  const configured = toText(process.env.SUPPORTED_CLUB);
-  return configured || '1001';
+  return getSupportedClubIdFromEnv();
 }
 
 function resolveSupportedClubSide(

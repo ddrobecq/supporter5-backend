@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
-import { getSqliteDatabaseDownloadInfo, scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
+import { getSqliteDatabaseDownloadInfo, getSupportedClubContext, scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
 
 function readBackendVersion(): string {
   try {
@@ -66,9 +66,19 @@ export async function versionHandler(_req: Request, res: Response, next: NextFun
   }
 }
 
+export async function contextHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const context = await getSupportedClubContext();
+    res.status(200).json(context);
+  } catch (error) {
+    next(error);
+  }
+}
+
 export default {
   uploadDatabaseHandler,
   downloadDatabaseHandler,
   restartBackendHandler,
   versionHandler,
+  contextHandler,
 };

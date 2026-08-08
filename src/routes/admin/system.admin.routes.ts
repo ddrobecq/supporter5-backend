@@ -59,6 +59,7 @@ router.post('/database/upload', (req, res, next) => {
     next();
   });
 }, ctrl.uploadDatabaseHandler);
+router.get('/context', ctrl.contextHandler);
 router.get('/database/download', ctrl.downloadDatabaseHandler);
 router.post('/restart', ctrl.restartBackendHandler);
 router.get('/version', ctrl.versionHandler);
