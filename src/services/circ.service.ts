@@ -20,7 +20,7 @@ function sanitize(body: Record<string, unknown>, includePk: boolean): Record<str
 
 function normalizeTypeTour(value: unknown): number {
   const numeric = Number(value);
-  if (numeric === 1 || numeric === 2) {
+  if (numeric === 0 || numeric === 1 || numeric === 2) {
     return numeric;
   }
   return 1;
