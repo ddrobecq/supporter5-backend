@@ -53,7 +53,7 @@ db.pragma('foreign_keys = OFF');
 
 /** Crée un snapshot cohérent (WAL inclus) via l'Online Backup API de SQLite. */
 export function backupDatabaseTo(destPath: string): Promise<void> {
-  return db.backup(destPath);
+  return db.backup(destPath).then(() => undefined);
 }
 
 export interface DbRunResult {
