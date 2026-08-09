@@ -36,6 +36,21 @@ export interface ClubTerrainHistoryRow {
   STADE: string;
 }
 
+export interface ClubMatchRow {
+  RECLEUNIK: number;
+  DATE: string;
+  CIRC_COMPLET: string;
+  DOMICILE: string;
+  EXTERIEUR: string;
+  DOMICILE_NOM: string;
+  EXTERIEUR_NOM: string;
+  BUTDOM: number;
+  BUTEXT: number;
+  TABDOM: number;
+  TABEXT: number;
+  ETAT: number;
+}
+
 export interface ClubsGridResponse {
   data: ClubGridRow[];
 }
@@ -317,6 +332,133 @@ export async function getClubTerrainHistoryById(id: string): Promise<ClubTerrain
      ORDER BY ct.DATE DESC, ct.CT_CLEUNIK DESC`,
     [id],
   );
+}
+
+export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
+  const clubId = normalizeText(id);
+  if (!clubId) {
+    throw new AppError(400, 'Identifiant de club invalide.');
+  }
+
+  const rows = await dbAll<Array<ClubMatchRow & {
+    COCLEUNIK: number | null;
+    CIRC: string | null;
+    TOUR_NOM: string;
+    COMPET_NOM: string;
+    SAISON: string;
+    CO_ANNEE: number;
+  }>[number]>(
+    `SELECT
+       r.RECLEUNIK,
+       REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+       r.DOMICILE,
+       r.EXTERIEUR,
+       COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
+       COALESCE(ce.CLUB, r.EXTERIEUR, '') AS EXTERIEUR_NOM,
+       COALESCE(r.BUTDOM, 0) AS BUTDOM,
+       COALESCE(r.BUTEXT, 0) AS BUTEXT,
+       COALESCE(r.TABDOM, 0) AS TABDOM,
+       COALESCE(r.TABEXT, 0) AS TABEXT,
+       COALESCE(r.ETAT, 0) AS ETAT,
+       t.COCLEUNIK,
+       COALESCE(c.CIRC, '') AS CIRC,
+       COALESCE(t.NOM, '') AS TOUR_NOM,
+       COALESCE(co.NOM, '') AS COMPET_NOM,
+       COALESCE(co.SAISON, r.SAISON, '') AS SAISON,
+       COALESCE(co.CO_ANNEE, 0) AS CO_ANNEE
+     FROM RENCO r
+     LEFT JOIN CIRC c ON c.IDCIRC = r.IDCIRC
+     LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
+     LEFT JOIN COMPET co ON co.COCLEUNIK = t.COCLEUNIK
+     LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
+     LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
+     WHERE r.DOMICILE = ? OR r.EXTERIEUR = ?
+     ORDER BY REPLACE(COALESCE(r.DATE, ''), '-', '') DESC, COALESCE(r.HEURE, '') DESC, r.RECLEUNIK DESC`,
+    [clubId, clubId],
+  );
+
+  const competitionIds = Array.from(new Set(
+    rows
+      .map((row) => Number(row.COCLEUNIK ?? 0))
+      .filter((value) => Number.isInteger(value) && value > 0),
+  ));
+
+  const finalYearByCompetition = new Map<number, string>();
+  if (competitionIds.length > 0) {
+    const placeholders = competitionIds.map(() => '?').join(', ');
+    const finals = await dbAll<{ COCLEUNIK: number; FINAL_YEAR: string | null }>(
+      `SELECT
+         t.COCLEUNIK,
+         MAX(SUBSTR(REPLACE(COALESCE(r.DATE, ''), '-', ''), 1, 4)) AS FINAL_YEAR
+       FROM TOUR t
+       INNER JOIN RENCO r ON r.TUCLEUNIK = t.TUCLEUNIK
+       WHERE COALESCE(t.TU_FINAL, 0) = 1
+         AND t.COCLEUNIK IN (${placeholders})
+       GROUP BY t.COCLEUNIK`,
+      competitionIds,
+    );
+
+    finals.forEach((row) => {
+      const year = normalizeText(row.FINAL_YEAR);
+      if (/^\d{4}$/.test(year)) {
+        finalYearByCompetition.set(Number(row.COCLEUNIK), year);
+      }
+    });
+  }
+
+  const resolveSeasonLabel = (row: { COCLEUNIK: number | null; CO_ANNEE: number; SAISON: string }): string => {
+    if (Number(row.CO_ANNEE ?? 0) === 1) {
+      const fromFinal = finalYearByCompetition.get(Number(row.COCLEUNIK ?? 0));
+      if (fromFinal) {
+        return fromFinal;
+      }
+      const fromSeason = normalizeText(row.SAISON).match(/\d{4}/)?.[0] ?? '';
+      return fromSeason;
+    }
+    return normalizeText(row.SAISON);
+  };
+
+  const buildCircComplete = (row: {
+    CIRC: string | null;
+    TOUR_NOM: string;
+    COMPET_NOM: string;
+    SAISON: string;
+    CO_ANNEE: number;
+    COCLEUNIK: number | null;
+  }): string => {
+    const circ = normalizeText(row.CIRC);
+    const tour = normalizeText(row.TOUR_NOM);
+    const competition = normalizeText(row.COMPET_NOM);
+    const season = resolveSeasonLabel(row);
+
+    let base = '';
+    if (circ) {
+      const suffix = [tour, competition].filter(Boolean).join(' de ');
+      base = suffix ? `${circ} de ${suffix}` : circ;
+    } else {
+      base = [tour, competition].filter(Boolean).join(' de ');
+    }
+
+    if (season) {
+      return base ? `${base} ${season}` : season;
+    }
+    return base;
+  };
+
+  return rows.map((row) => ({
+    RECLEUNIK: Number(row.RECLEUNIK),
+    DATE: String(row.DATE ?? ''),
+    CIRC_COMPLET: buildCircComplete(row),
+    DOMICILE: String(row.DOMICILE ?? ''),
+    EXTERIEUR: String(row.EXTERIEUR ?? ''),
+    DOMICILE_NOM: String(row.DOMICILE_NOM ?? ''),
+    EXTERIEUR_NOM: String(row.EXTERIEUR_NOM ?? ''),
+    BUTDOM: Number(row.BUTDOM ?? 0),
+    BUTEXT: Number(row.BUTEXT ?? 0),
+    TABDOM: Number(row.TABDOM ?? 0),
+    TABEXT: Number(row.TABEXT ?? 0),
+    ETAT: Number(row.ETAT ?? 0),
+  }));
 }
 
 export async function createClubTerrainHistoryById(
@@ -884,6 +1026,7 @@ export default {
   getClubProfileById,
   getClubNameHistoryById,
   getClubTerrainHistoryById,
+  getClubMatchesById,
   createClubNameHistoryById,
   updateClubNameHistoryById,
   deleteClubNameHistoryById,

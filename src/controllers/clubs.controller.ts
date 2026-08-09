@@ -60,6 +60,15 @@ export async function getClubTerrainHistory(req: Request, res: Response, next: N
 	}
 }
 
+export async function getClubMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await clubsService.getClubMatchesById(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function updateClubColors(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const row = await clubsService.updateClubColorsById(req.params.id, req.body as {
