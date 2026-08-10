@@ -18,6 +18,7 @@ export interface ClubProfileRow {
   IDNATIO: string;
   IDVILLE: string | null;
   VILLE_NOM: string;
+  VILLE_IDNATIO: string;
   FOND: string | null;
   TEXTE: string | null;
 }
@@ -49,6 +50,15 @@ export interface ClubMatchRow {
   TABDOM: number;
   TABEXT: number;
   ETAT: number;
+}
+
+export interface ClubPalmareRow {
+  IDEPREUVE: number;
+  EPREUVE: string;
+  OFFICIELLE: number;
+  SCOPE: number;
+  NB_TITRES: number;
+  ANNEES: string[];
 }
 
 export interface ClubsGridResponse {
@@ -295,6 +305,7 @@ export async function getClubProfileById(id: string): Promise<ClubProfileRow | u
        c.IDNATIO,
        c.IDVILLE,
        COALESCE(v.NOM, '') AS VILLE_NOM,
+       COALESCE(v.IDNATIO, '') AS VILLE_IDNATIO,
        c.FOND,
        c.TEXTE
      FROM CLUB c
@@ -1019,6 +1030,108 @@ async function updateClubNom(id: string | number, body: Record<string, unknown>)
   return getClubNomById(id);
 }
 
+export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
+  const clubId = normalizeText(id);
+  if (!clubId) throw new AppError(400, 'Identifiant de club invalide.');
+
+  const rows = await dbAll<{ IDEPREUVE: number; EPREUVE: string; OFFICIELLE: number; SCOPE: number; COCLEUNIK: number; ANNEE: string | null }>(
+    `SELECT
+       e.IDEPREUVE,
+       e.EPREUVE,
+       COALESCE(e.OFFICIELLE, 0) AS OFFICIELLE,
+       COALESCE(e.SCOPE, 0) AS SCOPE,
+       co.COCLEUNIK,
+       CASE
+         WHEN COALESCE(co.CO_ANNEE, 0) = 1 THEN (
+           SELECT MAX(SUBSTR(REPLACE(COALESCE(r2.DATE, ''), '-', ''), 1, 4))
+           FROM TOUR t2
+           JOIN RENCO r2 ON r2.TUCLEUNIK = t2.TUCLEUNIK
+           WHERE t2.COCLEUNIK = co.COCLEUNIK AND COALESCE(t2.TU_FINAL, 0) = 1
+         )
+         ELSE co.SAISON
+       END AS ANNEE
+     FROM EPREUVE e
+     JOIN COMPET co ON co.IDEPREUVE = e.IDEPREUVE
+     WHERE EXISTS (
+       SELECT 1
+       FROM TOUR t
+       LEFT JOIN TOURDEF td ON td.TDCLEUNIK = t.TDCLEUNIK
+       WHERE t.COCLEUNIK = co.COCLEUNIK
+         AND COALESCE(t.TU_FINAL, 0) = 1
+         AND (
+           -- Ligue: vérifier que TOUS les matchs sont terminés/annulés
+           (COALESCE(td.TDTYPETOUR, 2) = 1
+            AND NOT EXISTS (
+              SELECT 1 FROM RENCO r
+              WHERE r.TUCLEUNIK = t.TUCLEUNIK
+                AND COALESCE(r.ETAT, 0) NOT IN (3, 4)
+            )
+            AND EXISTS (
+              SELECT 1 FROM PARTICIP p
+              WHERE p.TUCLEUNIK = t.TUCLEUNIK
+                AND CAST(p.IDCLUB AS TEXT) = ?
+                AND COALESCE(p.PAClassement, 0) = 1
+            )
+           )
+           OR
+           -- Eliminatoire: le club gagne le match de la finale
+           (COALESCE(td.TDTYPETOUR, 2) = 2
+            AND EXISTS (
+              SELECT 1 FROM RENCO r
+              WHERE r.TUCLEUNIK = t.TUCLEUNIK
+                AND COALESCE(r.ETAT, 0) = 3
+                AND (
+                  (CAST(r.DOMICILE AS TEXT) = ?
+                    AND (
+                      COALESCE(r.BUTDOM, 0) > COALESCE(r.BUTEXT, 0)
+                      OR (COALESCE(r.BUTDOM, 0) = COALESCE(r.BUTEXT, 0) AND COALESCE(r.TABDOM, 0) > COALESCE(r.TABEXT, 0))
+                    )
+                  )
+                  OR
+                  (CAST(r.EXTERIEUR AS TEXT) = ?
+                    AND (
+                      COALESCE(r.BUTEXT, 0) > COALESCE(r.BUTDOM, 0)
+                      OR (COALESCE(r.BUTDOM, 0) = COALESCE(r.BUTEXT, 0) AND COALESCE(r.TABEXT, 0) > COALESCE(r.TABDOM, 0))
+                    )
+                  )
+                )
+            )
+           )
+         )
+     )
+     ORDER BY e.EPREUVE ASC, ANNEE ASC`,
+    [clubId, clubId, clubId],
+  );
+
+  const grouped = new Map<number, { EPREUVE: string; OFFICIELLE: number; SCOPE: number; annees: Set<string> }>();
+  for (const row of rows) {
+    const idepreuve = Number(row.IDEPREUVE);
+    if (!grouped.has(idepreuve)) {
+      grouped.set(idepreuve, { EPREUVE: String(row.EPREUVE ?? ''), OFFICIELLE: Number(row.OFFICIELLE ?? 0), SCOPE: Number(row.SCOPE ?? 0), annees: new Set() });
+    }
+    const annee = String(row.ANNEE ?? '').trim();
+    if (annee) grouped.get(idepreuve)!.annees.add(annee);
+  }
+
+  const result = Array.from(grouped.entries()).map(([idepreuve, val]) => ({
+    IDEPREUVE: idepreuve,
+    EPREUVE: val.EPREUVE,
+    OFFICIELLE: val.OFFICIELLE,
+    SCOPE: val.SCOPE,
+    NB_TITRES: val.annees.size,
+    ANNEES: Array.from(val.annees),
+  }));
+
+  // Tri par prestige : officiel > non-officiel, scope DESC, NB_TITRES DESC
+  result.sort((a, b) =>
+    (b.OFFICIELLE - a.OFFICIELLE)
+    || (b.SCOPE - a.SCOPE)
+    || (b.NB_TITRES - a.NB_TITRES),
+  );
+
+  return result;
+}
+
 export default {
   ...baseService,
   getAll: getClubNomAll,
@@ -1031,6 +1144,7 @@ export default {
   getClubNameHistoryById,
   getClubTerrainHistoryById,
   getClubMatchesById,
+  getClubPalmares,
   createClubNameHistoryById,
   updateClubNameHistoryById,
   deleteClubNameHistoryById,

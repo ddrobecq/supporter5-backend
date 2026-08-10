@@ -189,4 +189,27 @@ export async function createJoueurWithWizard(req: Request, res: Response, next: 
 		next(error);
 	}
 }
+
+export async function getJoueurSeasonsByPlayedMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await joueursService.getJoueurSeasonsByPlayedMatches(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function getJoueurMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const saison = String(req.params.saison ?? '').trim();
+		if (!/^\d{4}-\d{4}$/.test(saison)) {
+			throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu).');
+		}
+		const data = await joueursService.getJoueurMatchesForSeason(req.params.id, saison);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
 export default baseController;

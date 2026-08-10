@@ -69,6 +69,15 @@ export async function getClubMatches(req: Request, res: Response, next: NextFunc
 	}
 }
 
+export async function getClubPalmares(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await clubsService.getClubPalmares(req.params.id);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function updateClubColors(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const row = await clubsService.updateClubColorsById(req.params.id, req.body as {

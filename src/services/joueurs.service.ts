@@ -148,6 +148,33 @@ export interface JoueurTransactionOptions {
   defaultDeviseId: number | null;
 }
 
+export interface JoueurMatchEvent {
+  type: 'but' | 'passe' | 'entree' | 'sortie' | 'blessure';
+  minute: number;
+  periode: number;
+}
+
+export interface JoueurMatchRow {
+  RECLEUNIK: number;
+  DATE: string;
+  DOMICILE: string;
+  EXTERIEUR: string;
+  DOMICILE_NOM: string;
+  EXTERIEUR_NOM: string;
+  BUTDOM: number;
+  BUTEXT: number;
+  TABDOM: number;
+  TABEXT: number;
+  ETAT: number;
+  TOUR_NOM: string;
+  COMPET_NOM: string;
+  COCLEUNIK: number;
+  SAISON: string;
+  POSTE_NOM: string | null;
+  PARTICIPATION_TYPE: 'titulaire' | 'remplacant';
+  events: JoueurMatchEvent[];
+}
+
 interface JoueurTransactionUpsertPayload {
   date: string;
   type: number | string;
@@ -981,6 +1008,10 @@ function normalizeSaison(value: unknown): string {
   return saison;
 }
 
+function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
 async function normalizePosteJoueur(value: unknown): Promise<number> {
   const posteId = Number(value);
   if (!Number.isInteger(posteId) || posteId <= 0) {
@@ -992,6 +1023,169 @@ async function normalizePosteJoueur(value: unknown): Promise<number> {
     throw new AppError(400, 'Le poste selectionne est introuvable.');
   }
   return posteId;
+}
+
+export async function getJoueurSeasonsByPlayedMatches(joueurId: string): Promise<string[]> {
+  const id = normalizeText(joueurId);
+  if (!id) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+
+  // Get seasons from player history (JOUEUR table)
+  const rows = await dbAll<{ SAISON: string }>(
+    `SELECT DISTINCT j.SAISON
+     FROM JOUEUR j
+     WHERE j.IDJOUEUR = ?
+       AND COALESCE(j.SAISON, '') != ''
+     ORDER BY j.SAISON DESC`,
+    [id],
+  );
+
+  return rows.map((row) => row.SAISON).filter((s) => s.length > 0);
+}
+
+export async function getJoueurMatchesForSeason(
+  joueurId: string,
+  saison: string,
+): Promise<JoueurMatchRow[]> {
+  const id = normalizeText(joueurId);
+  const season = normalizeSaison(saison);
+
+  if (!id) {
+    throw new AppError(400, 'Identifiant joueur invalide.');
+  }
+
+  // EQUIPE has one column per position (GOAL, DLG, ..., AVC) - no IDJOUEUR column
+  const POS_COLS = 'e.GOAL=? OR e.DLG=? OR e.DLD=? OR e.DCG=? OR e.DCD=? OR e.LIB=? OR e.STO=? OR e.MDLD=? OR e.MDLG=? OR e.MDCD=? OR e.MDCG=? OR e.MOLD=? OR e.MOLG=? OR e.MOCD=? OR e.MOCG=? OR e.MOCC=? OR e.MDCC=? OR e.ALD=? OR e.ALG=? OR e.ACD=? OR e.ACG=? OR e.AVC=?';
+  const posParams = Array(22).fill(id) as string[];
+
+  const rawRows = await dbAll<{
+    RECLEUNIK: number;
+    DATE: string;
+    DOMICILE: string;
+    EXTERIEUR: string;
+    DOMICILE_NOM: string;
+    EXTERIEUR_NOM: string;
+    BUTDOM: number;
+    BUTEXT: number;
+    TABDOM: number;
+    TABEXT: number;
+    ETAT: number;
+    TOUR_NOM: string;
+    COMPET_NOM: string;
+    COCLEUNIK: number;
+    SAISON: string;
+    POSTE_NOM: string | null;
+    PARTICIPATION_TYPE: 'titulaire' | 'remplacant';
+    EVENTS_JSON: string;
+  }>(
+    `SELECT
+       matches.RECLEUNIK, matches.DATE, matches.DOMICILE, matches.EXTERIEUR,
+       matches.DOMICILE_NOM, matches.EXTERIEUR_NOM,
+       matches.BUTDOM, matches.BUTEXT, matches.TABDOM, matches.TABEXT, matches.ETAT,
+       matches.TOUR_NOM, matches.COMPET_NOM, matches.COCLEUNIK, matches.SAISON,
+       matches.POSTE_NOM, matches.PARTICIPATION_TYPE,
+       COALESCE((
+         SELECT json_group_array(json_object('type', evo.etype, 'minute', evo.minute, 'periode', evo.periode))
+         FROM (
+           SELECT
+             CASE
+               WHEN ev.TYPE_EVENT = 1 AND ev.JOUEUR1 = ? THEN 'but'
+               WHEN ev.TYPE_EVENT = 1 AND ev.JOUEUR2 = ? THEN 'passe'
+               WHEN ev.TYPE_EVENT = 2 AND ev.JOUEUR2 = ? THEN 'entree'
+               WHEN ev.TYPE_EVENT = 2 AND ev.JOUEUR1 = ? THEN 'sortie'
+               WHEN ev.TYPE_EVENT = 9 AND ev.JOUEUR1 = ? THEN 'blessure'
+             END AS etype,
+             ev.MINUTE AS minute,
+             ev.PERIODE AS periode
+           FROM EVENT ev
+           INNER JOIN MATCH mx ON mx.MACLEUNIK = ev.MACLEUNIK
+           WHERE mx.RECLEUNIK = matches.RECLEUNIK
+             AND (
+               (ev.TYPE_EVENT = 1 AND (ev.JOUEUR1 = ? OR ev.JOUEUR2 = ?))
+               OR (ev.TYPE_EVENT = 2 AND (ev.JOUEUR1 = ? OR ev.JOUEUR2 = ?))
+               OR (ev.TYPE_EVENT = 9 AND ev.JOUEUR1 = ?)
+             )
+           ORDER BY ev.PERIODE ASC, ev.MINUTE ASC
+         ) evo
+         WHERE evo.etype IS NOT NULL
+       ), '[]') AS EVENTS_JSON
+     FROM (
+       SELECT
+         r.RECLEUNIK,
+         REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+         r.DOMICILE,
+         r.EXTERIEUR,
+         COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
+         COALESCE(ce.CLUB, r.EXTERIEUR, '') AS EXTERIEUR_NOM,
+         COALESCE(r.BUTDOM, 0) AS BUTDOM,
+         COALESCE(r.BUTEXT, 0) AS BUTEXT,
+         COALESCE(r.TABDOM, 0) AS TABDOM,
+         COALESCE(r.TABEXT, 0) AS TABEXT,
+         COALESCE(r.ETAT, 0) AS ETAT,
+         COALESCE(tour.NOM, '') AS TOUR_NOM,
+         COALESCE(co.NOM, '') AS COMPET_NOM,
+         COALESCE(co.COCLEUNIK, 0) AS COCLEUNIK,
+         COALESCE(r.SAISON, '') AS SAISON,
+         COALESCE(p.POS_NOM, '') AS POSTE_NOM,
+         'titulaire' AS PARTICIPATION_TYPE
+       FROM RENCO r
+       INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
+       INNER JOIN EQUIPE e ON e.MACLEUNIK = m.MACLEUNIK
+       LEFT JOIN JOUEURRG jr ON jr.IDJOUEUR = ?
+       LEFT JOIN Poste p ON p.POS_ID = jr.POSTE
+       LEFT JOIN TOUR tour ON tour.TUCLEUNIK = r.TUCLEUNIK
+       LEFT JOIN COMPET co ON co.COCLEUNIK = tour.COCLEUNIK
+       LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
+       LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
+       WHERE COALESCE(r.SAISON, '') = ?
+         AND (${POS_COLS})
+       UNION ALL
+       SELECT
+         r.RECLEUNIK,
+         REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+         r.DOMICILE,
+         r.EXTERIEUR,
+         COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
+         COALESCE(ce.CLUB, r.EXTERIEUR, '') AS EXTERIEUR_NOM,
+         COALESCE(r.BUTDOM, 0) AS BUTDOM,
+         COALESCE(r.BUTEXT, 0) AS BUTEXT,
+         COALESCE(r.TABDOM, 0) AS TABDOM,
+         COALESCE(r.TABEXT, 0) AS TABEXT,
+         COALESCE(r.ETAT, 0) AS ETAT,
+         COALESCE(tour.NOM, '') AS TOUR_NOM,
+         COALESCE(co.NOM, '') AS COMPET_NOM,
+         COALESCE(co.COCLEUNIK, 0) AS COCLEUNIK,
+         COALESCE(r.SAISON, '') AS SAISON,
+         '' AS POSTE_NOM,
+         'remplacant' AS PARTICIPATION_TYPE
+       FROM RENCO r
+       INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
+       INNER JOIN EVENT ev ON ev.MACLEUNIK = m.MACLEUNIK
+       LEFT JOIN TOUR tour ON tour.TUCLEUNIK = r.TUCLEUNIK
+       LEFT JOIN COMPET co ON co.COCLEUNIK = tour.COCLEUNIK
+       LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
+       LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
+       WHERE COALESCE(r.SAISON, '') = ?
+         AND ev.JOUEUR2 = ?
+         AND ev.TYPE_EVENT = 2
+     ) matches
+     ORDER BY matches.DATE DESC`,
+    [id, id, id, id, id, id, id, id, id, id, id, season, ...posParams, season, id],
+  );
+
+  const rows: JoueurMatchRow[] = rawRows.map((row) => {
+    const { EVENTS_JSON, ...rest } = row;
+    let events: JoueurMatchEvent[] = [];
+    try {
+      events = JSON.parse(EVENTS_JSON ?? '[]') as JoueurMatchEvent[];
+    } catch {
+      events = [];
+    }
+    return { ...rest, events };
+  });
+
+  return rows;
 }
 
 export default {
@@ -1014,4 +1208,6 @@ export default {
   deleteJoueurHistoryById,
   getJoueurSuggestions,
   createJoueurWithWizard,
+  getJoueurSeasonsByPlayedMatches,
+  getJoueurMatchesForSeason,
 };
