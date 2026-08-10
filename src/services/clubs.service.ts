@@ -342,6 +342,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
 
   const rows = await dbAll<Array<ClubMatchRow & {
     COCLEUNIK: number | null;
+    TUCLEUNIK: number;
     CIRC: string | null;
     TOUR_NOM: string;
     COMPET_NOM: string;
@@ -351,6 +352,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
     `SELECT
        r.RECLEUNIK,
        REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+       COALESCE(r.TUCLEUNIK, 0) AS TUCLEUNIK,
        r.DOMICILE,
        r.EXTERIEUR,
        COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
@@ -419,6 +421,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
   };
 
   const buildCircComplete = (row: {
+    TUCLEUNIK: number;
     CIRC: string | null;
     TOUR_NOM: string;
     COMPET_NOM: string;
@@ -426,6 +429,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
     CO_ANNEE: number;
     COCLEUNIK: number | null;
   }): string => {
+    if (row.TUCLEUNIK === 0) return 'Match amical';
     const circ = normalizeText(row.CIRC);
     const tour = normalizeText(row.TOUR_NOM);
     const competition = normalizeText(row.COMPET_NOM);
