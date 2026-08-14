@@ -90,15 +90,42 @@ const COMPET_PK = 'COCLEUNIK';
 const COMPET_ALLOWED_SORT_COLS = ['COCLEUNIK', 'SAISON', 'IDEPREUVE', 'NOM', 'CO_ANNEE'] as const;
 const COMPET_SEARCH_COLS = ['NOM', 'COCOMMENT'] as const;
 const COMPET_FILTER_COLS = ['SAISON', 'IDEPREUVE', 'CO_ANNEE'] as const;
+const COMPET_FINISHED_SQL = [
+  'CASE',
+  '  WHEN EXISTS (',
+  '    SELECT 1',
+  '    FROM TOUR t_final',
+  '    WHERE t_final.COCLEUNIK = c.COCLEUNIK',
+  '      AND COALESCE(t_final.TU_FINAL, 0) = 1',
+  '  )',
+  '  AND EXISTS (',
+  '    SELECT 1',
+  '    FROM RENCO r_final',
+  '    INNER JOIN TOUR t_final2 ON t_final2.TUCLEUNIK = r_final.TUCLEUNIK',
+  '    WHERE t_final2.COCLEUNIK = c.COCLEUNIK',
+  '      AND COALESCE(t_final2.TU_FINAL, 0) = 1',
+  '  )',
+  '  AND NOT EXISTS (',
+  '    SELECT 1',
+  '    FROM RENCO r_open',
+  '    INNER JOIN TOUR t_final3 ON t_final3.TUCLEUNIK = r_open.TUCLEUNIK',
+  '    WHERE t_final3.COCLEUNIK = c.COCLEUNIK',
+  '      AND COALESCE(t_final3.TU_FINAL, 0) = 1',
+  '      AND COALESCE(r_open.ETAT, 0) <> 3',
+  '  )',
+  '  THEN 1 ELSE 0',
+  'END',
+].join(' ');
 const COMPET_SELECT_SQL = [
-  '"COCLEUNIK"',
-  '"SAISON"',
-  '"IDEPREUVE"',
+  'c."COCLEUNIK"',
+  'c."SAISON"',
+  'c."IDEPREUVE"',
   'NULL AS "LOGO"',
-  '"NOM"',
-  '"COCOMMENT" AS "CO_COMMENT"',
-  '"CO_WEB"',
-  '"CO_ANNEE"',
+  'c."NOM"',
+  'c."COCOMMENT" AS "CO_COMMENT"',
+  'c."CO_WEB"',
+  'c."CO_ANNEE"',
+  `${COMPET_FINISHED_SQL} AS "CO_TERMINEE"`,
 ].join(', ');
 
 export interface CompetitionRow {
@@ -110,6 +137,7 @@ export interface CompetitionRow {
   CO_COMMENT: string | null;
   CO_WEB: string | null;
   CO_ANNEE: number;
+  CO_TERMINEE: number;
 }
 
 async function getCompetitionAll(params: QueryParams): Promise<PaginatedResult> {
@@ -128,7 +156,7 @@ async function getCompetitionAll(params: QueryParams): Promise<PaginatedResult> 
 
   const data = await dbAll(
     `SELECT ${COMPET_SELECT_SQL}
-     FROM "${COMPET_TABLE}" ${where}
+     FROM "${COMPET_TABLE}" c ${where}
      ORDER BY "${sort}" ${order}
      LIMIT ? OFFSET ?`,
     [...bindings, limit, offset],
@@ -146,8 +174,8 @@ async function getCompetitionAll(params: QueryParams): Promise<PaginatedResult> 
 async function getCompetitionById(id: string | number): Promise<Record<string, unknown> | undefined> {
   return dbGet<Record<string, unknown>>(
     `SELECT ${COMPET_SELECT_SQL}
-     FROM "${COMPET_TABLE}"
-     WHERE "${COMPET_PK}" = ?`,
+     FROM "${COMPET_TABLE}" c
+     WHERE c."${COMPET_PK}" = ?`,
     [id],
   );
 }
