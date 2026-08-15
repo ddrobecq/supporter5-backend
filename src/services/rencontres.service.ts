@@ -6,6 +6,7 @@ import { AppError } from '../types';
 export interface CalendarMatchRow {
   RECLEUNIK: string | number;
   TUCLEUNIK: number;
+  TYPE_TOUR?: number;
   DATE: string;
   HEURE: string;
   ETAT: number;
@@ -1620,6 +1621,7 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
     `SELECT
       r.RECLEUNIK,
       r.TUCLEUNIK,
+      COALESCE(td.TDTYPETOUR, 1) AS TYPE_TOUR,
       r.DATE,
       r.HEURE,
       r.ETAT,
@@ -1644,6 +1646,7 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
      FROM RENCO r
          LEFT JOIN CIRC c ON c.IDCIRC = r.IDCIRC
          LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
+         LEFT JOIN TOURDEF td ON td.TDCLEUNIK = t.TDCLEUNIK
          LEFT JOIN COMPET co ON co.COCLEUNIK = t.COCLEUNIK
      LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
      LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR

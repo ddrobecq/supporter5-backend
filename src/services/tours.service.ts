@@ -33,6 +33,106 @@ export interface TourParticipantRow {
   PADiff?: number;
   PARatio?: number;
   TDCalculDiffBut?: number;
+  LOCKED_QUALIF_ABREGE?: string | null;
+  LOCKED_QUALIF_LIBELLE?: string | null;
+  LOCKED_QUALIF_COULEUR?: number | null;
+  LOCKED_QUALIF_TYPE?: number | null;
+}
+
+interface QualifRuleRow {
+  CLASS_MinRang: number;
+  CLASS_MaxRang: number;
+  CLASS_Couleur: number;
+  CLASS_Libelle: string;
+  CLASS_Type: number;
+  CLASS_Abrege: string;
+}
+
+function addLockedQualificationMetadata(rows: TourParticipantRow[], tourId: number): TourParticipantRow[] {
+  const tour = db.prepare(
+    `SELECT t."NB_MATCH", COALESCE(td."VALEUR_VD", 3) AS "VALEUR_VD"
+     FROM "TOUR" t
+     LEFT JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
+     WHERE t."TUCLEUNIK" = ? LIMIT 1`,
+  ).get(tourId) as { NB_MATCH?: number; VALEUR_VD?: number } | undefined;
+  const qualifs = db.prepare(
+    `SELECT "CLASS_MinRang", "CLASS_MaxRang", "CLASS_Couleur", COALESCE("CLASS_Libelle", '') AS "CLASS_Libelle",
+            "CLASS_Type", COALESCE("CLASS_Abrege", '') AS "CLASS_Abrege"
+     FROM "Qualif" WHERE "TUCLEUNIK" = ?
+     ORDER BY "CLASS_MinRang" ASC, "CLASS_MaxRang" ASC`,
+  ).all(tourId) as QualifRuleRow[];
+
+  if (!tour || qualifs.length === 0 || rows.length === 0) {
+    return rows;
+  }
+
+  const maxMatches = Number(tour.NB_MATCH ?? 0);
+  const winPoints = Number(tour.VALEUR_VD ?? 3);
+  const groups = new Map<string, TourParticipantRow[]>();
+  rows.forEach((row) => {
+    const group = String(row.GROUPE ?? '').trim();
+    const bucket = groups.get(group) ?? [];
+    bucket.push(row);
+    groups.set(group, bucket);
+  });
+
+  const metadata = new Map<number, QualifRuleRow | null>();
+  groups.forEach((groupRows) => {
+    const hasPlayedMatch = groupRows.some((groupRow) => Number(groupRow.PANbMatch ?? 0) > 0);
+    const groupIsFinished = maxMatches > 0 && groupRows.every(
+      (groupRow) => Number(groupRow.PANbMatch ?? 0) >= maxMatches,
+    );
+    groupRows.forEach((row) => {
+      if (!hasPlayedMatch || groupIsFinished) {
+        metadata.set(row.PACLEUNIK, null);
+        return;
+      }
+
+      const currentPoints = Number(row.PANbPoints ?? 0);
+      const played = Number(row.PANbMatch ?? 0);
+      const remaining = Math.max(0, maxMatches - played);
+      const maxPoints = currentPoints + (remaining * (Number.isFinite(winPoints) ? winPoints : 3));
+      const bestRank = 1 + groupRows.filter((other) => (
+        other.PACLEUNIK !== row.PACLEUNIK
+        && Number(other.PANbPoints ?? 0) > maxPoints
+      )).length;
+      const worstRank = 1 + groupRows.filter((other) => (
+        other.PACLEUNIK !== row.PACLEUNIK
+        && Number(other.PANbPoints ?? 0)
+          + (Math.max(0, maxMatches - Number(other.PANbMatch ?? 0)) * (Number.isFinite(winPoints) ? winPoints : 3))
+          >= currentPoints
+      )).length;
+      const locked = qualifs.filter((qualif) => {
+        const min = Number(qualif.CLASS_MinRang);
+        const max = Number(qualif.CLASS_MaxRang);
+        if ([1, 2, 3].includes(Number(qualif.CLASS_Type))) {
+          return worstRank <= max;
+        }
+        if ([4, 5].includes(Number(qualif.CLASS_Type))) {
+          return bestRank >= min;
+        }
+        return false;
+      });
+
+      const positive = locked.filter((qualif) => [1, 2, 3].includes(Number(qualif.CLASS_Type)));
+      const negative = locked.filter((qualif) => [4, 5].includes(Number(qualif.CLASS_Type)));
+      const selected = positive.length > 0
+        ? positive.sort((left, right) => Number(left.CLASS_MinRang) - Number(right.CLASS_MinRang))[0]
+        : negative.sort((left, right) => Number(right.CLASS_MinRang) - Number(left.CLASS_MinRang))[0];
+      metadata.set(row.PACLEUNIK, selected ?? null);
+    });
+  });
+
+  return rows.map((row) => {
+    const locked = metadata.get(row.PACLEUNIK);
+    return {
+      ...row,
+      LOCKED_QUALIF_ABREGE: locked?.CLASS_Abrege || null,
+      LOCKED_QUALIF_LIBELLE: locked?.CLASS_Libelle || null,
+      LOCKED_QUALIF_COULEUR: locked?.CLASS_Couleur ?? null,
+      LOCKED_QUALIF_TYPE: locked?.CLASS_Type ?? null,
+    };
+  });
 }
 
 export interface TourRencontreRow {
@@ -310,7 +410,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     [id],
   );
 
-  return rows.map((row) => ({
+  return addLockedQualificationMetadata(rows.map((row) => ({
     PACLEUNIK: Number(row.PACLEUNIK),
     TUCLEUNIK: Number(row.TUCLEUNIK),
     IDCLUB: String(row.IDCLUB ?? '').trim(),
@@ -331,7 +431,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     PADiff: Number(row.PADiff ?? 0),
     PARatio: Number(row.PARatio ?? 0),
     TDCalculDiffBut: Number(row.TDCalculDiffBut ?? 1),
-  }));
+  })), id);
 }
 
 function isValidPaSource(value: string): boolean {
