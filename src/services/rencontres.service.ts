@@ -13,6 +13,8 @@ export interface CalendarMatchRow {
   CIRC: string | null;
   TOUR_NOM: string;
   COMPET_NOM: string;
+  COCLEUNIK: number | null;
+  CO_WEB: string | null;
   SAISON: string;
   CO_ANNEE: number;
   DOMICILE: string;
@@ -1625,6 +1627,8 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
       c.CIRC,
       COALESCE(t.NOM, '') AS TOUR_NOM,
       COALESCE(co.NOM, '') AS COMPET_NOM,
+      co.COCLEUNIK,
+      NULLIF(TRIM(COALESCE(co.CO_WEB, '')), '') AS CO_WEB,
       COALESCE(co.SAISON, r.SAISON, '') AS SAISON,
       COALESCE(co.CO_ANNEE, 0) AS CO_ANNEE,
       r.DOMICILE,
