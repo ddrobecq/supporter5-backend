@@ -2,6 +2,7 @@ import db, { dbAll } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
+import { getLatestTerrainForClub } from '../lib/clubTerrain';
 
 export interface CalendarMatchRow {
   RECLEUNIK: string | number;
@@ -2049,48 +2050,6 @@ export interface RencontreMatchMetaPayload {
   TECLEUNIK?: string | null;
   NBSPECT?: number;
   LIEU?: string | null;
-}
-
-interface ClubLatestTerrainRow {
-  TERRAIN_ID: string;
-  TERRAIN_NOM: string;
-  TERRAIN_VILLE: string;
-}
-
-function getLatestTerrainForClub(clubId: string): ClubLatestTerrainRow | null {
-  const normalizedClubId = toText(clubId);
-  if (!normalizedClubId) {
-    return null;
-  }
-
-  const row = db.prepare(
-    `SELECT
-       NULLIF(TRIM(CAST(ct."TECLEUNIK" AS TEXT)), '') AS TERRAIN_ID,
-       COALESCE(t."STADE", '') AS TERRAIN_NOM,
-       COALESCE(v."NOM", '') AS TERRAIN_VILLE
-     FROM "CLUB_TERRAIN" ct
-     LEFT JOIN "TERRAIN" t ON t."TECLEUNIK" = ct."TECLEUNIK"
-     LEFT JOIN "VILLE" v ON v."VICLEUNIK" = t."IDVILLE"
-     WHERE ct."IDCLUB" = ?
-       AND NULLIF(TRIM(CAST(ct."TECLEUNIK" AS TEXT)), '') IS NOT NULL
-     ORDER BY REPLACE(COALESCE(ct."DATE", ''), '-', '') DESC, ct."CT_CLEUNIK" DESC
-     LIMIT 1`,
-  ).get(normalizedClubId) as Record<string, unknown> | undefined;
-
-  if (!row) {
-    return null;
-  }
-
-  const terrainId = toText(row.TERRAIN_ID);
-  if (!terrainId) {
-    return null;
-  }
-
-  return {
-    TERRAIN_ID: terrainId,
-    TERRAIN_NOM: toText(row.TERRAIN_NOM),
-    TERRAIN_VILLE: toText(row.TERRAIN_VILLE),
-  };
 }
 
 function clubHasTerrain(clubId: string, tecleunik: string): boolean {

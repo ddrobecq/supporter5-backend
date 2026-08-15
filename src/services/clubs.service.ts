@@ -1,4 +1,5 @@
 import { createEntityService } from '../lib/baseService';
+import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
@@ -352,18 +353,22 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
   }
 
   const rows = await dbAll<Array<ClubMatchRow & {
+    HEURE: string;
     COCLEUNIK: number | null;
-    TUCLEUNIK: number;
-    CIRC: string | null;
-    TOUR_NOM: string;
     COMPET_NOM: string;
+    TOUR_NOM: string;
+    CIRC: string | null;
+    TUCLEUNIK: number;
     SAISON: string;
     CO_ANNEE: number;
+    TERRAIN_NOM: string;
   }>[number]>(
     `SELECT
        r.RECLEUNIK,
        REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+         COALESCE(r.HEURE, '') AS HEURE,
        COALESCE(r.TUCLEUNIK, 0) AS TUCLEUNIK,
+      COALESCE(te.STADE, '') AS TERRAIN_NOM,
        r.DOMICILE,
        r.EXTERIEUR,
        COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
@@ -383,6 +388,8 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
      LEFT JOIN CIRC c ON c.IDCIRC = r.IDCIRC
      LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
      LEFT JOIN COMPET co ON co.COCLEUNIK = t.COCLEUNIK
+    LEFT JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
+    LEFT JOIN TERRAIN te ON te.TECLEUNIK = m.TECLEUNIK
      LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
      LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
      WHERE r.DOMICILE = ? OR r.EXTERIEUR = ?
@@ -461,8 +468,20 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
   };
 
   return rows.map((row) => ({
+    ...(() => {
+      const explicitTerrain = normalizeText(row.TERRAIN_NOM);
+      const defaultTerrain = explicitTerrain ? null : getLatestTerrainForClub(row.DOMICILE);
+      return { TERRAIN_NOM: explicitTerrain || defaultTerrain?.TERRAIN_NOM || '' };
+    })(),
     RECLEUNIK: Number(row.RECLEUNIK),
     DATE: String(row.DATE ?? ''),
+    HEURE: String(row.HEURE ?? ''),
+    COCLEUNIK: row.COCLEUNIK == null ? null : Number(row.COCLEUNIK),
+    COMPET_NOM: String(row.COMPET_NOM ?? '').trim(),
+    TOUR_NOM: String(row.TOUR_NOM ?? '').trim(),
+    CIRC: String(row.CIRC ?? '').trim(),
+    LIEU: String(row.DOMICILE ?? '') === clubId ? 'Domicile' : 'Extérieur',
+    SAISON: resolveSeasonLabel(row),
     CIRC_COMPLET: buildCircComplete(row),
     DOMICILE: String(row.DOMICILE ?? ''),
     EXTERIEUR: String(row.EXTERIEUR ?? ''),
