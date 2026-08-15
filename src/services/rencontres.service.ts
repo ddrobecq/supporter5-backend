@@ -56,6 +56,8 @@ export interface RencontreDetailRow {
   EXTERIEUR_TEXTE: string | number | null;
   DOMICILE_NOM_EFFECTIF: string;
   EXTERIEUR_NOM_EFFECTIF: string;
+  DOMICILE_NOM_COMPLET: string;
+  EXTERIEUR_NOM_COMPLET: string;
   IDARBITRE: string | null;
   ARBITRE_NOM: string;
   ARBITRE_PRENOM: string;
@@ -1516,7 +1518,13 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     throw new AppError(400, 'Identifiant de rencontre invalide.');
   }
 
-  const keys = Object.keys(body);
+  const normalizedBody = {
+    ...body,
+    ...(Object.prototype.hasOwnProperty.call(body, 'IDCIRC') && body.IDCIRC == null
+      ? { IDCIRC: '' }
+      : {}),
+  };
+  const keys = Object.keys(normalizedBody);
   if (keys.length === 0) {
     throw new AppError(400, 'No fields provided');
   }
@@ -1528,7 +1536,7 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     }
 
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
-    db.prepare(`UPDATE "RENCO" SET ${sets} WHERE "RECLEUNIK" = ?`).run(...Object.values(body) as [], rencontreId);
+    db.prepare(`UPDATE "RENCO" SET ${sets} WHERE "RECLEUNIK" = ?`).run(...Object.values(normalizedBody) as [], rencontreId);
 
     const afterRow = readRencontreRowById(rencontreId);
     if (!afterRow) {
@@ -1704,7 +1712,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
           )
         ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
         LIMIT 1
-      ), COALESCE(cd.CLUB, ''), '') AS DOMICILE_NOM_EFFECTIF,
+      ), COALESCE(cd.CLUB, ''), '') AS DOMICILE_NOM_COMPLET,
       COALESCE((
         SELECT cn.CN_NOM
         FROM CLUB_NOM cn
@@ -1716,7 +1724,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
           )
         ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
         LIMIT 1
-      ), COALESCE(ce.CLUB, ''), '') AS EXTERIEUR_NOM_EFFECTIF,
+      ), COALESCE(ce.CLUB, ''), '') AS EXTERIEUR_NOM_COMPLET,
       NULLIF(TRIM(COALESCE(m.IDARBITRE, '')), '') AS IDARBITRE,
       COALESCE(a.NOM, '') AS ARBITRE_NOM,
       COALESCE(a.PRENOM, '') AS ARBITRE_PRENOM,
@@ -1748,7 +1756,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
     const domicileEffectiveName = resolveMatchSideDisplayName(
       detail.DOMICILE,
       detail.PADOMSource,
-      detail.DOMICILE_NOM_EFFECTIF,
+      detail.DOMICILE_NOM_COMPLET,
       candidateCache,
       clubNameCache,
     );
@@ -1756,7 +1764,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
     const exterieurEffectiveName = resolveMatchSideDisplayName(
       detail.EXTERIEUR,
       detail.PAEXTSource,
-      detail.EXTERIEUR_NOM_EFFECTIF,
+      detail.EXTERIEUR_NOM_COMPLET,
       candidateCache,
       clubNameCache,
     );
