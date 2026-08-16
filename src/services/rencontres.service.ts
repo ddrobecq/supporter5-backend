@@ -932,7 +932,90 @@ function buildNextEliminatoireMatchGroupLabel(tourId: number): string {
   return `Match ${String(nextIndex).padStart(2, '0')}`;
 }
 
+function readParticipantsOfGeneratedGroup(
+  tourId: number,
+  groupName: string,
+): Array<{ PACLEUNIK: number; GROUPE: string }> {
+  return db.prepare(
+    `SELECT
+       "PACLEUNIK",
+       COALESCE("GROUPE", '') AS "GROUPE"
+     FROM "PARTICIP"
+     WHERE "TUCLEUNIK" = ?
+       AND COALESCE("GROUPE", '') = ?
+     ORDER BY "PACLEUNIK" ASC`,
+  ).all(tourId, groupName) as Array<{ PACLEUNIK: number; GROUPE: string }>;
+}
+
+function resolveEliminatoireGroupForMatch(
+  tourId: number,
+  homeParticipant: { PACLEUNIK: number; GROUPE: string },
+  awayParticipant: { PACLEUNIK: number; GROUPE: string },
+): string {
+  const homeGroup = toText(homeParticipant.GROUPE);
+  const awayGroup = toText(awayParticipant.GROUPE);
+
+  if (homeGroup && awayGroup && homeGroup !== awayGroup) {
+    throw new AppError(409, 'Les deux participants appartiennent deja a des matchs differents.');
+  }
+
+  const existingGroup = homeGroup || awayGroup;
+  if (!existingGroup) {
+    return buildNextEliminatoireMatchGroupLabel(tourId);
+  }
+
+  const groupParticipants = readParticipantsOfGeneratedGroup(tourId, existingGroup);
+  const expectedIds = new Set([homeParticipant.PACLEUNIK, awayParticipant.PACLEUNIK]);
+  const hasBothParticipants = expectedIds.size === groupParticipants.filter(
+    (participant) => expectedIds.has(participant.PACLEUNIK),
+  ).length;
+  const unexpectedParticipant = groupParticipants.some(
+    (participant) => !expectedIds.has(participant.PACLEUNIK),
+  );
+
+  if (unexpectedParticipant || groupParticipants.length > 2 || (homeGroup && awayGroup && !hasBothParticipants)) {
+    throw new AppError(409, `Le groupe ${existingGroup} est deja associe a un autre duel.`);
+  }
+
+  return existingGroup;
+}
+
 function assignEliminatoireGroupForMatch(
+  tourId: number,
+  domicile: string,
+  exterieur: string,
+  domicileSource: string,
+  exterieurSource: string,
+): void {
+  if (!isEliminatoireTour(tourId)) return;
+
+  const homeClubId = toText(domicile);
+  const awayClubId = toText(exterieur);
+  const homeSource = toText(domicileSource);
+  const awaySource = toText(exterieurSource);
+  if ((!homeClubId && !homeSource) || (!awayClubId && !awaySource)) return;
+  if (homeClubId && awayClubId && homeClubId === awayClubId) return;
+
+  const homeParticipant = readParticipantByTourAndMatchSide(tourId, homeClubId, homeSource);
+  const awayParticipant = readParticipantByTourAndMatchSide(tourId, awayClubId, awaySource);
+  if (!homeParticipant || !awayParticipant) return;
+  if (homeParticipant.PACLEUNIK === awayParticipant.PACLEUNIK) return;
+
+  const homeGroup = toText(homeParticipant.GROUPE);
+  const awayGroup = toText(awayParticipant.GROUPE);
+  const nextGroup = resolveEliminatoireGroupForMatch(tourId, homeParticipant, awayParticipant);
+
+  if (!homeGroup) {
+    db.prepare(`UPDATE "PARTICIP" SET "GROUPE" = ? WHERE "PACLEUNIK" = ?`)
+      .run(nextGroup, homeParticipant.PACLEUNIK);
+  }
+  if (!awayGroup) {
+    db.prepare(`UPDATE "PARTICIP" SET "GROUPE" = ? WHERE "PACLEUNIK" = ?`)
+      .run(nextGroup, awayParticipant.PACLEUNIK);
+  }
+}
+
+function clearEliminatoireGroupForMatchIfUnused(
   tourId: number,
   domicile: string,
   exterieur: string,
@@ -947,82 +1030,39 @@ function assignEliminatoireGroupForMatch(
   const awayClubId = toText(exterieur);
   const homeSource = toText(domicileSource);
   const awaySource = toText(exterieurSource);
-  if (!homeClubId && !homeSource) {
-    return;
-  }
-  if (!awayClubId && !awaySource) {
-    return;
-  }
-  if (homeClubId && awayClubId && homeClubId === awayClubId) {
+  if ((!homeClubId && !homeSource) || (!awayClubId && !awaySource)) {
     return;
   }
 
-  const homeParticipant = readParticipantByTourAndMatchSide(tourId, homeClubId, homeSource);
-  const awayParticipant = readParticipantByTourAndMatchSide(tourId, awayClubId, awaySource);
-  if (!homeParticipant || !awayParticipant) {
-    return;
-  }
-  if (homeParticipant.PACLEUNIK === awayParticipant.PACLEUNIK) {
-    return;
-  }
-
-  const homeGroup = toText(homeParticipant.GROUPE);
-  const awayGroup = toText(awayParticipant.GROUPE);
-  if (homeGroup && awayGroup) {
-    return;
-  }
-
-  const nextGroup = homeGroup || awayGroup || buildNextEliminatoireMatchGroupLabel(tourId);
-  if (!nextGroup) {
-    return;
-  }
-
-  if (!homeGroup) {
-    db.prepare(
-      `UPDATE "PARTICIP"
-       SET "GROUPE" = ?
-       WHERE "PACLEUNIK" = ?`,
-    ).run(nextGroup, homeParticipant.PACLEUNIK);
-  }
-
-  if (!awayGroup) {
-    db.prepare(
-      `UPDATE "PARTICIP"
-       SET "GROUPE" = ?
-       WHERE "PACLEUNIK" = ?`,
-    ).run(nextGroup, awayParticipant.PACLEUNIK);
-  }
-}
-
-function clearEliminatoireGroupForMatchIfUnused(tourId: number, domicile: string, exterieur: string): void {
-  if (!isEliminatoireTour(tourId)) {
-    return;
-  }
-
-  const homeClubId = toText(domicile);
-  const awayClubId = toText(exterieur);
-  if (!homeClubId || !awayClubId || homeClubId === awayClubId) {
-    return;
-  }
-
-  const remainingMatch = db.prepare(
-    `SELECT 1
+  const remainingMatches = db.prepare(
+    `SELECT
+       "DOMICILE",
+       "EXTERIEUR",
+       COALESCE("PADOMSource", '') AS "PADOMSource",
+       COALESCE("PAEXTSource", '') AS "PAEXTSource"
      FROM "RENCO"
-     WHERE "TUCLEUNIK" = ?
-       AND (
-         (COALESCE("DOMICILE", '') = ? AND COALESCE("EXTERIEUR", '') = ?)
-         OR
-         (COALESCE("DOMICILE", '') = ? AND COALESCE("EXTERIEUR", '') = ?)
-       )
-     LIMIT 1`,
-  ).get(tourId, homeClubId, awayClubId, awayClubId, homeClubId) as Record<string, unknown> | undefined;
+     WHERE "TUCLEUNIK" = ?`,
+  ).all(tourId) as Array<Record<string, unknown>>;
+
+  const identity = (clubId: unknown, source: unknown): string => {
+    const normalizedClubId = toText(clubId);
+    return normalizedClubId || toText(source);
+  };
+  const homeIdentity = identity(homeClubId, homeSource);
+  const awayIdentity = identity(awayClubId, awaySource);
+  const remainingMatch = remainingMatches.find((match) => {
+    const matchHome = identity(match.DOMICILE, match.PADOMSource);
+    const matchAway = identity(match.EXTERIEUR, match.PAEXTSource);
+    return (matchHome === homeIdentity && matchAway === awayIdentity)
+      || (matchHome === awayIdentity && matchAway === homeIdentity);
+  });
 
   if (remainingMatch) {
     return;
   }
 
-  const homeParticipant = readParticipantByTourAndClub(tourId, homeClubId);
-  const awayParticipant = readParticipantByTourAndClub(tourId, awayClubId);
+  const homeParticipant = readParticipantByTourAndMatchSide(tourId, homeClubId, homeSource);
+  const awayParticipant = readParticipantByTourAndMatchSide(tourId, awayClubId, awaySource);
   if (!homeParticipant || !awayParticipant) {
     return;
   }
@@ -1037,8 +1077,8 @@ function clearEliminatoireGroupForMatchIfUnused(tourId: number, domicile: string
   db.prepare(
     `UPDATE "PARTICIP"
      SET "GROUPE" = ''
-     WHERE "TUCLEUNIK" = ? AND "IDCLUB" IN (?, ?)`,
-  ).run(tourId, homeClubId, awayClubId);
+     WHERE "PACLEUNIK" IN (?, ?)`
+  ).run(homeParticipant.PACLEUNIK, awayParticipant.PACLEUNIK);
 }
 
 function shouldCountMatch(row: RencontresRow): boolean {
@@ -1414,14 +1454,12 @@ function orderParticipantsByHeadToHead(
   const componentCount = Math.max(...componentByIndex) + 1;
   const members: number[][] = Array.from({ length: componentCount }, () => []);
   componentByIndex.forEach((componentId, rowIndex) => members[componentId].push(rowIndex));
-
   const orderedMembers = members.map((rowIndexes) => (
     orderParticipants(rowIndexes.map((rowIndex) => rows[rowIndex]), criteria, index + 1, context)
   ));
 
   const successors: Set<number>[] = Array.from({ length: componentCount }, () => new Set<number>());
   const inDegree = new Array<number>(componentCount).fill(0);
-
   for (let left = 0; left < size; left += 1) {
     for (let right = 0; right < size; right += 1) {
       if (!beats[left][right]) continue;
@@ -1435,11 +1473,9 @@ function orderParticipantsByHeadToHead(
 
   const remaining = new Set<number>(members.map((_, componentId) => componentId));
   const ordered: ParticipantStats[] = [];
-
   while (remaining.size > 0) {
     const available = [...remaining].filter((componentId) => inDegree[componentId] === 0);
     const candidates = available.length > 0 ? available : [...remaining];
-
     candidates.sort((left, right) => {
       const compare = compareParticipantsByCriteria(
         orderedMembers[left][0],
@@ -1450,7 +1486,6 @@ function orderParticipantsByHeadToHead(
       if (compare !== 0) return compare;
       return compareByClubId(orderedMembers[left][0], orderedMembers[right][0]);
     });
-
     const selected = candidates[0];
     remaining.delete(selected);
     ordered.push(...orderedMembers[selected]);
@@ -1842,7 +1877,13 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     }
 
     db.prepare('DELETE FROM "RENCO" WHERE "RECLEUNIK" = ?').run(rencontreId);
-    clearEliminatoireGroupForMatchIfUnused(row.TUCLEUNIK, row.DOMICILE, row.EXTERIEUR);
+    clearEliminatoireGroupForMatchIfUnused(
+      row.TUCLEUNIK,
+      row.DOMICILE,
+      row.EXTERIEUR,
+      row.PADOMSource ?? '',
+      row.PAEXTSource ?? '',
+    );
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
     return true;
