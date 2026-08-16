@@ -150,13 +150,18 @@ interface TourDefRules {
   VALEUR_BONUS_N: number;
   VALEUR_BONUS_D: number;
   TDCLEFTRI: string;
+  CLASS_GAD: number;
+  TDCalculDiffBut: number;
 }
 
 type SortDirection = '+' | '-';
 
+type SortCriterionKind = 'standard' | 'goalAverage';
+
 interface ParticipantSortCriterion {
   direction: SortDirection;
   field: keyof ParticipantStats;
+  kind: SortCriterionKind;
 }
 
 interface ParticipantStats {
@@ -774,7 +779,9 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
       td."VALEUR_BONUS_V",
       td."VALEUR_BONUS_N",
       td."VALEUR_BONUS_D",
-      td."TDCLEFTRI"
+      td."TDCLEFTRI",
+      td."CLASS_GAD",
+      td."TDCalculDiffBut"
      FROM "TOUR" t
      JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
      WHERE t."TUCLEUNIK" = ?
@@ -798,6 +805,8 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
     VALEUR_BONUS_N: toNum(row.VALEUR_BONUS_N),
     VALEUR_BONUS_D: toNum(row.VALEUR_BONUS_D),
     TDCLEFTRI: toText(row.TDCLEFTRI),
+    CLASS_GAD: toInt(row.CLASS_GAD, 1),
+    TDCalculDiffBut: toInt(row.TDCalculDiffBut, 1),
   };
 }
 
@@ -1183,7 +1192,110 @@ function finalizeParticipantStats(stats: ParticipantStats): ParticipantStats {
   return stats;
 }
 
-const DEFAULT_SORT_CRITERIA: ParticipantSortCriterion[] = [{ direction: '-', field: 'PANbPoints' }];
+const DEFAULT_SORT_CRITERIA: ParticipantSortCriterion[] = [{ direction: '-', field: 'PANbPoints', kind: 'standard' }];
+
+const GOAL_AVERAGE_FIELDS = new Set<keyof ParticipantStats>(['PADiff', 'PARatio']);
+
+interface HeadToHeadTotals {
+  butsPour: number;
+  butsContre: number;
+}
+
+interface HeadToHeadContext {
+  enabled: boolean;
+  calculDiffBut: number;
+  totals: Map<string, HeadToHeadTotals>;
+}
+
+const DISABLED_HEAD_TO_HEAD: HeadToHeadContext = {
+  enabled: false,
+  calculDiffBut: 1,
+  totals: new Map(),
+};
+
+function headToHeadKey(clubId: string, opponentId: string): string {
+  return `${clubId}\u0000${opponentId}`;
+}
+
+function addHeadToHeadGoals(
+  totals: Map<string, HeadToHeadTotals>,
+  clubId: string,
+  opponentId: string,
+  butsPour: number,
+  butsContre: number,
+): void {
+  const key = headToHeadKey(clubId, opponentId);
+  const current = totals.get(key) ?? { butsPour: 0, butsContre: 0 };
+  current.butsPour += butsPour;
+  current.butsContre += butsContre;
+  totals.set(key, current);
+}
+
+/** Agrege les confrontations directes (aller-retour compris) entre clubs d'un meme groupe. */
+function buildHeadToHeadContext(matchRows: RencontresRow[], rules: TourDefRules): HeadToHeadContext {
+  const calculDiffBut = toInt(rules.TDCalculDiffBut, 1);
+  if (toInt(rules.CLASS_GAD, 1) !== 1) {
+    return { enabled: false, calculDiffBut, totals: new Map() };
+  }
+
+  const totals = new Map<string, HeadToHeadTotals>();
+  matchRows.forEach((row) => {
+    if (!shouldCountMatch(row)) {
+      return;
+    }
+    addHeadToHeadGoals(totals, row.DOMICILE, row.EXTERIEUR, row.BUTDOM, row.BUTEXT);
+    addHeadToHeadGoals(totals, row.EXTERIEUR, row.DOMICILE, row.BUTEXT, row.BUTDOM);
+  });
+
+  return { enabled: true, calculDiffBut, totals };
+}
+
+/** Retourne 1 si le club a devance b sur leurs confrontations directes, -1 si b devance a, 0 sinon. */
+function compareHeadToHeadGoalAverage(
+  a: ParticipantStats,
+  b: ParticipantStats,
+  context: HeadToHeadContext,
+): number | null {
+  const totals = context.totals.get(headToHeadKey(a.IDCLUB, b.IDCLUB));
+  if (!totals) {
+    return null;
+  }
+
+  if (context.calculDiffBut === 2) {
+    // Ratio croise : (BP/BC) compare a (BC/BP) revient a comparer BP^2 et BC^2.
+    const left = totals.butsPour * totals.butsPour;
+    const right = totals.butsContre * totals.butsContre;
+    if (left === right) return 0;
+    return left > right ? 1 : -1;
+  }
+
+  const diff = totals.butsPour - totals.butsContre;
+  if (diff === 0) return 0;
+  return diff > 0 ? 1 : -1;
+}
+
+function compareParticipantsAtCriterion(
+  a: ParticipantStats,
+  b: ParticipantStats,
+  criterion: ParticipantSortCriterion,
+  context: HeadToHeadContext,
+): number {
+  if (criterion.kind === 'goalAverage' && context.enabled) {
+    const direct = compareHeadToHeadGoalAverage(a, b, context);
+    if (direct !== null) {
+      if (direct === 0) return 0;
+      return criterion.direction === '-' ? -direct : direct;
+    }
+  }
+
+  const left = toNum(a[criterion.field]);
+  const right = toNum(b[criterion.field]);
+  if (left === right) return 0;
+  if (criterion.direction === '-') {
+    return right - left;
+  }
+  return left - right;
+}
 
 function hasParticipantStatsField(field: string): field is keyof ParticipantStats {
   const sample = createEmptyParticipantStats('__sample__');
@@ -1207,7 +1319,11 @@ function parseParticipantSortCriteria(raw: string): ParticipantSortCriterion[] {
     if (!hasParticipantStatsField(field)) continue;
     if (field === 'IDCLUB') continue;
 
-    parsed.push({ direction, field });
+    parsed.push({
+      direction,
+      field,
+      kind: GOAL_AVERAGE_FIELDS.has(field) ? 'goalAverage' : 'standard',
+    });
   }
 
   if (parsed.length === 0) {
@@ -1221,30 +1337,174 @@ function compareParticipantsByCriteria(
   a: ParticipantStats,
   b: ParticipantStats,
   criteria: ParticipantSortCriterion[],
+  context: HeadToHeadContext = DISABLED_HEAD_TO_HEAD,
 ): number {
   for (const criterion of criteria) {
-    const left = toNum(a[criterion.field]);
-    const right = toNum(b[criterion.field]);
-    if (left === right) continue;
-    if (criterion.direction === '-') {
-      return right - left;
+    const compare = compareParticipantsAtCriterion(a, b, criterion, context);
+    if (compare !== 0) {
+      return compare;
     }
-    return left - right;
   }
   return 0;
+}
+
+function compareByClubId(a: ParticipantStats, b: ParticipantStats): number {
+  return a.IDCLUB.localeCompare(b.IDCLUB, 'fr', { sensitivity: 'base' });
+}
+
+/**
+ * Regroupe les clubs mutuellement accessibles dans le graphe de precedence.
+ * Un cycle signifie que le critere ne departage pas ces clubs.
+ */
+function buildPrecedenceComponents(rows: ParticipantStats[], beats: boolean[][]): number[] {
+  const size = rows.length;
+  const reachable = beats.map((line) => [...line]);
+
+  for (let via = 0; via < size; via += 1) {
+    for (let from = 0; from < size; from += 1) {
+      if (!reachable[from][via]) continue;
+      for (let to = 0; to < size; to += 1) {
+        if (reachable[via][to]) reachable[from][to] = true;
+      }
+    }
+  }
+
+  const componentByIndex = new Array<number>(size).fill(-1);
+  let nextComponent = 0;
+
+  for (let index = 0; index < size; index += 1) {
+    if (componentByIndex[index] >= 0) continue;
+    componentByIndex[index] = nextComponent;
+    for (let other = index + 1; other < size; other += 1) {
+      if (componentByIndex[other] >= 0) continue;
+      if (reachable[index][other] && reachable[other][index]) {
+        componentByIndex[other] = nextComponent;
+      }
+    }
+    nextComponent += 1;
+  }
+
+  return componentByIndex;
+}
+
+/**
+ * Ordonne les clubs sur un critere de goal-average direct.
+ * Les precedences etablies par les confrontations sont conservees ; les clubs
+ * non departages sont ordonnes par les criteres suivants de TDCLEFTRI.
+ */
+function orderParticipantsByHeadToHead(
+  rows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[],
+  index: number,
+  context: HeadToHeadContext,
+): ParticipantStats[] {
+  const criterion = criteria[index];
+  const size = rows.length;
+  const beats: boolean[][] = rows.map(() => new Array<boolean>(size).fill(false));
+
+  for (let left = 0; left < size; left += 1) {
+    for (let right = left + 1; right < size; right += 1) {
+      const compare = compareParticipantsAtCriterion(rows[left], rows[right], criterion, context);
+      if (compare < 0) beats[left][right] = true;
+      if (compare > 0) beats[right][left] = true;
+    }
+  }
+
+  const componentByIndex = buildPrecedenceComponents(rows, beats);
+  const componentCount = Math.max(...componentByIndex) + 1;
+  const members: number[][] = Array.from({ length: componentCount }, () => []);
+  componentByIndex.forEach((componentId, rowIndex) => members[componentId].push(rowIndex));
+
+  const orderedMembers = members.map((rowIndexes) => (
+    orderParticipants(rowIndexes.map((rowIndex) => rows[rowIndex]), criteria, index + 1, context)
+  ));
+
+  const successors: Set<number>[] = Array.from({ length: componentCount }, () => new Set<number>());
+  const inDegree = new Array<number>(componentCount).fill(0);
+
+  for (let left = 0; left < size; left += 1) {
+    for (let right = 0; right < size; right += 1) {
+      if (!beats[left][right]) continue;
+      const from = componentByIndex[left];
+      const to = componentByIndex[right];
+      if (from === to || successors[from].has(to)) continue;
+      successors[from].add(to);
+      inDegree[to] += 1;
+    }
+  }
+
+  const remaining = new Set<number>(members.map((_, componentId) => componentId));
+  const ordered: ParticipantStats[] = [];
+
+  while (remaining.size > 0) {
+    const available = [...remaining].filter((componentId) => inDegree[componentId] === 0);
+    const candidates = available.length > 0 ? available : [...remaining];
+
+    candidates.sort((left, right) => {
+      const compare = compareParticipantsByCriteria(
+        orderedMembers[left][0],
+        orderedMembers[right][0],
+        criteria.slice(index + 1),
+        context,
+      );
+      if (compare !== 0) return compare;
+      return compareByClubId(orderedMembers[left][0], orderedMembers[right][0]);
+    });
+
+    const selected = candidates[0];
+    remaining.delete(selected);
+    ordered.push(...orderedMembers[selected]);
+    successors[selected].forEach((target) => {
+      if (remaining.has(target)) inDegree[target] -= 1;
+    });
+  }
+
+  return ordered;
+}
+
+function orderParticipants(
+  rows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[],
+  index: number,
+  context: HeadToHeadContext,
+): ParticipantStats[] {
+  if (rows.length <= 1) {
+    return [...rows];
+  }
+
+  if (index >= criteria.length) {
+    return [...rows].sort(compareByClubId);
+  }
+
+  const criterion = criteria[index];
+  if (criterion.kind === 'goalAverage' && context.enabled) {
+    return orderParticipantsByHeadToHead(rows, criteria, index, context);
+  }
+
+  const buckets = new Map<number, ParticipantStats[]>();
+  rows.forEach((row) => {
+    const value = toNum(row[criterion.field]);
+    const bucket = buckets.get(value);
+    if (bucket) {
+      bucket.push(row);
+      return;
+    }
+    buckets.set(value, [row]);
+  });
+
+  const values = [...buckets.keys()].sort((left, right) => (
+    criterion.direction === '-' ? right - left : left - right
+  ));
+
+  return values.flatMap((value) => orderParticipants(buckets.get(value)!, criteria, index + 1, context));
 }
 
 export function sortParticipantsByPointsDesc(
   rows: ParticipantStats[],
   criteria: ParticipantSortCriterion[] = DEFAULT_SORT_CRITERIA,
+  context: HeadToHeadContext = DISABLED_HEAD_TO_HEAD,
 ): ParticipantStats[] {
-  return [...rows].sort((a, b) => {
-    const compare = compareParticipantsByCriteria(a, b, criteria);
-    if (compare !== 0) {
-      return compare;
-    }
-    return a.IDCLUB.localeCompare(b.IDCLUB, 'fr', { sensitivity: 'base' });
-  });
+  return orderParticipants(rows, criteria, 0, context);
 }
 
 function writeParticipantStats(
@@ -1252,6 +1512,7 @@ function writeParticipantStats(
   groupName: string,
   rankedRows: ParticipantStats[],
   criteria: ParticipantSortCriterion[],
+  context: HeadToHeadContext,
 ): void {
   const updateStmt = db.prepare(
     `UPDATE "PARTICIP" SET
@@ -1288,7 +1549,7 @@ function writeParticipantStats(
   rankedRows.forEach((row, index) => {
     if (previous == null) {
       currentRank = 1;
-    } else if (compareParticipantsByCriteria(previous, row, criteria) !== 0) {
+    } else if (compareParticipantsByCriteria(previous, row, criteria, context) !== 0) {
       currentRank = index + 1;
     }
 
@@ -1413,8 +1674,9 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
 
   const finalized = Array.from(statsByClub.values()).map((row) => finalizeParticipantStats(row));
   const criteria = parseParticipantSortCriteria(rules.TDCLEFTRI);
-  const ranked = sortParticipantsByPointsDesc(finalized, criteria);
-  writeParticipantStats(tourId, groupName, ranked, criteria);
+  const headToHead = buildHeadToHeadContext(matchRows, rules);
+  const ranked = sortParticipantsByPointsDesc(finalized, criteria, headToHead);
+  writeParticipantStats(tourId, groupName, ranked, criteria, headToHead);
 }
 
 function recomputeAllGroupsForTour(tourId: number): void {
