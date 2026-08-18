@@ -1094,6 +1094,9 @@ export async function getJoueurMatchesForSeason(
                WHEN ev.TYPE_EVENT = 1 AND ev.JOUEUR2 = ? THEN 'passe'
                WHEN ev.TYPE_EVENT = 2 AND ev.JOUEUR2 = ? THEN 'entree'
                WHEN ev.TYPE_EVENT = 2 AND ev.JOUEUR1 = ? THEN 'sortie'
+               WHEN ev.TYPE_EVENT = 3 AND ev.JOUEUR1 = ? THEN 'avertissement'
+               WHEN ev.TYPE_EVENT = 4 AND ev.JOUEUR1 = ? THEN 'second-avertissement'
+               WHEN ev.TYPE_EVENT = 5 AND ev.JOUEUR1 = ? THEN 'exclusion'
                WHEN ev.TYPE_EVENT = 9 AND ev.JOUEUR1 = ? THEN 'blessure'
              END AS etype,
              ev.MINUTE AS minute,
@@ -1104,6 +1107,9 @@ export async function getJoueurMatchesForSeason(
              AND (
                (ev.TYPE_EVENT = 1 AND (ev.JOUEUR1 = ? OR ev.JOUEUR2 = ?))
                OR (ev.TYPE_EVENT = 2 AND (ev.JOUEUR1 = ? OR ev.JOUEUR2 = ?))
+               OR (ev.TYPE_EVENT = 3 AND ev.JOUEUR1 = ?)
+               OR (ev.TYPE_EVENT = 4 AND ev.JOUEUR1 = ?)
+               OR (ev.TYPE_EVENT = 5 AND ev.JOUEUR1 = ?)
                OR (ev.TYPE_EVENT = 9 AND ev.JOUEUR1 = ?)
              )
            ORDER BY ev.PERIODE ASC, ev.MINUTE ASC
@@ -1171,7 +1177,7 @@ export async function getJoueurMatchesForSeason(
          AND ev.TYPE_EVENT = 2
      ) matches
      ORDER BY matches.DATE DESC`,
-    [id, id, id, id, id, id, id, id, id, id, id, season, ...posParams, season, id],
+    [id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, season, ...posParams, season, id],
   );
 
   const rows: JoueurMatchRow[] = rawRows.map((row) => {
