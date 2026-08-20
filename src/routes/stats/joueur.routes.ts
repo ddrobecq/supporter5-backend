@@ -17,6 +17,16 @@ import {
 	getExclusionsRapidesStat,
 	getMeilleursGardiensStat,
 	getSeriesInviolabiliteStat,
+	getVictoiresStat,
+	getNulsStat,
+	getDefaitesStat,
+	getAchatsStat,
+	getVentesStat,
+	getPlusValuesStat,
+	getMoinsValuesStat,
+	getGrandsStat,
+	getPetitsStat,
+	getGabaritsStat,
 	getEfficacitePassesStat,
 	getSeriesPassesStat,
 	getEfficaciteButeursStat,
@@ -49,5 +59,15 @@ router.get('/sanctions/exclusions/saison', getExclusionsParSaisonStat);
 router.get('/sanctions/exclusions/rapides', getExclusionsRapidesStat);
 router.get('/gardiens/meilleurs', getMeilleursGardiensStat);
 router.get('/gardiens/serie-inviolabilite', getSeriesInviolabiliteStat);
+router.get('/performances/victoires', getVictoiresStat);
+router.get('/performances/nuls', getNulsStat);
+router.get('/performances/defaites', getDefaitesStat);
+router.get('/transferts/achats', getAchatsStat);
+router.get('/transferts/ventes', getVentesStat);
+router.get('/transferts/plus-values', getPlusValuesStat);
+router.get('/transferts/moins-values', getMoinsValuesStat);
+router.get('/physique/grands', getGrandsStat);
+router.get('/physique/petits', getPetitsStat);
+router.get('/physique/gabarits', getGabaritsStat);
 
 export default router;

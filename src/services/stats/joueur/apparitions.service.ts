@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { scopeFilterClause, scopeFilterJoins } from '../../../lib/matchScopeFilter';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
 import { joueurPresentSql } from './joueurPresent';
 
@@ -201,7 +202,7 @@ export interface ExclusionRapideRow {
   EN_CLUB: number;
 }
 
-export async function getExclusionsRapides(): Promise<ExclusionRapideRow[]> {
+export async function getExclusionsRapides(scope?: number | null): Promise<ExclusionRapideRow[]> {
   return dbAll<ExclusionRapideRow>(
     `WITH fastest_exclusions AS (
       SELECT
@@ -216,12 +217,14 @@ export async function getExclusionsRapides(): Promise<ExclusionRapideRow[]> {
       FROM EVENT e
       INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
       WHERE e.TYPE_EVENT = 5
         AND e.ADVERSAIRE = 0
         AND e.JOUEUR1 IS NOT NULL
         AND TRIM(e.JOUEUR1) <> ''
         AND e.MINUTE < 45
         AND re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
     )
     SELECT
       jr.IDJOUEUR,
@@ -237,6 +240,7 @@ export async function getExclusionsRapides(): Promise<ExclusionRapideRow[]> {
     INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = fe.IDJOUEUR
     WHERE fe.rn = 1
     ORDER BY fe.MINUTE ASC, jr.NOM ASC, jr.PRENOM ASC`,
+    scope != null ? [scope] : [],
   );
 }
 
@@ -246,14 +250,16 @@ export interface GardienRow extends ButeurRow {
   MINUTES_PAR_BUT_ENCAISSE: number;
 }
 
-export async function getMeilleursGardiens(): Promise<GardienRow[]> {
+export async function getMeilleursGardiens(scope?: number | null): Promise<GardienRow[]> {
   const supportedClubId = getSupportedClubIdFromEnv();
   return dbAll<GardienRow>(
     `WITH official_matches AS (
       SELECT m.MACLEUNIK, re.DOMICILE, re.BUTDOM, re.BUTEXT
       FROM MATCH m
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
       WHERE re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
     ),
     goalkeeper_match_players AS (
       SELECT e.GOAL AS IDJOUEUR, e.MACLEUNIK, 1 AS IS_STARTER
@@ -356,7 +362,7 @@ export async function getMeilleursGardiens(): Promise<GardienRow[]> {
     INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = gt.IDJOUEUR
     WHERE gt.MINUTES > 0 AND gt.MATCHES > 10
     ORDER BY MINUTES_PAR_BUT_ENCAISSE DESC, jr.NOM ASC, jr.PRENOM ASC`,
-    [supportedClubId],
+    scope != null ? [scope, supportedClubId] : [supportedClubId],
   );
 }
 
@@ -373,13 +379,15 @@ export interface SerieInviolabiliteRow {
   EN_CLUB: number;
 }
 
-export async function getSeriesInviolabilite(): Promise<SerieInviolabiliteRow[]> {
+export async function getSeriesInviolabilite(scope?: number | null): Promise<SerieInviolabiliteRow[]> {
   const supportedClubId = getSupportedClubIdFromEnv();
   return dbAll<SerieInviolabiliteRow>(
     `WITH official_matches AS (
       SELECT m.MACLEUNIK, re.DATE, re.DOMICILE, re.BUTDOM, re.BUTEXT
       FROM MATCH m INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
       WHERE re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
     ),
     goalkeeper_match_players AS (
       SELECT e.GOAL AS IDJOUEUR, e.MACLEUNIK, 1 AS IS_STARTER
@@ -433,7 +441,7 @@ export async function getSeriesInviolabilite(): Promise<SerieInviolabiliteRow[]>
     INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = r.IDJOUEUR
     WHERE r.rn = 1 AND r.SERIE > 1
     ORDER BY r.SERIE DESC, jr.NOM ASC, jr.PRENOM ASC`,
-    [supportedClubId],
+    scope != null ? [scope, supportedClubId] : [supportedClubId],
   );
 }
 
@@ -450,7 +458,7 @@ export interface SerieButeurRow {
   EN_CLUB: number;
 }
 
-export async function getSeriesButeurs(metric: ScoringMetric = 'buts'): Promise<SerieButeurRow[]> {
+export async function getSeriesButeurs(metric: ScoringMetric = 'buts', scope?: number | null): Promise<SerieButeurRow[]> {
   const { eventPlayer } = scoringColumns(metric);
   return dbAll<SerieButeurRow>(
     `WITH player_matches AS (
@@ -492,7 +500,9 @@ export async function getSeriesButeurs(metric: ScoringMetric = 'buts'): Promise<
       SELECT m.MACLEUNIK, m.RECLEUNIK, re.DATE
       FROM MATCH m
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
       WHERE re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
     ),
     played_matches AS (
       SELECT DISTINCT pm.IDJOUEUR, pm.MACLEUNIK, om.DATE,
@@ -547,6 +557,7 @@ export async function getSeriesButeurs(metric: ScoringMetric = 'buts'): Promise<
     INNER JOIN player_last_matches plm ON plm.IDJOUEUR = rs.IDJOUEUR
     WHERE rs.rn = 1 AND rs.SERIE > 1
     ORDER BY rs.SERIE DESC, jr.NOM ASC, jr.PRENOM ASC`,
+    scope != null ? [scope] : [],
   );
 }
 
@@ -562,7 +573,7 @@ export interface ButeurMatchRow {
   EN_CLUB: number;
 }
 
-export async function getButeursParMatch(metric: ScoringMetric = 'buts'): Promise<ButeurMatchRow[]> {
+export async function getButeursParMatch(metric: ScoringMetric = 'buts', scope?: number | null): Promise<ButeurMatchRow[]> {
   const { eventPlayer } = scoringColumns(metric);
   return dbAll<ButeurMatchRow>(
     `WITH player_match_goals AS (
@@ -574,11 +585,13 @@ export async function getButeursParMatch(metric: ScoringMetric = 'buts'): Promis
       FROM EVENT e
       INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
       WHERE e.TYPE_EVENT = 1
         AND e.ADVERSAIRE = 0
         AND ${eventPlayer} IS NOT NULL
         AND TRIM(${eventPlayer}) <> ''
         AND re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
       GROUP BY ${eventPlayer}, re.DATE, re.RECLEUNIK
       HAVING BUTS > 1
     ),
@@ -605,6 +618,7 @@ export async function getButeursParMatch(metric: ScoringMetric = 'buts'): Promis
     INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = rpm.IDJOUEUR
     WHERE rpm.rn = 1
     ORDER BY rpm.BUTS DESC, rpm.MATCH_DATE DESC, jr.NOM ASC, jr.PRENOM ASC`,
+    scope != null ? [scope] : [],
   );
 }
 
@@ -651,7 +665,7 @@ export interface PremierMatchRow {
   RECLEUNIK: number; // Encounter ID for link to match fiche
 }
 
-export async function getPremierMatch(order: 'ASC' | 'DESC' = 'ASC'): Promise<PremierMatchRow[]> {
+export async function getPremierMatch(order: 'ASC' | 'DESC' = 'ASC', scope?: number | null): Promise<PremierMatchRow[]> {
   const appearanceOrder = order === 'DESC' ? 'DESC' : 'ASC';
 
   return dbAll<PremierMatchRow>(
@@ -727,7 +741,9 @@ export async function getPremierMatch(order: 'ASC' | 'DESC' = 'ASC'): Promise<Pr
       FROM player_matches pm
       JOIN MATCH m ON m.MACLEUNIK = pm.MACLEUNIK
       JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
       WHERE re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
     ),
     first_appearance AS (
       SELECT 
@@ -756,9 +772,211 @@ export async function getPremierMatch(order: 'ASC' | 'DESC' = 'ASC'): Promise<Pr
       AND TRIM(jr.NAISSANCE) <> ''
       AND re.TUCLEUNIK <> 0
     ORDER BY fa.FIRST_DATE ${appearanceOrder}, jr.NOM ASC, jr.PRENOM ASC`,
+    scope != null ? [scope] : [],
   );
 }
 
-export async function getDernierMatch(): Promise<PremierMatchRow[]> {
-  return getPremierMatch('DESC');
+export type TransfertMetric = 'achats' | 'ventes' | 'plus-values' | 'moins-values';
+
+export interface TransfertRow {
+  IDJOUEUR: string;
+  NOM: string;
+  PRENOM: string;
+  SURNOM: string | null;
+  IDNATIO: string | null;
+  MONTANT: number;
+  CLUB_ID: string | null;
+  CLUB_NOM: string | null;
+  CLUB_IDNATIO: string | null;
+  EN_CLUB: number;
+}
+
+/** Indemnites converties en devise par defaut (DEVISE.CONVERSION). */
+const MONTANT_EN_DEVISE_DEFAUT = 'CAST(t.INDEMNITES AS REAL) / NULLIF(d.CONVERSION, 0)';
+
+export async function getTransferts(metric: TransfertMetric = 'achats'): Promise<TransfertRow[]> {
+  if (metric === 'achats' || metric === 'ventes') {
+    const statut = metric === 'achats' ? 2 : 1;
+    return dbAll<TransfertRow>(
+      `SELECT
+        jr.IDJOUEUR,
+        jr.NOM,
+        jr.PRENOM,
+        jr.SURNOM,
+        jr.IDNATIO,
+        ${MONTANT_EN_DEVISE_DEFAUT} AS MONTANT,
+        t.IDCLUB AS CLUB_ID,
+        c.CLUB AS CLUB_NOM,
+        c.IDNATIO AS CLUB_IDNATIO,
+        CASE WHEN ${joueurPresentSql()} THEN 1 ELSE 0 END AS EN_CLUB
+       FROM TRANSAC t
+       INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = t.IDJOUEUR
+       LEFT JOIN DEVISE d ON d.DVCLEUNIK = t.DVCLEUNIK
+       LEFT JOIN CLUB c ON c.IDCLUB = t.IDCLUB
+       WHERE t.STATUT = ? AND COALESCE(t.INDEMNITES, 0) > 0
+       ORDER BY MONTANT DESC, jr.NOM ASC, jr.PRENOM ASC`,
+      [statut],
+    );
+  }
+
+  const order = metric === 'plus-values' ? 'DESC' : 'ASC';
+  const having = metric === 'plus-values' ? 'BALANCE > 0' : 'BALANCE < 0';
+  return dbAll<TransfertRow>(
+    `WITH player_balance AS (
+      SELECT
+        t.IDJOUEUR,
+        SUM(CASE WHEN t.STATUT = 1 THEN ${MONTANT_EN_DEVISE_DEFAUT} ELSE 0 END)
+          - SUM(CASE WHEN t.STATUT = 2 THEN ${MONTANT_EN_DEVISE_DEFAUT} ELSE 0 END) AS BALANCE
+      FROM TRANSAC t
+      LEFT JOIN DEVISE d ON d.DVCLEUNIK = t.DVCLEUNIK
+      WHERE COALESCE(t.INDEMNITES, 0) > 0 AND t.STATUT IN (1, 2)
+      GROUP BY t.IDJOUEUR
+      HAVING ${having}
+    )
+    SELECT
+      jr.IDJOUEUR,
+      jr.NOM,
+      jr.PRENOM,
+      jr.SURNOM,
+      jr.IDNATIO,
+      ABS(pb.BALANCE) AS MONTANT,
+      NULL AS CLUB_ID,
+      NULL AS CLUB_NOM,
+      NULL AS CLUB_IDNATIO,
+      CASE WHEN ${joueurPresentSql()} THEN 1 ELSE 0 END AS EN_CLUB
+    FROM player_balance pb
+    INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = pb.IDJOUEUR
+    WHERE NOT (${joueurPresentSql()})
+    ORDER BY pb.BALANCE ${order}, jr.NOM ASC, jr.PRENOM ASC`,
+  );
+}
+
+export type PhysiqueMetric = 'grands' | 'petits' | 'gabarits';
+
+export interface PhysiqueRow {
+  IDJOUEUR: string;
+  NOM: string;
+  PRENOM: string;
+  SURNOM: string | null;
+  IDNATIO: string | null;
+  HAUTEUR: number;
+  POIDS: number | null;
+  IMC: number | null;
+  EN_CLUB: number;
+}
+
+export async function getPhysique(metric: PhysiqueMetric = 'grands'): Promise<PhysiqueRow[]> {
+  const gabarits = metric === 'gabarits';
+  const filtrePoids = gabarits ? 'AND COALESCE(jr.POIDS, 0) > 0' : '';
+  const tri = gabarits
+    ? 'IMC DESC'
+    : `jr.HAUTEUR ${metric === 'petits' ? 'ASC' : 'DESC'}`;
+
+  return dbAll<PhysiqueRow>(
+    `SELECT
+      jr.IDJOUEUR,
+      jr.NOM,
+      jr.PRENOM,
+      jr.SURNOM,
+      jr.IDNATIO,
+      jr.HAUTEUR,
+      jr.POIDS,
+      ROUND(CAST(jr.POIDS AS REAL) / ((CAST(jr.HAUTEUR AS REAL) / 100) * (CAST(jr.HAUTEUR AS REAL) / 100)), 1) AS IMC,
+      CASE WHEN ${joueurPresentSql()} THEN 1 ELSE 0 END AS EN_CLUB
+     FROM JOUEURRG jr
+     WHERE COALESCE(jr.HAUTEUR, 0) > 0 ${filtrePoids}
+     ORDER BY ${tri}, jr.NOM ASC, jr.PRENOM ASC`,
+  );
+}
+
+export async function getDernierMatch(scope?: number | null): Promise<PremierMatchRow[]> {
+  return getPremierMatch('DESC', scope);
+}
+
+export type PerformanceMetric = 'victoires' | 'nuls' | 'defaites';
+
+export interface PerformanceRow {
+  IDJOUEUR: string;
+  NOM: string;
+  PRENOM: string;
+  SURNOM: string | null;
+  IDNATIO: string | null;
+  RESULTATS: number;
+  MATCHES: number;
+  POURCENTAGE: number;
+  EN_CLUB: number;
+}
+
+function performanceCondition(metric: PerformanceMetric): string {
+  const supportedGoals = 'CASE WHEN om.DOMICILE = ? THEN om.BUTDOM ELSE om.BUTEXT END';
+  const opponentGoals = 'CASE WHEN om.DOMICILE = ? THEN om.BUTEXT ELSE om.BUTDOM END';
+  if (metric === 'nuls') return `${supportedGoals} = ${opponentGoals}`;
+  if (metric === 'defaites') return `${supportedGoals} < ${opponentGoals}`;
+  return `${supportedGoals} > ${opponentGoals}`;
+}
+
+export async function getPerformances(metric: PerformanceMetric = 'victoires', scope?: number | null): Promise<PerformanceRow[]> {
+  const supportedClubId = getSupportedClubIdFromEnv();
+  return dbAll<PerformanceRow>(
+    `WITH official_matches AS (
+      SELECT m.MACLEUNIK, re.DOMICILE, re.BUTDOM, re.BUTEXT
+      FROM MATCH m
+      INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
+      WHERE re.TUCLEUNIK <> 0
+        AND (re.DOMICILE = ? OR re.EXTERIEUR = ?)
+        ${scopeFilterClause(scope)}
+    ),
+    player_matches AS (
+      SELECT GOAL AS IDJOUEUR, MACLEUNIK FROM EQUIPE WHERE GOAL IS NOT NULL AND TRIM(GOAL) <> ''
+      UNION SELECT DLG, MACLEUNIK FROM EQUIPE WHERE DLG IS NOT NULL AND TRIM(DLG) <> ''
+      UNION SELECT DLD, MACLEUNIK FROM EQUIPE WHERE DLD IS NOT NULL AND TRIM(DLD) <> ''
+      UNION SELECT DCG, MACLEUNIK FROM EQUIPE WHERE DCG IS NOT NULL AND TRIM(DCG) <> ''
+      UNION SELECT DCD, MACLEUNIK FROM EQUIPE WHERE DCD IS NOT NULL AND TRIM(DCD) <> ''
+      UNION SELECT LIB, MACLEUNIK FROM EQUIPE WHERE LIB IS NOT NULL AND TRIM(LIB) <> ''
+      UNION SELECT STO, MACLEUNIK FROM EQUIPE WHERE STO IS NOT NULL AND TRIM(STO) <> ''
+      UNION SELECT MDLD, MACLEUNIK FROM EQUIPE WHERE MDLD IS NOT NULL AND TRIM(MDLD) <> ''
+      UNION SELECT MDLG, MACLEUNIK FROM EQUIPE WHERE MDLG IS NOT NULL AND TRIM(MDLG) <> ''
+      UNION SELECT MDCD, MACLEUNIK FROM EQUIPE WHERE MDCD IS NOT NULL AND TRIM(MDCD) <> ''
+      UNION SELECT MDCG, MACLEUNIK FROM EQUIPE WHERE MDCG IS NOT NULL AND TRIM(MDCG) <> ''
+      UNION SELECT MOLD, MACLEUNIK FROM EQUIPE WHERE MOLD IS NOT NULL AND TRIM(MOLD) <> ''
+      UNION SELECT MOLG, MACLEUNIK FROM EQUIPE WHERE MOLG IS NOT NULL AND TRIM(MOLG) <> ''
+      UNION SELECT MOCD, MACLEUNIK FROM EQUIPE WHERE MOCD IS NOT NULL AND TRIM(MOCD) <> ''
+      UNION SELECT MOCG, MACLEUNIK FROM EQUIPE WHERE MOCG IS NOT NULL AND TRIM(MOCG) <> ''
+      UNION SELECT MOCC, MACLEUNIK FROM EQUIPE WHERE MOCC IS NOT NULL AND TRIM(MOCC) <> ''
+      UNION SELECT MDCC, MACLEUNIK FROM EQUIPE WHERE MDCC IS NOT NULL AND TRIM(MDCC) <> ''
+      UNION SELECT ALD, MACLEUNIK FROM EQUIPE WHERE ALD IS NOT NULL AND TRIM(ALD) <> ''
+      UNION SELECT ALG, MACLEUNIK FROM EQUIPE WHERE ALG IS NOT NULL AND TRIM(ALG) <> ''
+      UNION SELECT ACD, MACLEUNIK FROM EQUIPE WHERE ACD IS NOT NULL AND TRIM(ACD) <> ''
+      UNION SELECT ACG, MACLEUNIK FROM EQUIPE WHERE ACG IS NOT NULL AND TRIM(ACG) <> ''
+      UNION SELECT AVC, MACLEUNIK FROM EQUIPE WHERE AVC IS NOT NULL AND TRIM(AVC) <> ''
+      UNION SELECT ev.JOUEUR2, ev.MACLEUNIK FROM EVENT ev
+        WHERE ev.TYPE_EVENT = 2 AND ev.ADVERSAIRE = 0
+          AND ev.JOUEUR2 IS NOT NULL AND TRIM(ev.JOUEUR2) <> ''
+    ),
+    player_results AS (
+      SELECT
+        pm.IDJOUEUR,
+        COUNT(*) AS MATCHES,
+        SUM(CASE WHEN ${performanceCondition(metric)} THEN 1 ELSE 0 END) AS RESULTATS
+      FROM player_matches pm
+      INNER JOIN official_matches om ON om.MACLEUNIK = pm.MACLEUNIK
+      GROUP BY pm.IDJOUEUR
+    )
+    SELECT
+      jr.IDJOUEUR,
+      jr.NOM,
+      jr.PRENOM,
+      jr.SURNOM,
+      jr.IDNATIO,
+      pr.RESULTATS,
+      pr.MATCHES,
+      ROUND(CAST(pr.RESULTATS AS REAL) * 100 / pr.MATCHES, 1) AS POURCENTAGE,
+      CASE WHEN ${joueurPresentSql()} THEN 1 ELSE 0 END AS EN_CLUB
+    FROM player_results pr
+    INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = pr.IDJOUEUR
+    WHERE pr.RESULTATS > 0 AND pr.MATCHES >= 10
+    ORDER BY pr.RESULTATS DESC, jr.NOM ASC, jr.PRENOM ASC`,
+    [supportedClubId, supportedClubId, ...(scope != null ? [scope] : []), supportedClubId, supportedClubId],
+  );
 }

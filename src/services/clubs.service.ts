@@ -1,4 +1,5 @@
 import { createEntityService } from '../lib/baseService';
+import { buildCircCompletResolver } from '../lib/circComplet';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
@@ -397,75 +398,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
     [clubId, clubId],
   );
 
-  const competitionIds = Array.from(new Set(
-    rows
-      .map((row) => Number(row.COCLEUNIK ?? 0))
-      .filter((value) => Number.isInteger(value) && value > 0),
-  ));
-
-  const finalYearByCompetition = new Map<number, string>();
-  if (competitionIds.length > 0) {
-    const placeholders = competitionIds.map(() => '?').join(', ');
-    const finals = await dbAll<{ COCLEUNIK: number; FINAL_YEAR: string | null }>(
-      `SELECT
-         t.COCLEUNIK,
-         MAX(SUBSTR(REPLACE(COALESCE(r.DATE, ''), '-', ''), 1, 4)) AS FINAL_YEAR
-       FROM TOUR t
-       INNER JOIN RENCO r ON r.TUCLEUNIK = t.TUCLEUNIK
-       WHERE COALESCE(t.TU_FINAL, 0) = 1
-         AND t.COCLEUNIK IN (${placeholders})
-       GROUP BY t.COCLEUNIK`,
-      competitionIds,
-    );
-
-    finals.forEach((row) => {
-      const year = normalizeText(row.FINAL_YEAR);
-      if (/^\d{4}$/.test(year)) {
-        finalYearByCompetition.set(Number(row.COCLEUNIK), year);
-      }
-    });
-  }
-
-  const resolveSeasonLabel = (row: { COCLEUNIK: number | null; CO_ANNEE: number; SAISON: string }): string => {
-    if (Number(row.CO_ANNEE ?? 0) === 1) {
-      const fromFinal = finalYearByCompetition.get(Number(row.COCLEUNIK ?? 0));
-      if (fromFinal) {
-        return fromFinal;
-      }
-      const fromSeason = normalizeText(row.SAISON).match(/\d{4}/)?.[0] ?? '';
-      return fromSeason;
-    }
-    return normalizeText(row.SAISON);
-  };
-
-  const buildCircComplete = (row: {
-    TUCLEUNIK: number;
-    CIRC: string | null;
-    TOUR_NOM: string;
-    COMPET_NOM: string;
-    SAISON: string;
-    CO_ANNEE: number;
-    COCLEUNIK: number | null;
-  }): string => {
-    if (row.TUCLEUNIK === 0) return 'Match amical';
-    const circ = normalizeText(row.CIRC);
-    const tour = normalizeText(row.TOUR_NOM);
-    const competition = normalizeText(row.COMPET_NOM);
-    const season = resolveSeasonLabel(row);
-
-    let base = '';
-    if (circ) {
-      const suffix = [tour, competition].filter(Boolean).join(' de ');
-      base = suffix ? `${circ} de ${suffix}` : circ;
-    } else {
-      base = [tour, competition].filter(Boolean).join(' de ');
-    }
-
-    if (season) {
-      return base ? `${base} ${season}` : season;
-    }
-    return base;
-  };
+  const { saison: resolveSeasonLabel, circComplet: buildCircComplete } = await buildCircCompletResolver(rows);
 
   return rows.map((row) => ({
     ...(() => {
