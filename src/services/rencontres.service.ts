@@ -1805,6 +1805,7 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
 
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(insertedRow.TUCLEUNIK);
+    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(insertedId));
 
     return insertedId;
   });
@@ -1853,6 +1854,8 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     });
 
     propagateProgrammedParticipantsAndMatches();
+    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(beforeRow.RECLEUNIK));
+    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(afterRow.RECLEUNIK));
 
     return true;
   });
@@ -1886,6 +1889,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     );
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
+    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(row.RECLEUNIK));
     return true;
   });
 
@@ -2303,6 +2307,204 @@ const COMPO_FIELDS = [
   'ENTRAINEUR',
 ] as const;
 
+const STARTER_FIELDS = COMPO_FIELDS.filter((field) => !field.startsWith('REMP') && field !== 'ENTRAINEUR');
+
+interface PlayerMatchTotals {
+  TITULAIRETOTAL: number;
+  REMPTOTAL: number;
+  BUTTOTAL: number;
+  PASSETOTAL: number;
+  JAUNETOTAL: number;
+  ROUGETOTAL: number;
+  TEMPSTOTAL: number;
+}
+
+function emptyPlayerMatchTotals(): PlayerMatchTotals {
+  return {
+    TITULAIRETOTAL: 0,
+    REMPTOTAL: 0,
+    BUTTOTAL: 0,
+    PASSETOTAL: 0,
+    JAUNETOTAL: 0,
+    ROUGETOTAL: 0,
+    TEMPSTOTAL: 0,
+  };
+}
+
+function addPlayerMatchTotals(
+  totalsByPlayer: Map<string, PlayerMatchTotals>,
+  playerId: string,
+  update: (totals: PlayerMatchTotals) => void,
+): void {
+  const normalizedId = toText(playerId);
+  if (!normalizedId) return;
+  const totals = totalsByPlayer.get(normalizedId) ?? emptyPlayerMatchTotals();
+  update(totals);
+  totalsByPlayer.set(normalizedId, totals);
+}
+
+function resolveStatsSeasonForRencontre(recleunik: number): string {
+  const row = db.prepare(
+    `SELECT COALESCE(NULLIF(TRIM(co."SAISON"), ''), '') AS "SAISON"
+     FROM "RENCO" r
+     LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
+     LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
+     WHERE r."RECLEUNIK" = ? AND r."TUCLEUNIK" > 0
+     LIMIT 1`,
+  ).get(recleunik) as Record<string, unknown> | undefined;
+
+  return toText(row?.SAISON);
+}
+
+function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
+  const normalizedSeason = toText(season);
+  if (!normalizedSeason) return;
+
+  const supportedClubId = getSupportedClubId();
+  const matchRows = db.prepare(
+    `SELECT
+       r."RECLEUNIK",
+       r."SAISON",
+      co."SAISON" AS "STATS_SAISON",
+       r."DOMICILE",
+       r."EXTERIEUR",
+       m."MACLEUNIK",
+       CASE
+         WHEN r."TUCLEUNIK" > 0
+           THEN COALESCE(td."DUREE_TPS_REG", m."MADUREE", 90)
+             + CASE WHEN COALESCE(m."EXTRATIME", 0) = 1 THEN COALESCE(td."DUREE_TPS_PROLONG", 0) ELSE 0 END
+         ELSE COALESCE(m."MADUREE", 90)
+       END AS "MATCH_DURATION",
+       q.*,
+       e.*
+     FROM "RENCO" r
+     LEFT JOIN "MATCH" m ON m."RECLEUNIK" = r."RECLEUNIK"
+     LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
+     LEFT JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
+    LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
+     LEFT JOIN "EQUIPE" q ON q."MACLEUNIK" = m."MACLEUNIK"
+     LEFT JOIN "EVENT" e ON e."MACLEUNIK" = m."MACLEUNIK"
+     WHERE r."TUCLEUNIK" > 0
+       AND NULLIF(TRIM(co."SAISON"), '') = ?
+       AND (r."DOMICILE" = ? OR r."EXTERIEUR" = ?)
+     ORDER BY r."RECLEUNIK" ASC, e."EVCLEUNIK" ASC`,
+  ).all(normalizedSeason, supportedClubId, supportedClubId) as Array<Record<string, unknown>>;
+
+  const totalsByPlayer = new Map<string, PlayerMatchTotals>();
+  const matches = new Map<number, {
+    duration: number;
+    starters: Set<string>;
+    events: Array<Record<string, unknown>>;
+  }>();
+
+  matchRows.forEach((row) => {
+    const recleunik = toInt(row.RECLEUNIK);
+    if (!recleunik) return;
+
+    let match = matches.get(recleunik);
+    if (!match) {
+      match = {
+        duration: Math.max(1, toInt(row.MATCH_DURATION, 90)),
+        starters: new Set<string>(),
+        events: [],
+      };
+      matches.set(recleunik, match);
+    }
+
+    STARTER_FIELDS.forEach((field) => {
+      const playerId = toText(row[field]);
+      if (playerId) {
+        match!.starters.add(playerId);
+      }
+    });
+    if (row.EVCLEUNIK != null) {
+      match.events.push(row);
+    }
+  });
+
+  matches.forEach((match) => {
+    match.starters.forEach((playerId) => {
+      addPlayerMatchTotals(totalsByPlayer, playerId, (totals) => {
+        totals.TITULAIRETOTAL += 1;
+        totals.TEMPSTOTAL += match.duration;
+      });
+    });
+
+    match.events.forEach((event) => {
+      if (toInt(event.ADVERSAIRE) !== 0) return;
+
+      const typeEvent = toInt(event.TYPE_EVENT);
+      const minute = Math.max(0, Math.min(match.duration, toInt(event.MINUTE)));
+      const joueur1 = toText(event.JOUEUR1);
+      const joueur2 = toText(event.JOUEUR2);
+
+      if (typeEvent === 2 && joueur1 && joueur2) {
+        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => {
+          totals.TEMPSTOTAL = Math.min(totals.TEMPSTOTAL, minute);
+        });
+        addPlayerMatchTotals(totalsByPlayer, joueur2, (totals) => {
+          totals.REMPTOTAL += 1;
+          totals.TEMPSTOTAL += Math.max(0, match.duration - minute);
+        });
+      } else if (typeEvent === 9 && joueur1) {
+        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => {
+          totals.TEMPSTOTAL = Math.min(totals.TEMPSTOTAL, minute);
+        });
+      }
+
+      if ((typeEvent === 1 || (typeEvent === 7 && toInt(event.PERIODE) !== 5)) && joueur1) {
+        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.BUTTOTAL += 1; });
+        if (joueur2) {
+          addPlayerMatchTotals(totalsByPlayer, joueur2, (totals) => { totals.PASSETOTAL += 1; });
+        }
+      }
+      if (typeEvent === 3 || typeEvent === 4) {
+        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.JAUNETOTAL += 1; });
+      }
+      if (typeEvent === 4 || typeEvent === 5) {
+        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.ROUGETOTAL += 1; });
+        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => {
+          totals.TEMPSTOTAL = Math.min(totals.TEMPSTOTAL, minute);
+        });
+      }
+    });
+  });
+
+  db.prepare(
+    `UPDATE "JOUEUR"
+     SET "BUTTOTAL" = 0,
+         "PASSETOTAL" = 0,
+         "JAUNETOTAL" = 0,
+         "ROUGETOTAL" = 0,
+         "TITULAIRETOTAL" = 0,
+         "REMPTOTAL" = 0,
+         "TEMPSTOTAL" = 0
+      WHERE "SAISON" = ?`,
+    ).run(normalizedSeason);
+
+    if (totalsByPlayer.size === 0) return;
+
+  const update = db.prepare(
+    `UPDATE "JOUEUR" SET
+       "BUTTOTAL" = ?, "PASSETOTAL" = ?, "JAUNETOTAL" = ?, "ROUGETOTAL" = ?,
+       "TITULAIRETOTAL" = ?, "REMPTOTAL" = ?, "TEMPSTOTAL" = ?
+     WHERE "SAISON" = ? AND "IDJOUEUR" = ?`,
+  );
+  totalsByPlayer.forEach((totals, playerId) => {
+    update.run(
+      totals.BUTTOTAL,
+      totals.PASSETOTAL,
+      totals.JAUNETOTAL,
+      totals.ROUGETOTAL,
+      totals.TITULAIRETOTAL,
+      totals.REMPTOTAL,
+      totals.TEMPSTOTAL,
+      normalizedSeason,
+      playerId,
+    );
+  });
+}
+
 export interface CompositionRow {
   EQCLEUNIK: number | null;
   MACLEUNIK: number | null;
@@ -2437,8 +2639,11 @@ export async function upsertCompositionForRencontre(
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const matchRow = db.prepare(
-    `SELECT m."MACLEUNIK", r."SAISON", r."DATE"
+    `SELECT m."MACLEUNIK", r."DATE",
+            COALESCE(NULLIF(TRIM(co."SAISON"), ''), r."SAISON", '') AS "SAISON"
      FROM "MATCH" m INNER JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
+     LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
+     LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
   ).get(recleunik) as Record<string, unknown> | undefined;
 
@@ -2451,7 +2656,7 @@ export async function upsertCompositionForRencontre(
   const opponentComposition = opponentCompositionRaw == null ? null : String(opponentCompositionRaw);
   const normalizedOpponentComposition = opponentComposition && opponentComposition.trim() ? opponentComposition : null;
 
-  const existing = db.prepare('SELECT "EQCLEUNIK" FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
+  const existing = db.prepare('SELECT * FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
 
   const fieldsToSave: string[] = [];
   const values: unknown[] = [];
@@ -2471,6 +2676,7 @@ export async function upsertCompositionForRencontre(
   }
 
   db.prepare(`UPDATE "MATCH" SET "MACOMPOADVERSAIRE" = ? WHERE "MACLEUNIK" = ?`).run(normalizedOpponentComposition, macleunik);
+  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
 
   return getCompositionForRencontre(id);
 }
@@ -2549,8 +2755,11 @@ export async function createEventForRencontre(rencontreId: string | number, payl
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const row = db.prepare(
-    `SELECT m."MACLEUNIK", r."SAISON", r."DATE"
+    `SELECT m."MACLEUNIK", r."DATE",
+            COALESCE(NULLIF(TRIM(co."SAISON"), ''), r."SAISON", '') AS "SAISON"
      FROM "MATCH" m INNER JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
+     LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
+     LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
   ).get(recleunik) as Record<string, unknown> | undefined;
 
@@ -2571,6 +2780,7 @@ export async function createEventForRencontre(rencontreId: string | number, payl
     payload.joueur2 || null,
     payload.comment || null,
   );
+  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
 }
 
 export async function updateEventForRencontre(evcleunik: string | number, payload: EventPayload): Promise<void> {
@@ -2592,14 +2802,32 @@ export async function updateEventForRencontre(evcleunik: string | number, payloa
   );
 
   if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
+
+  const seasonRow = db.prepare(
+    `SELECT m."RECLEUNIK"
+     FROM "EVENT" e
+     INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
+     WHERE e."EVCLEUNIK" = ?
+     LIMIT 1`,
+  ).get(id) as Record<string, unknown> | undefined;
+  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(seasonRow?.RECLEUNIK)));
 }
 
 export async function deleteEventForRencontre(evcleunik: string | number): Promise<void> {
   const id = toInt(evcleunik);
   if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
 
+  const seasonRow = db.prepare(
+    `SELECT m."RECLEUNIK"
+     FROM "EVENT" e
+     INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
+     WHERE e."EVCLEUNIK" = ?
+     LIMIT 1`,
+  ).get(id) as Record<string, unknown> | undefined;
   const result = db.prepare(`DELETE FROM "EVENT" WHERE "EVCLEUNIK" = ?`).run(id);
   if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
+
+  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(seasonRow?.RECLEUNIK)));
 }
 
 export default {
