@@ -791,8 +791,8 @@ export interface TransfertRow {
   EN_CLUB: number;
 }
 
-/** Indemnites converties en devise par defaut (DEVISE.CONVERSION). */
-const MONTANT_EN_DEVISE_DEFAUT = 'CAST(t.INDEMNITES AS REAL) / NULLIF(d.CONVERSION, 0)';
+/** Indemnites converties en devise par defaut (DEVISE.CONVERSION); DVCLEUNIK sans ligne DEVISE (ex: 0) => facteur 1. */
+const MONTANT_EN_DEVISE_DEFAUT = 'CAST(t.INDEMNITES AS REAL) / COALESCE(NULLIF(d.CONVERSION, 0), 1)';
 
 export async function getTransferts(metric: TransfertMetric = 'achats'): Promise<TransfertRow[]> {
   if (metric === 'achats' || metric === 'ventes') {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
 	getApparitionsParSaison,
 	getApparitionsPlusSelectionnes,
+	getApparitionsEquipeType,
 	getNombreAnneesAuClubStat,
 	getDernierMatchStat,
 	getButeursStat,
@@ -39,6 +40,7 @@ const router = Router();
 // Theme: Apparitions
 router.get('/apparitions/plus-selectionnes', getApparitionsPlusSelectionnes);
 router.get('/apparitions/saison', getApparitionsParSaison);
+router.get('/apparitions/equipe-type', getApparitionsEquipeType);
 router.get('/apparitions/anciennete', getNombreAnneesAuClubStat);
 router.get('/apparitions/plus-jeune', getPremierMatchStat);
 router.get('/apparitions/plus-vieux', getDernierMatchStat);

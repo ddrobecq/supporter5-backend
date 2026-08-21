@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { parseScopeParam } from '../../lib/matchScopeFilter';
 import { getButeurs, getButeursParMatch, getButeursParSaison, getDernierMatch, getEfficaciteButeurs, getExclusionsRapides, getMeilleursGardiens, getNombreAnneesAuClub, getParSaison, getPerformances, getPhysique, getPlusSelectionnes, getPremierMatch, getSanctions, getSanctionsParSaison, getSeriesButeurs, getSeriesInviolabilite, getTransferts, type PhysiqueMetric, type TransfertMetric } from '../../services/stats/joueur/apparitions.service';
+import { getEquipeType } from '../../services/stats/saison/equipeType.service';
 
 export async function getApparitionsPlusSelectionnes(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -14,6 +15,16 @@ export async function getApparitionsPlusSelectionnes(_req: Request, res: Respons
 export async function getApparitionsParSaison(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const data = await getParSaison();
+    res.status(200).json({ data });
+  } catch (error) {
+    next(error);
+  }
+}
+
+/** Equipe type historique: memes calculs que Saison/Performance/Equipe type mais toutes saisons confondues. */
+export async function getApparitionsEquipeType(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = await getEquipeType();
     res.status(200).json({ data });
   } catch (error) {
     next(error);

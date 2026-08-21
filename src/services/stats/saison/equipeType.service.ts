@@ -1,7 +1,7 @@
 import { dbAll } from '../../../config/database';
 
 /** Postes de champ (hors remplacants), du gardien vers l'attaque. */
-const PITCH_SLOTS = [
+export const PITCH_SLOTS = [
   'GOAL',
   'DLG', 'DLD', 'DCG', 'DCD', 'LIB', 'STO',
   'MDLD', 'MDLG', 'MDCD', 'MDCG', 'MDCC',
@@ -40,11 +40,11 @@ export interface EquipeTypeResult {
 
 type CompoRow = Record<string, string | null> & { DATE: string };
 
-function normalize(value: unknown): string {
+export function normalize(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-function formationLabel(codes: string[]): string {
+export function formationLabel(codes: string[]): string {
   const occupied = new Set(codes);
   return FORMATION_LINES
     .map((line) => line.filter((code) => occupied.has(code)).length)
@@ -77,22 +77,23 @@ function tally(rows: CompoRow[], pick: (row: CompoRow) => string): Map<string, {
 }
 
 /**
- * Composition type d'une saison: formation la plus frequente, puis joueur le plus frequent
- * a chaque poste de cette formation (appariement glouton pour eviter qu'un joueur occupe 2 postes).
+ * Composition type d'une saison (ou historique toutes saisons confondues si `saison` omis):
+ * formation la plus frequente, puis joueur le plus frequent a chaque poste de cette formation
+ * (appariement glouton pour eviter qu'un joueur occupe 2 postes).
  */
-export async function getEquipeType(saison: string): Promise<EquipeTypeResult> {
+export async function getEquipeType(saison?: string | null): Promise<EquipeTypeResult> {
   const rows = await dbAll<CompoRow>(
     `SELECT e.*
      FROM EQUIPE e
      INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
-     WHERE e.SAISON = ?
-       AND COALESCE(r.TUCLEUNIK, 0) <> 0`,
-    [saison],
+     WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
+       ${saison ? 'AND e.SAISON = ?' : ''}`,
+    saison ? [saison] : [],
   );
 
   const empty: EquipeTypeResult = {
-    SAISON: saison,
+    SAISON: saison ?? '',
     MATCHES_TOTAL: rows.length,
     MATCHES_FORMATION: 0,
     FORMATION: '',
@@ -162,7 +163,7 @@ export async function getEquipeType(saison: string): Promise<EquipeTypeResult> {
   };
 
   return {
-    SAISON: saison,
+    SAISON: saison ?? '',
     MATCHES_TOTAL: rows.length,
     MATCHES_FORMATION: formationRows.length,
     FORMATION: formationLabel(codes),
