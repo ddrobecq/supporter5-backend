@@ -1,7 +1,7 @@
 import { createEntityService } from '../lib/baseService';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
-import { dbAll, dbGet, dbRun } from '../config/database';
+import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
@@ -768,6 +768,64 @@ export async function removeClubById(id: string): Promise<boolean> {
   return result.changes > 0;
 }
 
+export interface ClubMergeResult {
+  sourceId: string;
+  targetId: string;
+  rencontresDomicile: number;
+  rencontresExterieur: number;
+  participations: number;
+  nomsSupprimes: number;
+  terrainsSupprimes: number;
+}
+
+export async function mergeClubs(sourceIdInput: unknown, targetIdInput: unknown): Promise<ClubMergeResult> {
+  const sourceId = normalizeText(sourceIdInput);
+  const targetId = normalizeText(targetIdInput);
+
+  if (!sourceId || !targetId) {
+    throw new AppError(400, 'Le club source et le club cible sont obligatoires.');
+  }
+  if (sourceId === targetId) {
+    throw new AppError(400, 'Le club source et le club cible doivent etre differents.');
+  }
+
+  const source = await dbGet<{ IDCLUB: string }>('SELECT "IDCLUB" FROM "CLUB" WHERE "IDCLUB" = ?', [sourceId]);
+  if (!source) {
+    throw new AppError(404, 'Club source introuvable.');
+  }
+  const target = await dbGet<{ IDCLUB: string }>('SELECT "IDCLUB" FROM "CLUB" WHERE "IDCLUB" = ?', [targetId]);
+  if (!target) {
+    throw new AppError(404, 'Club cible introuvable.');
+  }
+
+  const transaction = db.transaction((): ClubMergeResult => {
+    const rencontresDomicile = db
+      .prepare('UPDATE "RENCO" SET "DOMICILE" = ? WHERE "DOMICILE" = ?')
+      .run(targetId, sourceId).changes;
+    const rencontresExterieur = db
+      .prepare('UPDATE "RENCO" SET "EXTERIEUR" = ? WHERE "EXTERIEUR" = ?')
+      .run(targetId, sourceId).changes;
+    const participations = db
+      .prepare('UPDATE "PARTICIP" SET "IDCLUB" = ? WHERE "IDCLUB" = ?')
+      .run(targetId, sourceId).changes;
+    const nomsSupprimes = db.prepare('DELETE FROM "CLUB_NOM" WHERE "IDCLUB" = ?').run(sourceId).changes;
+    const terrainsSupprimes = db.prepare('DELETE FROM "CLUB_TERRAIN" WHERE "IDCLUB" = ?').run(sourceId).changes;
+    db.prepare('DELETE FROM "CLUB" WHERE "IDCLUB" = ?').run(sourceId);
+
+    return {
+      sourceId,
+      targetId,
+      rencontresDomicile: Number(rencontresDomicile ?? 0),
+      rencontresExterieur: Number(rencontresExterieur ?? 0),
+      participations: Number(participations ?? 0),
+      nomsSupprimes: Number(nomsSupprimes ?? 0),
+      terrainsSupprimes: Number(terrainsSupprimes ?? 0),
+    };
+  });
+
+  return transaction();
+}
+
 function normalizeText(value: unknown): string {
   return String(value ?? '').trim();
 }
@@ -1108,4 +1166,5 @@ export default {
   getClubSuggestions,
   removeClubById,
   createClubWithWizard,
+  mergeClubs,
 };

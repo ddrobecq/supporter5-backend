@@ -242,4 +242,14 @@ export async function removeClub(req: Request, res: Response, next: NextFunction
 	}
 }
 
+export async function mergeClubs(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const { sourceId, targetId } = req.body as { sourceId?: unknown; targetId?: unknown };
+		const result = await clubsService.mergeClubs(sourceId, targetId);
+		res.status(200).json(result);
+	} catch (error) {
+		next(error);
+	}
+}
+
 export default baseController;
