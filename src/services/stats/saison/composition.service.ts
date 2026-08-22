@@ -1,5 +1,5 @@
 import { dbAll } from '../../../config/database';
-import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
+import { getNbMatchesOfficielsClubBySaison } from './matchesOfficielsClub.service';
 
 export type CompositionMetric =
   | 'nombre-joueurs'
@@ -70,28 +70,6 @@ async function getRosterCompositionBySaison(): Promise<Map<string, {
   return map;
 }
 
-/** Nombre de rencontres officielles jouees par le club supporte, par saison. */
-async function getNombreMatchesBySaison(): Promise<Map<string, number>> {
-  const supportedClubId = getSupportedClubIdFromEnv();
-
-  const rows = await dbAll<{ SAISON: string; NB_MATCHES: number }>(
-    `SELECT r.SAISON, COUNT(DISTINCT r.RECLEUNIK) AS NB_MATCHES
-     FROM RENCO r
-     INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
-     WHERE r.TUCLEUNIK <> 0
-       AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
-       AND TRIM(COALESCE(r.SAISON, '')) <> ''
-     GROUP BY r.SAISON`,
-    [supportedClubId, supportedClubId],
-  );
-
-  const map = new Map<string, number>();
-  for (const row of rows) {
-    map.set(String(row.SAISON), Number(row.NB_MATCHES ?? 0));
-  }
-  return map;
-}
-
 /** Une ligne par saison pour la metrique de composition demandee, triee valeur decroissante. */
 export async function getSaisonComposition(metric: CompositionMetric): Promise<CompositionRow[]> {
   const roster = await getRosterCompositionBySaison();
@@ -99,7 +77,7 @@ export async function getSaisonComposition(metric: CompositionMetric): Promise<C
 
   let matches: Map<string, number> | null = null;
   if (metric === 'nombre-matches' || metric === 'nombre-remplacements') {
-    matches = await getNombreMatchesBySaison();
+    matches = await getNbMatchesOfficielsClubBySaison();
     for (const saison of matches.keys()) saisons.add(saison);
   }
 

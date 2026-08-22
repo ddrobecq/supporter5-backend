@@ -1,253 +1,87 @@
-import { dbAll } from '../config/database';
+import { checkFkConstraints } from './fkIntegrity';
 import type { IntegrityCheckResult } from '../types';
 
 /**
  * Vérifie si un enregistrement VILLE peut être supprimé
  * en contrôlant les dépendances en clé étrangère.
  */
-export async function checkVilleIntegrity(
-  villeId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  // Vérifier les CLUB qui référencent cette VILLE
-  const clubsCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM CLUB WHERE IDVILLE = ?',
-    [villeId],
+export async function checkVilleIntegrity(villeId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [
+      { table: 'CLUB', column: 'IDVILLE', description: (n) => `${n} club(s) basé(s) dans cette ville` },
+      { table: 'JOUEURRG', column: 'IDVILLE', description: (n) => `${n} dossier(s) de joueur(s) avec cette ville` },
+      { table: 'TERRAIN', column: 'IDVILLE', description: (n) => `${n} terrain(s) situé(s) dans cette ville` },
+    ],
+    villeId,
   );
-  if (clubsCount[0]?.count ?? 0 > 0) {
-    constraints.push({
-      table: 'CLUB',
-      count: clubsCount[0]?.count ?? 0,
-      description: `${clubsCount[0]?.count ?? 0} club(s) basé(s) dans cette ville`,
-    });
-  }
-
-  // Vérifier les JOUEURRG qui référencent cette VILLE
-  const joueursCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM JOUEURRG WHERE IDVILLE = ?',
-    [villeId],
-  );
-  if (joueursCount[0]?.count ?? 0 > 0) {
-    constraints.push({
-      table: 'JOUEURRG',
-      count: joueursCount[0]?.count ?? 0,
-      description: `${joueursCount[0]?.count ?? 0} dossier(s) de joueur(s) avec cette ville`,
-    });
-  }
-
-  // Vérifier les TERRAIN qui référencent cette VILLE
-  const terrainsCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM TERRAIN WHERE IDVILLE = ?',
-    [villeId],
-  );
-  if (terrainsCount[0]?.count ?? 0 > 0) {
-    constraints.push({
-      table: 'TERRAIN',
-      count: terrainsCount[0]?.count ?? 0,
-      description: `${terrainsCount[0]?.count ?? 0} terrain(s) situé(s) dans cette ville`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
  * Vérifie si un enregistrement TERRAIN peut être supprimé
  * en contrôlant les dépendances principales connues.
  */
-export async function checkTerrainIntegrity(
-  terrainId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  // Vérifier les CLUB_TERRAIN qui référencent ce TERRAIN
-  const clubTerrainsCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM CLUB_TERRAIN WHERE TECLEUNIK = ?',
-    [terrainId],
+export async function checkTerrainIntegrity(terrainId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [
+      { table: 'CLUB_TERRAIN', column: 'TECLEUNIK', description: (n) => `${n} liaison(s) club-terrain utilisent ce terrain` },
+      { table: 'MATCH', column: 'TECLEUNIK', description: (n) => `${n} match(es) planifié(s) sur ce terrain` },
+    ],
+    terrainId,
   );
-  if (clubTerrainsCount[0]?.count ?? 0 > 0) {
-    constraints.push({
-      table: 'CLUB_TERRAIN',
-      count: clubTerrainsCount[0]?.count ?? 0,
-      description: `${clubTerrainsCount[0]?.count ?? 0} liaison(s) club-terrain utilisent ce terrain`,
-    });
-  }
-
-  // Vérifier les MATCH qui référencent ce TERRAIN
-  const matchsCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM MATCH WHERE TECLEUNIK = ?',
-    [terrainId],
-  );
-  if (matchsCount[0]?.count ?? 0 > 0) {
-    constraints.push({
-      table: 'MATCH',
-      count: matchsCount[0]?.count ?? 0,
-      description: `${matchsCount[0]?.count ?? 0} match(es) planifié(s) sur ce terrain`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
  * Vérifie si un enregistrement DEVISE peut être supprimé.
  */
-export async function checkDeviseIntegrity(
-  deviseId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  const transacCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM TRANSAC WHERE DVCLEUNIK = ?',
-    [deviseId],
+export async function checkDeviseIntegrity(deviseId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [{ table: 'TRANSAC', column: 'DVCLEUNIK', description: (n) => `${n} transaction(s) utilisant cette devise` }],
+    deviseId,
   );
-  if ((transacCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'TRANSAC',
-      count: transacCount[0]?.count ?? 0,
-      description: `${transacCount[0]?.count ?? 0} transaction(s) utilisant cette devise`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
  * Vérifie si un enregistrement CIRC peut être supprimé.
  */
-export async function checkCircIntegrity(
-  circId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  const rencontresCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM RENCO WHERE IDCIRC = ?',
-    [circId],
+export async function checkCircIntegrity(circId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [{ table: 'RENCO', column: 'IDCIRC', description: (n) => `${n} rencontre(s) utilisent cette circonstance` }],
+    circId,
   );
-  if ((rencontresCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'RENCO',
-      count: rencontresCount[0]?.count ?? 0,
-      description: `${rencontresCount[0]?.count ?? 0} rencontre(s) utilisent cette circonstance`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
  * Vérifie si un enregistrement EPREUVE peut être supprimé.
  */
-export async function checkEpreuveIntegrity(
-  epreuveId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  const competCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM COMPET WHERE IDEPREUVE = ?',
-    [epreuveId],
+export async function checkEpreuveIntegrity(epreuveId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [{ table: 'COMPET', column: 'IDEPREUVE', description: (n) => `${n} compétition(s) utilisent cette épreuve` }],
+    epreuveId,
   );
-  if ((competCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'COMPET',
-      count: competCount[0]?.count ?? 0,
-      description: `${competCount[0]?.count ?? 0} compétition(s) utilisent cette épreuve`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
  * Vérifie si un enregistrement COMPET peut être supprimé.
  */
-export async function checkCompetitionIntegrity(
-  competitionId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  const tourCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM TOUR WHERE COCLEUNIK = ?',
-    [competitionId],
+export async function checkCompetitionIntegrity(competitionId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [{ table: 'TOUR', column: 'COCLEUNIK', description: (n) => `${n} tour(s) utilisent cette competition` }],
+    competitionId,
   );
-  if ((tourCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'TOUR',
-      count: tourCount[0]?.count ?? 0,
-      description: `${tourCount[0]?.count ?? 0} tour(s) utilisent cette competition`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
  * Vérifie si un enregistrement TOUR peut être supprimé.
  */
-export async function checkTourIntegrity(
-  tourId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  const participCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM PARTICIP WHERE TUCLEUNIK = ?',
-    [tourId],
+export async function checkTourIntegrity(tourId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [
+      { table: 'PARTICIP', column: 'TUCLEUNIK', description: (n) => `${n} participation(s) utilisent ce tour` },
+      { table: 'Qualif', column: 'TUCLEUNIK', description: (n) => `${n} qualification(s) utilisent ce tour` },
+      { table: 'RENCO', column: 'TUCLEUNIK', description: (n) => `${n} rencontre(s) utilisent ce tour` },
+    ],
+    tourId,
   );
-  if ((participCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'PARTICIP',
-      count: participCount[0]?.count ?? 0,
-      description: `${participCount[0]?.count ?? 0} participation(s) utilisent ce tour`,
-    });
-  }
-
-  const qualifCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM Qualif WHERE TUCLEUNIK = ?',
-    [tourId],
-  );
-  if ((qualifCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'Qualif',
-      count: qualifCount[0]?.count ?? 0,
-      description: `${qualifCount[0]?.count ?? 0} qualification(s) utilisent ce tour`,
-    });
-  }
-
-  const rencontresCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM RENCO WHERE TUCLEUNIK = ?',
-    [tourId],
-  );
-  if ((rencontresCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'RENCO',
-      count: rencontresCount[0]?.count ?? 0,
-      description: `${rencontresCount[0]?.count ?? 0} rencontre(s) utilisent ce tour`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }
 
 /**
@@ -255,73 +89,15 @@ export async function checkTourIntegrity(
  * Les tables "propriétaires" du club (CLUB_NOM, CLUB_TERRAIN) sont supprimées
  * automatiquement lors de l'opération de suppression.
  */
-export async function checkClubIntegrity(
-  clubId: string | number,
-): Promise<IntegrityCheckResult> {
-  const constraints = [];
-
-  const rencontresDomicileCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM RENCO WHERE DOMICILE = ?',
-    [clubId],
+export async function checkClubIntegrity(clubId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints(
+    [
+      { table: 'RENCO', column: 'DOMICILE', description: (n) => `${n} rencontre(s) avec ce club comme domicile` },
+      { table: 'RENCO', column: 'EXTERIEUR', description: (n) => `${n} rencontre(s) avec ce club comme exterieur` },
+      { table: 'PARTICIP', column: 'IDCLUB', description: (n) => `${n} participation(s) de ce club` },
+      { table: 'TRANSAC', column: 'IDCLUB', description: (n) => `${n} transaction(s) liee(s) a ce club` },
+      { table: 'JOTRO', column: 'IDCLUB', description: (n) => `${n} trophee(s) de joueur(s) associe(s) a ce club` },
+    ],
+    clubId,
   );
-  if ((rencontresDomicileCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'RENCO',
-      count: rencontresDomicileCount[0]?.count ?? 0,
-      description: `${rencontresDomicileCount[0]?.count ?? 0} rencontre(s) avec ce club comme domicile`,
-    });
-  }
-
-  const rencontresExterieurCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM RENCO WHERE EXTERIEUR = ?',
-    [clubId],
-  );
-  if ((rencontresExterieurCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'RENCO',
-      count: rencontresExterieurCount[0]?.count ?? 0,
-      description: `${rencontresExterieurCount[0]?.count ?? 0} rencontre(s) avec ce club comme exterieur`,
-    });
-  }
-
-  const participCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM PARTICIP WHERE IDCLUB = ?',
-    [clubId],
-  );
-  if ((participCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'PARTICIP',
-      count: participCount[0]?.count ?? 0,
-      description: `${participCount[0]?.count ?? 0} participation(s) de ce club`,
-    });
-  }
-
-  const transacCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM TRANSAC WHERE IDCLUB = ?',
-    [clubId],
-  );
-  if ((transacCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'TRANSAC',
-      count: transacCount[0]?.count ?? 0,
-      description: `${transacCount[0]?.count ?? 0} transaction(s) liee(s) a ce club`,
-    });
-  }
-
-  const jotroCount = await dbAll<{ count: number }>(
-    'SELECT COUNT(*) as count FROM JOTRO WHERE IDCLUB = ?',
-    [clubId],
-  );
-  if ((jotroCount[0]?.count ?? 0) > 0) {
-    constraints.push({
-      table: 'JOTRO',
-      count: jotroCount[0]?.count ?? 0,
-      description: `${jotroCount[0]?.count ?? 0} trophee(s) de joueur(s) associe(s) a ce club`,
-    });
-  }
-
-  return {
-    canDelete: constraints.length === 0,
-    constraints,
-  };
 }

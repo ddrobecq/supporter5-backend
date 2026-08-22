@@ -2,6 +2,7 @@ import { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { normalizeSaison } from '../lib/saisonRules';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
@@ -998,14 +999,6 @@ export async function deleteJoueurHistoryById(idJoueur: string | number, history
 
   const result = await dbRun('DELETE FROM JOUEUR WHERE JOCLEUNIK = ? AND IDJOUEUR = ?', [rowId, joueurId]);
   return result.changes > 0;
-}
-
-function normalizeSaison(value: unknown): string {
-  const saison = String(value ?? '').trim();
-  if (!/^\d{4}-\d{4}$/.test(saison)) {
-    throw new AppError(400, 'Saison invalide (format xxxx-yyyy).');
-  }
-  return saison;
 }
 
 function normalizeText(value: unknown): string {

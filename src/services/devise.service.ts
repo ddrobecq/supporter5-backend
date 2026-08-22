@@ -1,7 +1,5 @@
-import { createEntityService } from '../lib/baseService';
+import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { AppError } from '../types';
-
-const WRITABLE_COLS = new Set(['DVCLEUNIK', 'NOM', 'SYMBOLE', 'CONVERSION', 'DVDEFAUT']);
 
 const baseService = createEntityService({
   table: 'DEVISE',
@@ -12,11 +10,7 @@ const baseService = createEntityService({
   searchStrategy: 'backend-memory',
 });
 
-function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(body).filter(([k]) => WRITABLE_COLS.has(k) && (includePk || k !== 'DVCLEUNIK')),
-  );
-}
+const sanitize = createFieldSanitizer(['DVCLEUNIK', 'NOM', 'SYMBOLE', 'CONVERSION', 'DVDEFAUT'], 'DVCLEUNIK');
 
 async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
   const clean = sanitize(body, false);

@@ -1,12 +1,10 @@
-import { createEntityService } from '../lib/baseService';
+import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { AppError } from '../types';
 
-const WRITABLE_COLS = new Set(['IDCIRC', 'CIRC', 'TYPE_TOUR']);
+const sanitizeFields = createFieldSanitizer(['IDCIRC', 'CIRC', 'TYPE_TOUR'], 'IDCIRC');
 
 function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-  const clean = Object.fromEntries(
-    Object.entries(body).filter(([key]) => WRITABLE_COLS.has(key) && (includePk || key !== 'IDCIRC')),
-  );
+  const clean = sanitizeFields(body, includePk);
 
   if (typeof clean.IDCIRC === 'string') {
     clean.IDCIRC = clean.IDCIRC.trim().toUpperCase();

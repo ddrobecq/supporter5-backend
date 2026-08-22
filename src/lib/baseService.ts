@@ -36,6 +36,12 @@ export interface EntityConfig {
   filterCols?: readonly string[];
   /** Strategie de recherche: SQL classique ou filtrage en memoire dans le backend */
   searchStrategy?: 'sql' | 'backend-memory';
+  /** Alias de la table principale, requis si joinClause/extraSelectCols est utilisé (ex: 't') */
+  tableAlias?: string;
+  /** Clause JOIN brute ajoutée après la table principale (ex: `LEFT JOIN "VILLE" v ON t."IDVILLE" = v."VICLEUNIK"`) */
+  joinClause?: string;
+  /** Expressions SELECT brutes supplémentaires (colonnes calculées/jointes), en lecture seule */
+  extraSelectCols?: readonly string[];
 }
 
 export function createEntityService(config: EntityConfig) {
@@ -47,8 +53,15 @@ export function createEntityService(config: EntityConfig) {
     searchCols,
     filterCols = [],
     searchStrategy = 'sql',
+    tableAlias,
+    joinClause,
+    extraSelectCols = [],
   } = config;
-  const selectClause = selectCols.map((col) => `"${col}"`).join(', ');
+  // colPrefix/tableSql restent vides/identiques a l'ancien comportement quand aucun join n'est configure.
+  const colPrefix = tableAlias ? `${tableAlias}.` : '';
+  const selectClause = [...selectCols.map((col) => `${colPrefix}"${col}"`), ...extraSelectCols].join(', ');
+  const tableSql = `"${table}"${tableAlias ? ` ${tableAlias}` : ''}${joinClause ? ` ${joinClause}` : ''}`;
+  const pkRef = `${colPrefix}"${pk}"`;
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
     const page   = Math.max(1, Number(params.page)  || 1);
@@ -61,7 +74,7 @@ export function createEntityService(config: EntityConfig) {
     if (searchStrategy === 'backend-memory' && searchValue) {
       const { where, bindings } = buildWhere({ ...params, search: undefined }, searchCols, filterCols);
       const allRows = await dbAll<Record<string, unknown>>(
-        `SELECT ${selectClause} FROM "${table}" ${where} ORDER BY "${sort}" ${order}`,
+        `SELECT ${selectClause} FROM ${tableSql} ${where} ORDER BY ${colPrefix}"${sort}" ${order}`,
         bindings,
       );
       const filteredRows = allRows.filter((row) => rowMatchesSearch(row, searchCols, searchValue));
@@ -72,15 +85,15 @@ export function createEntityService(config: EntityConfig) {
     }
 
     const { where, bindings } = buildWhere(params, searchCols, filterCols);
-    const row   = await dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM "${table}" ${where}`, bindings);
+    const row   = await dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM ${tableSql} ${where}`, bindings);
     const total = row?.total ?? 0;
-    const data  = await dbAll(`SELECT ${selectClause} FROM "${table}" ${where} ORDER BY "${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
+    const data  = await dbAll(`SELECT ${selectClause} FROM ${tableSql} ${where} ORDER BY ${colPrefix}"${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
 
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   async function getById(id: string | number): Promise<Record<string, unknown> | undefined> {
-    return dbGet(`SELECT ${selectClause} FROM "${table}" WHERE "${pk}" = ?`, [id]);
+    return dbGet(`SELECT ${selectClause} FROM ${tableSql} WHERE ${pkRef} = ?`, [id]);
   }
 
   async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
@@ -135,3 +148,16 @@ export function createEntityService(config: EntityConfig) {
 }
 
 export type EntityService = ReturnType<typeof createEntityService>;
+
+/**
+ * Factory pour la fonction `sanitize(body, includePk)` dupliquee dans plusieurs services
+ * (filtre un body vers une whitelist de colonnes, en excluant la PK sauf si includePk).
+ */
+export function createFieldSanitizer(writableCols: Iterable<string>, pk: string) {
+  const cols = new Set(writableCols);
+  return function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
+    return Object.fromEntries(
+      Object.entries(body).filter(([key]) => cols.has(key) && (includePk || key !== pk)),
+    );
+  };
+}

@@ -1,23 +1,16 @@
-import { createEntityService } from '../lib/baseService';
+import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
-const WRITABLE_COLS = new Set([
+const sanitizeFields = createFieldSanitizer(
+  ['IDEPREUVE', 'EPREUVE', 'SCOPE', 'OFFICIELLE', 'EPR_VISUEL', 'EPR_WEB', 'EPR_PAYS'],
   'IDEPREUVE',
-  'EPREUVE',
-  'SCOPE',
-  'OFFICIELLE',
-  'EPR_VISUEL',
-  'EPR_WEB',
-  'EPR_PAYS',
-]);
+);
 
 function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-  const clean = Object.fromEntries(
-    Object.entries(body).filter(([key]) => WRITABLE_COLS.has(key) && (includePk || key !== 'IDEPREUVE')),
-  );
+  const clean = sanitizeFields(body, includePk);
 
   if (typeof clean.EPREUVE === 'string') {
     clean.EPREUVE = clean.EPREUVE.trim();

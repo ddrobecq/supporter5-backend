@@ -1,20 +1,14 @@
-import { createEntityService } from '../lib/baseService';
+import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { AppError } from '../types';
 
-const WRITABLE_COLS = new Set([
-  'CLASS_MinRang',
-  'CLASS_MaxRang',
-  'CLASS_Couleur',
-  'CLASS_Libelle',
-  'CLASS_Type',
-  'TUCLEUNIK',
-  'CLASS_Abrege',
-]);
+// CLASS_ID (pk) est deliberement absente de cette liste: elle est donc toujours filtree.
+const sanitizeFields = createFieldSanitizer(
+  ['CLASS_MinRang', 'CLASS_MaxRang', 'CLASS_Couleur', 'CLASS_Libelle', 'CLASS_Type', 'TUCLEUNIK', 'CLASS_Abrege'],
+  'CLASS_ID',
+);
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
-  const clean = Object.fromEntries(
-    Object.entries(body).filter(([key]) => WRITABLE_COLS.has(key)),
-  );
+  const clean = sanitizeFields(body, true);
 
   if (typeof clean.CLASS_Libelle === 'string') {
     clean.CLASS_Libelle = clean.CLASS_Libelle.trim();

@@ -1,18 +1,13 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
-import { createEntityService } from '../lib/baseService';
+import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
+import { normalizeSaison } from '../lib/saisonRules';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
-const WRITABLE_COLS = new Set([
+const sanitizeFields = createFieldSanitizer(
+  ['COCLEUNIK', 'SAISON', 'IDEPREUVE', 'LOGO', 'NOM', 'COCOMMENT', 'CO_WEB', 'CO_ANNEE'],
   'COCLEUNIK',
-  'SAISON',
-  'IDEPREUVE',
-  'LOGO',
-  'NOM',
-  'COCOMMENT',
-  'CO_WEB',
-  'CO_ANNEE',
-]);
+);
 
 function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
   const source = { ...body };
@@ -22,9 +17,7 @@ function sanitize(body: Record<string, unknown>, includePk: boolean): Record<str
   }
   delete source.CO_COMMENT;
 
-  const clean = Object.fromEntries(
-    Object.entries(source).filter(([key]) => WRITABLE_COLS.has(key) && (includePk || key !== 'COCLEUNIK')),
-  );
+  const clean = sanitizeFields(source, includePk);
 
   if (typeof clean.NOM === 'string') {
     clean.NOM = clean.NOM.trim();
@@ -41,14 +34,6 @@ function sanitize(body: Record<string, unknown>, includePk: boolean): Record<str
 
 function normalizeFlag(value: unknown): number {
   return value ? 1 : 0;
-}
-
-function normalizeSaison(value: unknown): string {
-  const saison = String(value ?? '').trim();
-  if (!/^\d{4}-\d{4}$/.test(saison)) {
-    throw new AppError(400, 'Saison invalide (format xxxx-yyyy).');
-  }
-  return saison;
 }
 
 function normalizeHttpUrl(value: unknown): string {

@@ -1,5 +1,5 @@
 import { dbAll } from '../../../config/database';
-import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
+import { getNbMatchesOfficielsClubBySaison } from './matchesOfficielsClub.service';
 
 export type SanctionEquipeMetric =
   | 'avertissements'
@@ -14,8 +14,6 @@ export interface SanctionEquipeRow {
 
 /** Sanctions du club supporte (JOUEUR.JAUNETOTAL/ROUGETOTAL, Poste.POS_TYPE=1) par saison, brut ou moyenne par match. */
 export async function getSaisonSanctionsEquipe(metric: SanctionEquipeMetric): Promise<SanctionEquipeRow[]> {
-  const supportedClubId = getSupportedClubIdFromEnv();
-
   const rows = await dbAll<{ SAISON: string; JAUNES: number; ROUGES: number }>(
     `SELECT
        j.SAISON,
@@ -27,17 +25,7 @@ export async function getSaisonSanctionsEquipe(metric: SanctionEquipeMetric): Pr
      GROUP BY j.SAISON`,
   );
 
-  const matchesRows = await dbAll<{ SAISON: string; MATCHES: number }>(
-    `SELECT r.SAISON, COUNT(DISTINCT r.RECLEUNIK) AS MATCHES
-     FROM RENCO r
-     INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
-     WHERE r.TUCLEUNIK <> 0
-       AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
-       AND TRIM(COALESCE(r.SAISON, '')) <> ''
-     GROUP BY r.SAISON`,
-    [supportedClubId, supportedClubId],
-  );
-  const matchesBySaison = new Map(matchesRows.map((row) => [String(row.SAISON), Number(row.MATCHES ?? 0)]));
+  const matchesBySaison = await getNbMatchesOfficielsClubBySaison();
 
   const result: SanctionEquipeRow[] = rows.map((row) => {
     const saison = String(row.SAISON);

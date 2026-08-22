@@ -1,5 +1,6 @@
 import { dbAll } from '../../../config/database';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
+import { getNbMatchesOfficielsClubBySaison } from './matchesOfficielsClub.service';
 
 export type ButsEquipeMetric =
   | 'buts-pour'
@@ -17,12 +18,11 @@ export interface ButsEquipeRow {
 export async function getSaisonButsEquipe(metric: ButsEquipeMetric): Promise<ButsEquipeRow[]> {
   const supportedClubId = getSupportedClubIdFromEnv();
 
-  const rows = await dbAll<{ SAISON: string; BUTS_POUR: number; BUTS_CONTRE: number; MATCHES: number }>(
+  const rows = await dbAll<{ SAISON: string; BUTS_POUR: number; BUTS_CONTRE: number }>(
     `SELECT
        r.SAISON,
        SUM(CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTDOM, 0) ELSE COALESCE(r.BUTEXT, 0) END) AS BUTS_POUR,
-       SUM(CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTEXT, 0) ELSE COALESCE(r.BUTDOM, 0) END) AS BUTS_CONTRE,
-       COUNT(*) AS MATCHES
+       SUM(CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTEXT, 0) ELSE COALESCE(r.BUTDOM, 0) END) AS BUTS_CONTRE
      FROM RENCO r
      INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
      WHERE r.TUCLEUNIK <> 0
@@ -32,8 +32,10 @@ export async function getSaisonButsEquipe(metric: ButsEquipeMetric): Promise<But
     [supportedClubId, supportedClubId, supportedClubId, supportedClubId],
   );
 
+  const matchesBySaison = await getNbMatchesOfficielsClubBySaison();
+
   const result: ButsEquipeRow[] = rows.map((row) => {
-    const matches = Number(row.MATCHES ?? 0);
+    const matches = matchesBySaison.get(String(row.SAISON)) ?? 0;
     const butsPour = Number(row.BUTS_POUR ?? 0);
     const butsContre = Number(row.BUTS_CONTRE ?? 0);
     let valeur = 0;
