@@ -1896,6 +1896,119 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
   return transaction();
 }
 
+export interface ImportRencontreRow {
+  DATE?: unknown;
+  HEURE?: unknown;
+  IDCIRC?: unknown;
+  DOMICILE?: unknown;
+  EXTERIEUR?: unknown;
+  BUTDOM?: unknown;
+  BUTEXT?: unknown;
+  TABDOM?: unknown;
+  TABEXT?: unknown;
+  GROUPE?: unknown;
+}
+
+/** Cree la ligne PARTICIP du club si le tour ne la contient pas encore (version synchrone, utilisable en transaction). */
+function ensureTourParticipant(tourId: number, clubId: string, groupe: string): void {
+  const existing = readParticipantByTourAndClub(tourId, clubId);
+  if (existing) {
+    if (groupe && groupe !== existing.GROUPE) {
+      db.prepare(`UPDATE "PARTICIP" SET "GROUPE" = ? WHERE "TUCLEUNIK" = ? AND "IDCLUB" = ?`)
+        .run(groupe, tourId, clubId);
+    }
+    return;
+  }
+
+  db.prepare(
+    `INSERT INTO "PARTICIP" (
+      "IDCLUB", "TUCLEUNIK", "GROUPE", "PAClassement", "PANbMatch", "PANbPoints",
+      "PANbVD", "PANbVE", "PANbND", "PANbNE", "PANbDD", "PANbDE",
+      "PANbBPD", "PANbBCD", "PABonus", "PANbBPE", "PANbBCE", "PADiff",
+      "PANbBP", "PANbV", "PANbTaBP", "PANbTaBC", "PADiffTaB", "PANbBC",
+      "PASource", "PARatio", "PAMalus"
+    ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0)`,
+  ).run(clubId, tourId, groupe);
+}
+
+/** Outils > Rencontres > Importer : insere en masse les rencontres d'un fichier dans un tour, puis recalcule le classement. */
+export async function importRencontresForTour(
+  tourIdInput: string | number,
+  saisonInput: string,
+  rowsInput: ImportRencontreRow[],
+): Promise<{ imported: number }> {
+  const tourId = toInt(tourIdInput);
+  if (!Number.isInteger(tourId) || tourId <= 0) {
+    throw new AppError(400, 'Tour invalide.');
+  }
+  const saison = toText(saisonInput);
+  if (!saison) {
+    throw new AppError(400, 'Saison invalide.');
+  }
+  const rows = Array.isArray(rowsInput) ? rowsInput : [];
+  if (rows.length === 0) {
+    throw new AppError(400, 'Aucune rencontre a importer.');
+  }
+
+  const prepared = rows.map((row, index) => {
+    const date = toText(row.DATE);
+    const domicile = toText(row.DOMICILE);
+    const exterieur = toText(row.EXTERIEUR);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      throw new AppError(400, `Ligne ${index + 1}: date invalide.`);
+    }
+    if (!domicile || !exterieur) {
+      throw new AppError(400, `Ligne ${index + 1}: club domicile ou exterieur non associe.`);
+    }
+    if (domicile === exterieur) {
+      throw new AppError(400, `Ligne ${index + 1}: le club domicile et le club exterieur sont identiques.`);
+    }
+
+    const butDom = toInt(row.BUTDOM);
+    const butExt = toInt(row.BUTEXT);
+    const hasScore = toText(row.BUTDOM) !== '' && toText(row.BUTEXT) !== '';
+
+    return {
+      DATE: date,
+      HEURE: toText(row.HEURE),
+      IDCIRC: toText(row.IDCIRC),
+      DOMICILE: domicile,
+      EXTERIEUR: exterieur,
+      BUTDOM: butDom,
+      BUTEXT: butExt,
+      TABDOM: toInt(row.TABDOM),
+      TABEXT: toInt(row.TABEXT),
+      GROUPE: toText(row.GROUPE),
+      ETAT: hasScore ? 3 : 1,
+    };
+  });
+
+  const transaction = db.transaction(() => {
+    const insert = db.prepare(
+      `INSERT INTO "RENCO" (
+        "DOMICILE", "EXTERIEUR", "DATE", "BUTDOM", "BUTEXT", "TABDOM", "TABEXT",
+        "IDCIRC", "ETAT", "TUCLEUNIK", "HEURE", "SAISON", "READMIN", "COMMENT",
+        "PADOMSource", "PAEXTSource"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, '', '', '')`,
+    );
+
+    prepared.forEach((row) => {
+      ensureTourParticipant(tourId, row.DOMICILE, row.GROUPE);
+      ensureTourParticipant(tourId, row.EXTERIEUR, row.GROUPE);
+      insert.run(
+        row.DOMICILE, row.EXTERIEUR, row.DATE, row.BUTDOM, row.BUTEXT, row.TABDOM, row.TABEXT,
+        row.IDCIRC, row.ETAT, tourId, row.HEURE, saison,
+      );
+    });
+
+    propagateProgrammedParticipantsAndMatches();
+    recomputeAllGroupsForTour(tourId);
+  });
+
+  transaction();
+  return { imported: prepared.length };
+}
+
 const baseService = createEntityService({
   table:           'RENCO',
   pk:              'RECLEUNIK',
@@ -2394,6 +2507,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
   const matches = new Map<number, {
     duration: number;
     starters: Set<string>;
+    eventIds: Set<number>;
     events: Array<Record<string, unknown>>;
   }>();
 
@@ -2406,6 +2520,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
       match = {
         duration: Math.max(1, toInt(row.MATCH_DURATION, 90)),
         starters: new Set<string>(),
+        eventIds: new Set<number>(),
         events: [],
       };
       matches.set(recleunik, match);
@@ -2417,16 +2532,27 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
         match!.starters.add(playerId);
       }
     });
-    if (row.EVCLEUNIK != null) {
+    const evcleunik = toInt(row.EVCLEUNIK);
+    // La jointure EQUIPE x EVENT peut repeter le meme evenement: on ne le garde qu'une fois.
+    if (evcleunik && !match.eventIds.has(evcleunik)) {
+      match.eventIds.add(evcleunik);
       match.events.push(row);
     }
   });
 
   matches.forEach((match) => {
+    // Temps de jeu calcule match par match (intervalle entree -> sortie), puis cumule sur la saison.
+    const spans = new Map<string, { start: number; end: number }>();
+    const markExit = (playerId: string, minute: number) => {
+      const span = spans.get(playerId);
+      if (span) span.end = Math.min(span.end, minute);
+      else spans.set(playerId, { start: 0, end: minute });
+    };
+
     match.starters.forEach((playerId) => {
+      spans.set(playerId, { start: 0, end: match.duration });
       addPlayerMatchTotals(totalsByPlayer, playerId, (totals) => {
         totals.TITULAIRETOTAL += 1;
-        totals.TEMPSTOTAL += match.duration;
       });
     });
 
@@ -2439,17 +2565,15 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
       const joueur2 = toText(event.JOUEUR2);
 
       if (typeEvent === 2 && joueur1 && joueur2) {
-        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => {
-          totals.TEMPSTOTAL = Math.min(totals.TEMPSTOTAL, minute);
-        });
+        markExit(joueur1, minute);
+        const entrant = spans.get(joueur2);
+        if (entrant) entrant.start = Math.max(entrant.start, minute);
+        else spans.set(joueur2, { start: minute, end: match.duration });
         addPlayerMatchTotals(totalsByPlayer, joueur2, (totals) => {
           totals.REMPTOTAL += 1;
-          totals.TEMPSTOTAL += Math.max(0, match.duration - minute);
         });
       } else if (typeEvent === 9 && joueur1) {
-        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => {
-          totals.TEMPSTOTAL = Math.min(totals.TEMPSTOTAL, minute);
-        });
+        markExit(joueur1, minute);
       }
 
       if ((typeEvent === 1 || (typeEvent === 7 && toInt(event.PERIODE) !== 5)) && joueur1) {
@@ -2463,10 +2587,16 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
       }
       if (typeEvent === 4 || typeEvent === 5) {
         addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.ROUGETOTAL += 1; });
-        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => {
-          totals.TEMPSTOTAL = Math.min(totals.TEMPSTOTAL, minute);
-        });
+        if (joueur1) markExit(joueur1, minute);
       }
+    });
+
+    spans.forEach((span, playerId) => {
+      const played = Math.max(0, span.end - span.start);
+      if (played === 0) return;
+      addPlayerMatchTotals(totalsByPlayer, playerId, (totals) => {
+        totals.TEMPSTOTAL += played;
+      });
     });
   });
 
@@ -2830,8 +2960,24 @@ export async function deleteEventForRencontre(evcleunik: string | number): Promi
   recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(seasonRow?.RECLEUNIK)));
 }
 
+/** Outils > Statistiques : rejoue, saison par saison, le meme recalcul que lors de l'enregistrement d'un match. */
+export async function recomputePlayerStatsForSeasons(seasons: string[]): Promise<{ saisons: string[] }> {
+  const normalized = Array.from(new Set(
+    (Array.isArray(seasons) ? seasons : []).map((season) => toText(season)).filter(Boolean),
+  ));
+  if (normalized.length === 0) throw new AppError(400, 'Aucune saison selectionnee.');
+
+  db.transaction(() => {
+    normalized.forEach((season) => recomputeSupportedClubPlayerStatsForSeason(season));
+  })();
+
+  return { saisons: normalized };
+}
+
 export default {
   ...baseService,
+  importRencontresForTour,
+  recomputePlayerStatsForSeasons,
   getCalendarByDate,
   getRencontreDetailById,
   getRencontreHighlightsById,

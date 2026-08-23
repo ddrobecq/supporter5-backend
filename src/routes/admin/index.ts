@@ -19,6 +19,8 @@ import circAdmin       from './circ.admin.routes';
 import epreuveAdmin    from './epreuve.admin.routes';
 import competitionAdmin from './competition.admin.routes';
 import imagesAdmin     from './images.admin.routes';
+import importAdmin     from './import.admin.routes';
+import incompletsAdmin from './incomplets.admin.routes';
 import systemAdmin     from './system.admin.routes';
 
 const router = Router();
@@ -29,6 +31,8 @@ router.use(authMiddleware);
 router.use('/rencontres', rencontresAdmin);
 router.use('/joueurs',    joueursAdmin);
 router.use('/stats',      statsAdmin);
+router.use('/incomplets', incompletsAdmin);
+router.use('/import',     importAdmin);
 router.use('/matchs',     matchsAdmin);
 router.use('/equipes',    equipesAdmin);
 router.use('/saisons',    saisonsAdmin);

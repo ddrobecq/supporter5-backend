@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/stats.controller';
+import ctrl, { recomputePlayerStats } from '../../controllers/stats.controller';
 const router = Router();
+router.post('/recompute', recomputePlayerStats);
 router.post('/',       ctrl.create);
 router.put('/:id',    ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
