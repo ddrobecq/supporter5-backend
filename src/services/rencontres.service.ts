@@ -50,6 +50,7 @@ export interface RencontreDetailRow {
   PADOMSource: string | null;
   PAEXTSource: string | null;
   COCLEUNIK: number;
+  CIRC: string;
   TOUR_NOM: string;
   TYPE_TOUR: number;
   DOMICILE_ABREGE: string;
@@ -2121,6 +2122,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       r.PADOMSource,
       r.PAEXTSource,
       t.COCLEUNIK,
+      COALESCE(ci.CIRC, '') AS CIRC,
       COALESCE(t.NOM, '') AS TOUR_NOM,
       COALESCE(td.TDTYPETOUR, 1) AS TYPE_TOUR,
       COALESCE(cd.CLUB, '') AS DOMICILE_ABREGE,
@@ -2162,6 +2164,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       COALESCE(m.NBSPECT, 0) AS NBSPECT
      FROM RENCO r
      LEFT JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
+     LEFT JOIN CIRC ci ON ci.IDCIRC = r.IDCIRC
      LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
      LEFT JOIN TOURDEF td ON td.TDCLEUNIK = t.TDCLEUNIK
      LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
