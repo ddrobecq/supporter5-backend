@@ -50,6 +50,20 @@ applyPendingUploadedDatabase(resolvedDbPath);
 
 const db = new Database(resolvedDbPath);
 db.pragma('foreign_keys = OFF');
+db.exec(`
+  CREATE TABLE IF NOT EXISTS APP_THEME (
+    CODE VARCHAR(10) PRIMARY KEY NOT NULL,
+    LABEL VARCHAR(30) NOT NULL,
+    BACKGROUND_COLOR VARCHAR(7) NOT NULL,
+    TEXT_COLOR VARCHAR(7) NOT NULL,
+    UPDATED_AT TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CHECK (CODE IN ('HOME', 'AWAY', 'THIRD'))
+  );
+  INSERT OR IGNORE INTO APP_THEME (CODE, LABEL, BACKGROUND_COLOR, TEXT_COLOR) VALUES
+    ('HOME', 'Home', '#FFFFFF', '#244A73'),
+    ('AWAY', 'Away', '#EEF2F6', '#244A73'),
+    ('THIRD', 'Third', '#E8EAF6', '#244A73');
+`);
 
 /** Crée un snapshot cohérent (WAL inclus) via l'Online Backup API de SQLite. */
 export function backupDatabaseTo(destPath: string): Promise<void> {

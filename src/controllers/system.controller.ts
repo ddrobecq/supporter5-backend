@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getSqliteDatabaseDownloadInfo, getSupportedClubContext, scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
+import { listThemes, updateTheme } from '../services/theme.service';
 
 function readBackendVersion(): string {
   try {
@@ -76,10 +77,23 @@ export async function contextHandler(_req: Request, res: Response, next: NextFun
   }
 }
 
+export async function themesHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try { res.status(200).json({ data: await listThemes() }); } catch (error) { next(error); }
+}
+
+export async function updateThemeHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const body = req.body as { backgroundColor?: string; textColor?: string };
+    res.status(200).json({ data: await updateTheme(String(req.params.code ?? ''), String(body.backgroundColor ?? ''), String(body.textColor ?? '')) });
+  } catch (error) { next(error); }
+}
+
 export default {
   uploadDatabaseHandler,
   downloadDatabaseHandler,
   restartBackendHandler,
   versionHandler,
   contextHandler,
+  themesHandler,
+  updateThemeHandler,
 };

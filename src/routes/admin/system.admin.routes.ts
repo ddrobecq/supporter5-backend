@@ -63,5 +63,6 @@ router.get('/context', ctrl.contextHandler);
 router.get('/database/download', ctrl.downloadDatabaseHandler);
 router.post('/restart', ctrl.restartBackendHandler);
 router.get('/version', ctrl.versionHandler);
+router.put('/themes/:code', ctrl.updateThemeHandler);
 
 export default router;
