@@ -20,6 +20,7 @@ import epreuveRoutes   from './epreuve.routes';
 import competitionRoutes from './competition.routes';
 import imageRoutes     from './image.routes';
 import systemRoutes    from './system.routes';
+import actualitesRoutes from './actualites.routes';
 import adminRoutes     from './admin/index';
 
 const router = Router();
@@ -48,6 +49,7 @@ router.use('/epreuves',   epreuveRoutes);
 router.use('/competitions', competitionRoutes);
 router.use('/images',     imageRoutes);
 router.use('/system',     systemRoutes);
+router.use('/actualites', actualitesRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
 router.use('/admin', adminRoutes);
