@@ -310,6 +310,7 @@ back/
 | `JWT_SECRET` | — | Clé secrète JWT (min 32 chars) |
 | `JWT_EXPIRES_IN` | `8h` | Durée du token (ex: `8h`, `7d`) |
 | `CORS_ORIGINS` | `http://localhost:5173` | Origines autorisées (`,` séparé) |
+| `PUBLIC_SITE_URL` | `https://votre-domaine.com` | Origine publique utilisée par `/sitemap.xml` |
 
 ---
 

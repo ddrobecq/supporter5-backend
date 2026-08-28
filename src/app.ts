@@ -4,6 +4,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes/index';
 import { errorMiddleware } from './middlewares/error.middleware';
+import { getSitemapXml } from './services/sitemap.service';
 
 dotenv.config();
 
@@ -26,6 +27,19 @@ app.use(express.json({ limit: '1mb' }));
 
 // Santé
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+
+// Référencement : contenu généré et mis en cache côté serveur pendant 24 h.
+app.get('/sitemap.xml', async (_req, res, next) => {
+  try {
+    const xml = await getSitemapXml();
+    res
+      .type('application/xml')
+      .set('Cache-Control', 'public, max-age=86400')
+      .send(xml);
+  } catch (error) {
+    next(error);
+  }
+});
 
 // API
 app.use('/api', routes);
