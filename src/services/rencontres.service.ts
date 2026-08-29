@@ -46,7 +46,6 @@ export interface RencontreDetailRow {
   SAISON: string;
   READMIN: number | null;
   COMMENT: string | null;
-  VID_ID: number | null;
   PADOMSource: string | null;
   PAEXTSource: string | null;
   COCLEUNIK: number;
@@ -116,7 +115,6 @@ interface RencontresRow {
   SAISON: string;
   READMIN: number | null;
   COMMENT: string | null;
-  VID_ID: number | null;
   PADOMSource: string | null;
   PAEXTSource: string | null;
 }
@@ -208,6 +206,14 @@ function toNum(value: unknown, fallback = 0): number {
 
 function toText(value: unknown): string {
   return String(value ?? '').trim();
+}
+
+function normalizeOptionalText(value: unknown): string | null {
+  if (value == null) {
+    return null;
+  }
+  const text = toText(value);
+  return text === '' ? null : text;
 }
 
 function parsePaSource(value: unknown): PaSourceRef | null {
@@ -732,7 +738,6 @@ function readRencontreRowById(id: string | number): RencontresRow | undefined {
       "SAISON",
       "READMIN",
       "COMMENT",
-      "VID_ID",
       "PADOMSource",
       "PAEXTSource"
      FROM "RENCO"
@@ -760,7 +765,6 @@ function readRencontreRowById(id: string | number): RencontresRow | undefined {
     SAISON: toText(row.SAISON),
     READMIN: row['READMIN'] == null ? null : toInt(row['READMIN']),
     COMMENT: row.COMMENT == null ? null : String(row.COMMENT),
-    VID_ID: row.VID_ID == null ? null : toInt(row.VID_ID),
     PADOMSource: row.PADOMSource == null ? null : String(row.PADOMSource),
     PAEXTSource: row.PAEXTSource == null ? null : String(row.PAEXTSource),
   };
@@ -1662,7 +1666,6 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
       "SAISON",
       "READMIN",
       "COMMENT",
-      "VID_ID",
       "PADOMSource",
       "PAEXTSource"
      FROM "RENCO"
@@ -1688,7 +1691,6 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
     SAISON: toText(row.SAISON),
     READMIN: row['READMIN'] == null ? null : toInt(row['READMIN']),
     COMMENT: row.COMMENT == null ? null : String(row.COMMENT),
-    VID_ID: row.VID_ID == null ? null : toInt(row.VID_ID),
     PADOMSource: row.PADOMSource == null ? null : String(row.PADOMSource),
     PAEXTSource: row.PAEXTSource == null ? null : String(row.PAEXTSource),
   }));
@@ -1774,14 +1776,19 @@ function assertValidRencontreBody(body: Record<string, unknown>): void {
 async function createWithImpact(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
   assertValidRencontreBody(body);
 
-  const keys = Object.keys(body);
+  const payload = { ...body };
+  if (Object.prototype.hasOwnProperty.call(payload, 'IDCIRC')) {
+    payload.IDCIRC = normalizeOptionalText(payload.IDCIRC);
+  }
+
+  const keys = Object.keys(payload);
   if (keys.length === 0) {
     throw new AppError(400, 'No fields provided');
   }
 
   const cols = keys.map((c) => `"${c}"`).join(', ');
   const marks = keys.map(() => '?').join(', ');
-  const values = Object.values(body);
+  const values = Object.values(payload);
 
   const transaction = db.transaction((payloadValues: unknown[]) => {
     const result = db.prepare(`INSERT INTO "RENCO" (${cols}) VALUES (${marks})`).run(...payloadValues as []);
@@ -1821,12 +1828,11 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     throw new AppError(400, 'Identifiant de rencontre invalide.');
   }
 
-  const normalizedBody = {
-    ...body,
-    ...(Object.prototype.hasOwnProperty.call(body, 'IDCIRC') && body.IDCIRC == null
-      ? { IDCIRC: '' }
-      : {}),
-  };
+  const normalizedBody = { ...body };
+  if (Object.prototype.hasOwnProperty.call(normalizedBody, 'IDCIRC')) {
+    normalizedBody.IDCIRC = normalizeOptionalText(normalizedBody.IDCIRC);
+  }
+
   const keys = Object.keys(normalizedBody);
   if (keys.length === 0) {
     throw new AppError(400, 'No fields provided');
@@ -1972,7 +1978,7 @@ export async function importRencontresForTour(
     return {
       DATE: date,
       HEURE: toText(row.HEURE),
-      IDCIRC: toText(row.IDCIRC),
+      IDCIRC: normalizeOptionalText(row.IDCIRC),
       DOMICILE: domicile,
       EXTERIEUR: exterieur,
       BUTDOM: butDom,
@@ -2029,7 +2035,6 @@ const baseService = createEntityService({
     'SAISON',
     'READMIN',
     'COMMENT',
-    'VID_ID',
     'PADOMSource',
     'PAEXTSource',
   ],
@@ -2118,7 +2123,6 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       r.SAISON,
       r."READMIN" AS READMIN,
       r.COMMENT,
-      r.VID_ID,
       r.PADOMSource,
       r.PAEXTSource,
       t.COCLEUNIK,
@@ -2644,31 +2648,29 @@ export interface CompositionRow {
   [key: string]: unknown;
 }
 
-function ensureMatchRowForRencontre(recleunik: number): { macleunik: number; saison: string } {
+function ensureMatchRowForRencontre(recleunik: number): { macleunik: number } {
   const matchRow = db.prepare(
-    `SELECT m."MACLEUNIK", m."SAISON" FROM "MATCH" m WHERE m."RECLEUNIK" = ? LIMIT 1`,
+    `SELECT m."MACLEUNIK" FROM "MATCH" m WHERE m."RECLEUNIK" = ? LIMIT 1`,
   ).get(recleunik) as Record<string, unknown> | undefined;
 
   if (matchRow) {
     return {
       macleunik: toInt(matchRow.MACLEUNIK),
-      saison: toText(matchRow.SAISON),
     };
   }
 
-  const rencoRow = db.prepare(`SELECT "SAISON" FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`)
+  const rencoExists = db.prepare(`SELECT 1 FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`)
     .get(recleunik) as Record<string, unknown> | undefined;
 
-  if (!rencoRow) throw new AppError(404, 'Rencontre introuvable.');
+  if (!rencoExists) throw new AppError(404, 'Rencontre introuvable.');
 
   const inserted = db.prepare(
-    `INSERT INTO "MATCH" ("RECLEUNIK", "SAISON", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "LIEU", "MADUREE")
-     VALUES (?, ?, 0, 1, 0, 0, 0, 0, 0, 'N', 90)`,
-  ).run(recleunik, toText(rencoRow.SAISON));
+    `INSERT INTO "MATCH" ("RECLEUNIK", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "LIEU", "MADUREE")
+     VALUES (?, 0, 1, 0, 0, 0, 0, 0, 'N', 90)`,
+  ).run(recleunik);
 
   return {
     macleunik: toInt(inserted.lastInsertRowid),
-    saison: toText(rencoRow.SAISON),
   };
 }
 

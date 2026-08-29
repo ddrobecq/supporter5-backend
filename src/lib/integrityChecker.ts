@@ -71,6 +71,13 @@ export async function checkCompetitionIntegrity(competitionId: string | number):
 }
 
 /**
+ * Vérifie si un enregistrement RSS peut être supprimé.
+ */
+export async function checkRssIntegrity(rssId: string | number): Promise<IntegrityCheckResult> {
+  return checkFkConstraints([], rssId);
+}
+
+/**
  * Vérifie si un enregistrement TOUR peut être supprimé.
  */
 export async function checkTourIntegrity(tourId: string | number): Promise<IntegrityCheckResult> {

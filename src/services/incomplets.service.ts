@@ -72,7 +72,7 @@ const CLUB_SANS_VILLE_SQL = `(COALESCE(c."IDVILLE", 0) = 0
   OR NOT EXISTS (SELECT 1 FROM "VILLE" v WHERE v."VICLEUNIK" = c."IDVILLE"))`;
 const CLUB_SANS_STADE_SQL = `NOT EXISTS (
   SELECT 1 FROM "CLUB_TERRAIN" ct WHERE ct."IDCLUB" = c."IDCLUB" AND COALESCE(ct."TECLEUNIK", 0) > 0)`;
-// La date de creation est portee par l'evenement CLUB_NOM de type 1 (Creation).
+// La date de création est portee par l'evenement CLUB_NOM de type 1 (création).
 const CLUB_SANS_DATE_CREATION_SQL = `NOT EXISTS (
   SELECT 1 FROM "CLUB_NOM" cn
   WHERE cn."IDCLUB" = c."IDCLUB" AND COALESCE(cn."CN_ACTION", 0) = 1 AND TRIM(COALESCE(cn."DATE", '')) <> '')`;
@@ -190,7 +190,7 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
        r."RECLEUNIK",
        m."MACLEUNIK",
        r."DATE",
-       COALESCE(NULLIF(TRIM(r."SAISON"), ''), m."SAISON") AS "SAISON",
+       r."SAISON" AS "SAISON",
        r."ETAT",
        r."DOMICILE",
        r."EXTERIEUR",
@@ -246,7 +246,6 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
              OR (COALESCE(cn."CN_ACTION", 0) = 3 AND cn."DATE" < r."DATE"))
        ) THEN 1 ELSE 0 END AS "CLUBS_INCOHERENTS",
        CASE WHEN r."RECLEUNIK" IS NULL
-         OR TRIM(COALESCE(m."SAISON", '')) <> TRIM(COALESCE(r."SAISON", ''))
          OR EXISTS (
            SELECT 1 FROM "EQUIPE" e
            WHERE e."MACLEUNIK" = m."MACLEUNIK"

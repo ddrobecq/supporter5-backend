@@ -18,6 +18,7 @@ import deviseAdmin     from './devise.admin.routes';
 import circAdmin       from './circ.admin.routes';
 import epreuveAdmin    from './epreuve.admin.routes';
 import competitionAdmin from './competition.admin.routes';
+import rssAdmin        from './rss.admin.routes';
 import imagesAdmin     from './images.admin.routes';
 import importAdmin     from './import.admin.routes';
 import incompletsAdmin from './incomplets.admin.routes';
@@ -48,6 +49,7 @@ router.use('/devises',    deviseAdmin);
 router.use('/circs',      circAdmin);
 router.use('/epreuves',   epreuveAdmin);
 router.use('/competitions', competitionAdmin);
+router.use('/rss',        rssAdmin);
 router.use('/images', imagesAdmin);
 router.use('/system', systemAdmin);
 

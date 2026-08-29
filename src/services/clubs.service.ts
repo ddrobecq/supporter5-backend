@@ -83,6 +83,7 @@ export interface CreateClubWizardPayload {
   name: string;
   natioId: string;
   isSelection: boolean;
+  creationDate?: string;
   villeId?: string | number;
 }
 
@@ -900,10 +901,37 @@ async function resolveVilleIdForClub(natioId: string, villeId?: string | number)
   return Number(fallback.VICLEUNIK);
 }
 
+function normalizeCreationDate(value: string | number | null | undefined): string {
+  const raw = normalizeText(value);
+  if (!raw) {
+    throw new AppError(400, 'La date de création est requise.');
+  }
+
+  const iso = raw.match(/^\d{4}-\d{2}-\d{2}$/)
+    ? raw
+    : raw.match(/^\d{4}\/\d{2}\/\d{2}$/)
+      ? raw.replace(/\//g, '-')
+      : raw.match(/^\d{2}\/\d{2}\/\d{4}$/)
+        ? `${raw.slice(6, 10)}-${raw.slice(3, 5)}-${raw.slice(0, 2)}`
+        : null;
+
+  if (!iso) {
+    throw new AppError(400, 'La date de création est invalide.');
+  }
+
+  const date = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new AppError(400, 'La date de création est invalide.');
+  }
+
+  return iso.replace(/-/g, '');
+}
+
 export async function createClubWithWizard(payload: CreateClubWizardPayload): Promise<ClubGridRow> {
   const name = normalizeText(payload.name);
   const natioId = normalizeText(payload.natioId).toUpperCase();
   const isSelection = Boolean(payload.isSelection);
+  const creationDate = normalizeCreationDate(payload.creationDate);
 
   if (!name) {
     throw new AppError(400, 'Le nom du club est requis.');
@@ -923,7 +951,6 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
 
   const idClub = await resolveNextClubId();
   const idVille = await resolveVilleIdForClub(natioId, payload.villeId);
-  const nowDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
 
   await dbRun(
     `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
@@ -934,12 +961,12 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   await dbRun(
     `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
      VALUES (?, ?, ?, ?)`,
-    [name.slice(0, 200), idClub, nowDate, 0],
+    [name.slice(0, 200), idClub, creationDate, 1],
   );
 
   const created = await getClubGridById(idClub);
   if (!created) {
-    throw new AppError(500, 'Le club a ete cree mais est introuvable apres creation.');
+    throw new AppError(500, 'Le club a été créé mais est introuvable après création.');
   }
   return created;
 }

@@ -1,4 +1,4 @@
-import { dbAll, dbGet, dbRun } from '../config/database';
+import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { normalizeSaison } from '../lib/saisonRules';
@@ -189,6 +189,153 @@ async function createCompetitionRecord(body: Record<string, unknown>): Promise<R
   return undefined;
 }
 
+async function clonePreviousCompetition(
+  previousCompetitionId: number,
+  target: {
+    epreuveId: number;
+    saison: string;
+    name: string;
+  },
+): Promise<Record<string, unknown> | undefined> {
+  const previousCompetition = await dbGet<Record<string, unknown>>(
+    `SELECT "COCLEUNIK", "LOGO", "COCOMMENT", "CO_WEB", "CO_ANNEE"
+     FROM "${COMPET_TABLE}"
+     WHERE "${COMPET_PK}" = ?
+     LIMIT 1`,
+    [previousCompetitionId],
+  );
+
+  if (!previousCompetition) {
+    throw new AppError(404, 'La compétition précédente est introuvable.');
+  }
+
+  const previousTours = await dbAll<Record<string, unknown>>(
+    `SELECT * FROM "TOUR"
+     WHERE "COCLEUNIK" = ?
+     ORDER BY "TU_ORDRE" ASC, "TUCLEUNIK" ASC`,
+    [previousCompetitionId],
+  );
+
+  const previousQualifs = await dbAll<Record<string, unknown>>(
+    `SELECT q.*
+     FROM "Qualif" q
+     INNER JOIN "TOUR" t ON t."TUCLEUNIK" = q."TUCLEUNIK"
+     WHERE t."COCLEUNIK" = ?
+     ORDER BY q."CLASS_ID" ASC`,
+    [previousCompetitionId],
+  );
+
+  const transaction = db.transaction(() => {
+    const insertCompetition = db.prepare(
+      `INSERT INTO "${COMPET_TABLE}" (
+        "SAISON",
+        "IDEPREUVE",
+        "NOM",
+        "COCOMMENT",
+        "CO_WEB",
+        "LOGO",
+        "CO_ANNEE"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+
+    const insertedCompetition = insertCompetition.run(
+      normalizeSaison(target.saison),
+      target.epreuveId,
+      String(target.name ?? '').trim(),
+      typeof previousCompetition.COCOMMENT === 'string' ? previousCompetition.COCOMMENT : '',
+      typeof previousCompetition.CO_WEB === 'string' ? previousCompetition.CO_WEB : '',
+      previousCompetition.LOGO ?? null,
+      Number(previousCompetition.CO_ANNEE ?? 0),
+    );
+
+    const newCompetitionId = Number(insertedCompetition.lastInsertRowid ?? 0);
+    if (!newCompetitionId) {
+      throw new AppError(500, 'Impossible de créer la nouvelle compétition à partir de la précédente.');
+    }
+
+    const tourMapping = new Map<number, number>();
+    for (const previousTour of previousTours) {
+      const oldTourId = Number(previousTour.TUCLEUNIK ?? 0);
+      if (!oldTourId) continue;
+
+      const insertedTour = db.prepare(
+        `INSERT INTO "TOUR" (
+          "TDCLEUNIK",
+          "NB_PARTICIPANTS",
+          "COCLEUNIK",
+          "NOM",
+          "DATE_DEBUT",
+          "DATE_FIN",
+          "TUHEURE",
+          "NB_EQUIPE",
+          "NB_GROUPE",
+          "TU_ORDRE",
+          "TU_FINAL",
+          "TU_DATETIRAGE",
+          "TU_HEURETIRAGE",
+          "TU_SELECTION",
+          "TU_COMMENT",
+          "NB_MATCH"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        previousTour.TDCLEUNIK ?? 0,
+        previousTour.NB_PARTICIPANTS ?? 0,
+        newCompetitionId,
+        previousTour.NOM ?? '',
+        previousTour.DATE_DEBUT ?? null,
+        previousTour.DATE_FIN ?? null,
+        previousTour.TUHEURE ?? null,
+        previousTour.NB_EQUIPE ?? 0,
+        previousTour.NB_GROUPE ?? 0,
+        previousTour.TU_ORDRE ?? 0,
+        previousTour.TU_FINAL ?? 0,
+        previousTour.TU_DATETIRAGE ?? null,
+        previousTour.TU_HEURETIRAGE ?? null,
+        previousTour.TU_SELECTION ?? 0,
+        previousTour.TU_COMMENT ?? null,
+        previousTour.NB_MATCH ?? 0,
+      );
+
+      const newTourId = Number(insertedTour.lastInsertRowid ?? 0);
+      if (!newTourId) {
+        throw new AppError(500, `Impossible de dupliquer le tour ${oldTourId}.`);
+      }
+      tourMapping.set(oldTourId, newTourId);
+    }
+
+    for (const previousQualif of previousQualifs) {
+      const oldTourId = Number(previousQualif.TUCLEUNIK ?? 0);
+      const newTourId = tourMapping.get(oldTourId);
+      if (!newTourId) continue;
+
+      db.prepare(
+        `INSERT INTO "Qualif" (
+          "CLASS_MinRang",
+          "CLASS_Couleur",
+          "CLASS_Libelle",
+          "CLASS_Type",
+          "TUCLEUNIK",
+          "CLASS_Abrege",
+          "CLASS_MaxRang"
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        previousQualif.CLASS_MinRang ?? 0,
+        previousQualif.CLASS_Couleur ?? 0,
+        previousQualif.CLASS_Libelle ?? null,
+        previousQualif.CLASS_Type ?? 0,
+        newTourId,
+        previousQualif.CLASS_Abrege ?? '',
+        previousQualif.CLASS_MaxRang ?? 0,
+      );
+    }
+
+    return newCompetitionId;
+  });
+
+  const createdCompetitionId = Number(transaction());
+  return getCompetitionById(createdCompetitionId);
+}
+
 async function updateCompetitionRecord(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
   const keys = Object.keys(body);
   if (!keys.length) {
@@ -287,13 +434,15 @@ export async function createCompetitionWithWizard(payload: {
     throw new AppError(400, 'Nom de la competition requis.');
   }
 
-  let coAnnee = 0;
   if (payload.sameAsLastEdition) {
-    const previous = await dbGet<{ CO_ANNEE: number }>(
-      'SELECT CO_ANNEE FROM COMPET WHERE IDEPREUVE = ? ORDER BY SAISON DESC, COCLEUNIK DESC LIMIT 1',
+    const previous = await dbGet<{ COCLEUNIK: number }>(
+      'SELECT COCLEUNIK FROM COMPET WHERE IDEPREUVE = ? ORDER BY SAISON DESC, COCLEUNIK DESC LIMIT 1',
       [epreuveId],
     );
-    coAnnee = previous?.CO_ANNEE ? 1 : 0;
+
+    if (previous?.COCLEUNIK) {
+      return clonePreviousCompetition(previous.COCLEUNIK, { epreuveId, saison, name });
+    }
   }
 
   return createCompetitionRecord({
@@ -302,7 +451,7 @@ export async function createCompetitionWithWizard(payload: {
     NOM: name,
     COCOMMENT: '',
     CO_WEB: '',
-    CO_ANNEE: coAnnee,
+    CO_ANNEE: 0,
   });
 }
 

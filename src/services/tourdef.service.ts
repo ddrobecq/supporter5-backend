@@ -16,7 +16,6 @@ export interface TourDefRow {
   DUREE_TPS_REG: number;
   CLASS_GAD: number;
   TDTYPETOUR: number;
-  VALEUR_BE: number;
   DUREE_TPS_PROLONG: number;
   FIN_PROLONG: number;
   FIN_TPS_REG: number;
@@ -46,7 +45,6 @@ export default createEntityService({
     'DUREE_TPS_REG',
     'CLASS_GAD',
     'TDTYPETOUR',
-    'VALEUR_BE',
     'DUREE_TPS_PROLONG',
     'FIN_PROLONG',
     'FIN_TPS_REG',

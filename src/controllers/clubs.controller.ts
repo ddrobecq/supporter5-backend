@@ -221,6 +221,7 @@ export async function createClubWithWizard(req: Request, res: Response, next: Ne
 			name: string;
 			natioId: string;
 			isSelection: boolean;
+			creationDate?: string;
 			villeId?: string | number;
 		});
 		res.status(201).json(created);

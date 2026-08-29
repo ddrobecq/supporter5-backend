@@ -777,12 +777,12 @@ export async function createJoueurTransactionById(
   );
 
   if (!inserted) {
-    throw new AppError(500, 'Creation de transaction echouee.');
+    throw new AppError(500, 'Création de transaction échouée.');
   }
 
   const row = await getJoueurTransactionById(joueurId, inserted.TNCLEUNIK);
   if (!row) {
-    throw new AppError(500, 'Transaction creee mais introuvable.');
+    throw new AppError(500, 'Transaction créée mais introuvable.');
   }
   return row;
 }

@@ -58,12 +58,26 @@ function toBuffer(raw: unknown): Buffer | null {
       return Buffer.from(trimmed.slice(2), 'hex');
     }
 
-    // Data URL base64
+    // Data URL (base64 ou URL-encoded)
     if (trimmed.startsWith('data:')) {
       const commaIdx = trimmed.indexOf(',');
       if (commaIdx === -1) return null;
+
+      const metadata = trimmed.slice(5, commaIdx).toLowerCase();
       const payload = trimmed.slice(commaIdx + 1);
-      return Buffer.from(payload, 'base64');
+
+      if (metadata.includes('svg')) {
+        const decoded = metadata.includes(';base64')
+          ? Buffer.from(payload, 'base64').toString('utf8')
+          : decodeURIComponent(payload);
+        return Buffer.from(decoded, 'utf8');
+      }
+
+      if (metadata.includes(';base64')) {
+        return Buffer.from(payload, 'base64');
+      }
+
+      return Buffer.from(decodeURIComponent(payload), 'utf8');
     }
 
     // String hexadécimale pure, éventuellement avec espaces/retours ligne.

@@ -147,7 +147,6 @@ export interface TourRencontreRow {
   SAISON: string;
   READMIN: number;
   COMMENT: string | null;
-  VID_ID: number | null;
   BUTDOM: number;
   BUTEXT: number;
   TABDOM: number;
@@ -764,7 +763,6 @@ async function getTourRencontres(tourId: string | number): Promise<TourRencontre
        "SAISON",
        "READMIN",
        "COMMENT",
-       "VID_ID",
        "BUTDOM",
        "BUTEXT",
        "TABDOM",
@@ -789,7 +787,6 @@ async function getTourRencontres(tourId: string | number): Promise<TourRencontre
     SAISON: String(row.SAISON ?? '').trim(),
     READMIN: Number(row.READMIN ?? 0) || 0,
     COMMENT: row.COMMENT === null ? null : String(row.COMMENT ?? ''),
-    VID_ID: row.VID_ID === null ? null : Number(row.VID_ID),
     BUTDOM: Number(row.BUTDOM ?? 0) || 0,
     BUTEXT: Number(row.BUTEXT ?? 0) || 0,
     TABDOM: Number(row.TABDOM ?? 0) || 0,
