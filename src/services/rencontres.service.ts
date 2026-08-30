@@ -70,6 +70,10 @@ export interface RencontreDetailRow {
   TERRAIN_VILLE: string;
   TERRAIN_DISPLAY: string;
   NBSPECT: number;
+  EXTRATIME: number;
+  PENALTY: number;
+  FIN_TPS_REG: number;
+  FIN_PROLONG: number;
   SUPPORTED_CLUB_ID: string;
   IS_SUPPORTED_CLUB_MATCH: number;
   SUPPORTED_CLUB_SIDE: 'home' | 'away' | 'none';
@@ -2165,7 +2169,11 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       NULLIF(TRIM(COALESCE(m.TECLEUNIK, '')), '') AS TECLEUNIK,
       COALESCE(te.STADE, '') AS TERRAIN_NOM,
       COALESCE(vt.NOM, '') AS TERRAIN_VILLE,
-      COALESCE(m.NBSPECT, 0) AS NBSPECT
+      COALESCE(m.NBSPECT, 0) AS NBSPECT,
+      COALESCE(m.EXTRATIME, 0) AS EXTRATIME,
+      COALESCE(m.PENALTY, 0) AS PENALTY,
+      COALESCE(td.FIN_TPS_REG, 0) AS FIN_TPS_REG,
+      COALESCE(td.FIN_PROLONG, 0) AS FIN_PROLONG
      FROM RENCO r
      LEFT JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
      LEFT JOIN CIRC ci ON ci.IDCIRC = r.IDCIRC
@@ -2674,6 +2682,27 @@ function ensureMatchRowForRencontre(recleunik: number): { macleunik: number } {
   };
 }
 
+/**
+ * Point d'entree partage: a appeler apres TOUT enregistrement touchant la table MATCH
+ * (formulaire rencontre, CRUD generique /api/admin/matchs, imports...), quel que soit le champ modifie -
+ * la duree effective du match (donc le temps de jeu des joueurs) depend potentiellement de n'importe
+ * quelle combinaison EXTRATIME/MADUREE/TOURDEF.
+ */
+export function recomputeStatsForRencontreId(recleunik: string | number | null | undefined): void {
+  const id = toInt(recleunik);
+  if (!Number.isInteger(id) || id <= 0) return;
+  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(id));
+}
+
+/** Variante quand seul le MACLEUNIK est connu (CRUD generique sur la table MATCH). */
+export function recomputeStatsForMatchId(macleunik: string | number | null | undefined): void {
+  const maId = toInt(macleunik);
+  if (!Number.isInteger(maId) || maId <= 0) return;
+  const row = db.prepare(`SELECT "RECLEUNIK" FROM "MATCH" WHERE "MACLEUNIK" = ? LIMIT 1`).get(maId) as Record<string, unknown> | undefined;
+  if (row?.RECLEUNIK == null) return;
+  recomputeStatsForRencontreId(row.RECLEUNIK as number);
+}
+
 export async function upsertArbitreForRencontre(rencontreId: string | number, idarbitre: string | null): Promise<void> {
   const recleunik = toInt(rencontreId);
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
@@ -2683,6 +2712,7 @@ export async function upsertArbitreForRencontre(rencontreId: string | number, id
   const { macleunik } = ensureMatchRowForRencontre(recleunik);
   db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
     .run(normalizedArbitre, macleunik);
+  recomputeStatsForRencontreId(recleunik);
 }
 
 export interface RencontreMatchMetaPayload {
@@ -2690,6 +2720,8 @@ export interface RencontreMatchMetaPayload {
   TECLEUNIK?: string | null;
   NBSPECT?: number;
   LIEU?: string | null;
+  EXTRATIME?: number | boolean;
+  PENALTY?: number | boolean;
 }
 
 function clubHasTerrain(clubId: string, tecleunik: string): boolean {
@@ -2743,12 +2775,16 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
   const rawNbSpect = toInt(payload.NBSPECT, 0);
   const normalizedNbSpect = rawNbSpect === -1 ? -1 : Math.max(0, rawNbSpect);
   const normalizedLieu = resolveMatchLieuFromTerrain(recleunik, normalizedTerrain);
+  const normalizedExtratime = payload.EXTRATIME ? 1 : 0;
+  const normalizedPenalty = payload.PENALTY ? 1 : 0;
 
   db.prepare(
     `UPDATE "MATCH"
-     SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?, "LIEU" = ?
+     SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?, "LIEU" = ?, "EXTRATIME" = ?, "PENALTY" = ?
      WHERE "MACLEUNIK" = ?`,
-  ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, macleunik);
+  ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, normalizedExtratime, normalizedPenalty, macleunik);
+
+  recomputeStatsForRencontreId(recleunik);
 }
 
 export async function getCompositionForRencontre(id: string | number): Promise<CompositionRow | null> {
@@ -2991,6 +3027,8 @@ export default {
   upsertCompositionForRencontre,
   upsertArbitreForRencontre,
   upsertMatchMetaForRencontre,
+  recomputeStatsForRencontreId,
+  recomputeStatsForMatchId,
   getSquadForRencontre,
   createEventForRencontre,
   updateEventForRencontre,

@@ -113,6 +113,8 @@ export async function setMatchMeta(req: Request, res: Response, next: NextFuncti
 			TECLEUNIK: req.body?.TECLEUNIK === '' ? null : req.body?.TECLEUNIK,
 			NBSPECT: req.body?.NBSPECT,
 			LIEU: req.body?.LIEU === '' ? null : req.body?.LIEU,
+			EXTRATIME: req.body?.EXTRATIME,
+			PENALTY: req.body?.PENALTY,
 		});
 		res.status(204).send();
 	} catch (error) {

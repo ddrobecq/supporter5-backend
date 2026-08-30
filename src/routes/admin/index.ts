@@ -22,6 +22,7 @@ import rssAdmin        from './rss.admin.routes';
 import imagesAdmin     from './images.admin.routes';
 import importAdmin     from './import.admin.routes';
 import incompletsAdmin from './incomplets.admin.routes';
+import maintenanceAdmin from './maintenance.admin.routes';
 import systemAdmin     from './system.admin.routes';
 
 const router = Router();
@@ -52,5 +53,6 @@ router.use('/competitions', competitionAdmin);
 router.use('/rss',        rssAdmin);
 router.use('/images', imagesAdmin);
 router.use('/system', systemAdmin);
+router.use('/maintenance', maintenanceAdmin);
 
 export default router;
