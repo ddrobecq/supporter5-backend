@@ -252,12 +252,6 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
              AND (TRIM(COALESCE(e."DATE", '')) <> TRIM(COALESCE(r."DATE", ''))
                OR TRIM(COALESCE(e."SAISON", '')) <> TRIM(COALESCE(r."SAISON", '')))
          )
-         OR EXISTS (
-           SELECT 1 FROM "EVENT" ev
-           WHERE ev."MACLEUNIK" = m."MACLEUNIK"
-             AND (TRIM(COALESCE(ev."DATE", '')) <> TRIM(COALESCE(r."DATE", ''))
-               OR TRIM(COALESCE(ev."SAISON", '')) <> TRIM(COALESCE(r."SAISON", '')))
-         )
        THEN 1 ELSE 0 END AS "DESYNCHRO"
      FROM "MATCH" m
      LEFT JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"

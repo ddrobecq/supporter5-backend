@@ -2926,23 +2926,18 @@ export async function createEventForRencontre(rencontreId: string | number, payl
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const row = db.prepare(
-    `SELECT m."MACLEUNIK", r."DATE",
-            COALESCE(NULLIF(TRIM(co."SAISON"), ''), r."SAISON", '') AS "SAISON"
-     FROM "MATCH" m INNER JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
-     LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
-     LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
+    `SELECT m."MACLEUNIK"
+     FROM "MATCH" m
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
   ).get(recleunik) as Record<string, unknown> | undefined;
 
   if (!row) throw new AppError(404, 'Match introuvable pour cette rencontre.');
 
   db.prepare(
-    `INSERT INTO "EVENT" ("MACLEUNIK","SAISON","DATE","MINUTE","PERIODE","TYPE_EVENT","ADVERSAIRE","JOUEUR1","JOUEUR2","COMMENT")
-     VALUES (?,?,?,?,?,?,?,?,?,?)`,
+    `INSERT INTO "EVENT" ("MACLEUNIK","MINUTE","PERIODE","TYPE_EVENT","ADVERSAIRE","JOUEUR1","JOUEUR2","COMMENT")
+     VALUES (?,?,?,?,?,?,?,?)`,
   ).run(
     toInt(row.MACLEUNIK),
-    toText(row.SAISON),
-    row.DATE == null ? '' : toText(row.DATE),
     payload.minute,
     payload.periode,
     payload.typeEvent,

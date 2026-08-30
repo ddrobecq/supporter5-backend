@@ -7,6 +7,25 @@ import { AppError } from '../types';
 
 const ALLOWED_EXTENSIONS = new Set(['.sqlite', '.db']);
 const SQLITE_PENDING_SUFFIX = '.pending-upload';
+const SQLITE_WAL_SIDECAR_SUFFIXES = ['-wal', '-shm'];
+
+/**
+ * Supprime les -wal/-shm laisses par la base precedente. A n'appeler qu'une fois le fichier
+ * principal deja remplace par le nouvel import: ces sidecars appartiennent alors a l'ancienne
+ * generation et seraient sinon rejoues par erreur (recovery WAL) sur le nouveau fichier a la
+ * prochaine ouverture, corrompant la base fraichement importee.
+ */
+async function removeSqliteWalSidecars(dbPath: string): Promise<void> {
+  await Promise.all(
+    SQLITE_WAL_SIDECAR_SUFFIXES.map(async (suffix) => {
+      try {
+        await fs.rm(`${dbPath}${suffix}`, { force: true });
+      } catch (error) {
+        console.warn(`[system] Impossible de supprimer le sidecar SQLite "${dbPath}${suffix}": ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }),
+  );
+}
 
 export interface SupportedClubContext {
   clubId: string;
@@ -106,6 +125,9 @@ export async function uploadSqliteDatabase(file: Express.Multer.File): Promise<{
 
     try {
       await fs.rename(tempPath, resolvedDbPath);
+      // Le fichier principal vient d'etre remplace: purge les -wal/-shm de l'ancienne base
+      // pour eviter qu'ils soient rejoues par erreur sur le nouveau fichier au redemarrage.
+      await removeSqliteWalSidecars(resolvedDbPath);
     } catch (error) {
       if (!isLockedFileError(error)) {
         throw error;

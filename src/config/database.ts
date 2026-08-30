@@ -22,6 +22,24 @@ try {
   throw new Error(`Unable to create SQLite directory "${dbDirectory}": ${details}`);
 }
 
+/**
+ * Supprime les -wal/-shm laisses par la base precedente. A n'appeler qu'une fois le fichier
+ * principal deja remplace: ces sidecars appartiennent alors a l'ancienne generation et seraient
+ * sinon rejoues par erreur (recovery WAL) sur le nouveau fichier a l'ouverture, le corrompant.
+ */
+function removeWalSidecarsSync(dbPath: string): void {
+  for (const suffix of ['-wal', '-shm']) {
+    try {
+      fs.unlinkSync(`${dbPath}${suffix}`);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException)?.code;
+      if (code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+}
+
 function applyPendingUploadedDatabase(dbPath: string): void {
   const pendingPath = `${dbPath}.pending-upload`;
   if (!fs.existsSync(pendingPath)) {
@@ -37,6 +55,9 @@ function applyPendingUploadedDatabase(dbPath: string): void {
 
     fs.copyFileSync(pendingPath, dbPath);
     fs.unlinkSync(pendingPath);
+    // Le fichier principal vient d'etre remplace par l'import en attente: purge les -wal/-shm
+    // de l'ancienne base avant que la connexion SQLite ne soit ouverte plus bas.
+    removeWalSidecarsSync(dbPath);
     if (fs.existsSync(backupPath)) {
       fs.unlinkSync(backupPath);
     }
