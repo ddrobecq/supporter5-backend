@@ -67,7 +67,53 @@ function applyPendingUploadedDatabase(dbPath: string): void {
   }
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Supprime les artefacts transitoires laisses par un process precedent qui aurait crashe ou ete
+ * redemarre en plein telechargement/upload (ex: deploiement, restart manuel). Ces fichiers ne
+ * sont jamais necessaires a l'ouverture normale de la base et peuvent saturer le disque persistant
+ * s'ils s'accumulent (chacun peut faire la taille complete de la base).
+ */
+function cleanupStaleSqliteArtifacts(dbPath: string): void {
+  const dbDirectory = path.dirname(dbPath);
+  const baseName = path.basename(dbPath);
+
+  for (const suffix of ['.download-snapshot', '.backup-before-pending']) {
+    const staleFile = `${dbPath}${suffix}`;
+    try {
+      fs.unlinkSync(staleFile);
+      console.log(`[startup] Removed stale SQLite artifact: ${staleFile}`);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        console.warn(`[startup] Could not remove stale artifact "${staleFile}": ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  }
+
+  // Upload temp files carry a timestamp suffix (supporter.sqlite.upload-<ts>.tmp): scan the dir.
+  const uploadTmpPattern = new RegExp(`^${escapeRegExp(baseName)}\\.upload-\\d+\\.tmp$`);
+  try {
+    for (const entry of fs.readdirSync(dbDirectory)) {
+      if (!uploadTmpPattern.test(entry)) continue;
+      const fullPath = path.join(dbDirectory, entry);
+      try {
+        fs.unlinkSync(fullPath);
+        console.log(`[startup] Removed stale SQLite artifact: ${fullPath}`);
+      } catch (error) {
+        console.warn(`[startup] Could not remove stale artifact "${fullPath}": ${error instanceof Error ? error.message : String(error)}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`[startup] Could not scan "${dbDirectory}" for stale upload temp files: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 applyPendingUploadedDatabase(resolvedDbPath);
+cleanupStaleSqliteArtifacts(resolvedDbPath);
+
 
 const db = new Database(resolvedDbPath);
 db.pragma('foreign_keys = OFF');
