@@ -622,6 +622,62 @@ export async function getButeursParMatch(metric: ScoringMetric = 'buts', scope?:
   );
 }
 
+export interface ButsMultiplesRow {
+  IDJOUEUR: string;
+  NOM: string;
+  PRENOM: string;
+  SURNOM: string | null;
+  IDNATIO: string | null;
+  MATCHES: number;
+  EN_CLUB: number;
+}
+
+/**
+ * Nombre de matches ou le joueur a inscrit au moins `minButs` buts/passes (doubles: 2, triples: 3, quadruples: 4...),
+ * pour les joueurs en ayant reussi au moins 2 de ces performances. Un match a 3+ buts valide aussi bien
+ * le seuil "doubles" que le seuil "triples": chaque seuil est evalue independamment.
+ */
+export async function getButsMultiplesParJoueur(metric: ScoringMetric, minButs: number, scope?: number | null): Promise<ButsMultiplesRow[]> {
+  const { eventPlayer } = scoringColumns(metric);
+  return dbAll<ButsMultiplesRow>(
+    `WITH player_match_goals AS (
+      SELECT
+        ${eventPlayer} AS IDJOUEUR,
+        re.RECLEUNIK
+      FROM EVENT e
+      INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
+      INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
+      ${scopeFilterJoins('re')}
+      WHERE e.TYPE_EVENT = 1
+        AND e.ADVERSAIRE = 0
+        AND ${eventPlayer} IS NOT NULL
+        AND TRIM(${eventPlayer}) <> ''
+        AND re.TUCLEUNIK <> 0
+        ${scopeFilterClause(scope)}
+      GROUP BY ${eventPlayer}, re.RECLEUNIK
+      HAVING COUNT(*) >= ?
+    ),
+    matches_par_joueur AS (
+      SELECT IDJOUEUR, COUNT(*) AS MATCHES
+      FROM player_match_goals
+      GROUP BY IDJOUEUR
+      HAVING MATCHES >= 2
+    )
+    SELECT
+      mpj.IDJOUEUR,
+      jr.NOM,
+      jr.PRENOM,
+      jr.SURNOM,
+      jr.IDNATIO,
+      mpj.MATCHES,
+      CASE WHEN ${joueurPresentSql()} THEN 1 ELSE 0 END AS EN_CLUB
+    FROM matches_par_joueur mpj
+    INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = mpj.IDJOUEUR
+    ORDER BY mpj.MATCHES DESC, jr.NOM ASC, jr.PRENOM ASC`,
+    scope != null ? [scope, minButs] : [minButs],
+  );
+}
+
 export interface AncienneteRow {
   IDJOUEUR: string;
   NOM: string;

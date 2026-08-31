@@ -2214,6 +2214,12 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
 
     const supportedClubId = getSupportedClubId();
     const supportedSide = resolveSupportedClubSide(detail.DOMICILE, detail.EXTERIEUR, supportedClubId);
+
+    if (supportedSide !== 'none' && detail.MACLEUNIK == null) {
+      const { macleunik } = ensureMatchRowForRencontre(toInt(detail.RECLEUNIK));
+      detail.MACLEUNIK = macleunik;
+    }
+
     let terrainId = toText(detail.TECLEUNIK);
     let terrainName = toText(detail.TERRAIN_NOM);
     let terrainVille = toText(detail.TERRAIN_VILLE);

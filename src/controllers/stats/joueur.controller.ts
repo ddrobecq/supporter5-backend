@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { parseScopeParam } from '../../lib/matchScopeFilter';
-import { getButeurs, getButeursParMatch, getButeursParSaison, getDernierMatch, getEfficaciteButeurs, getExclusionsRapides, getMeilleursGardiens, getNombreAnneesAuClub, getParSaison, getPerformances, getPhysique, getPlusSelectionnes, getPremierMatch, getSanctions, getSanctionsParSaison, getSeriesButeurs, getSeriesInviolabilite, getTransferts, type PhysiqueMetric, type TransfertMetric } from '../../services/stats/joueur/apparitions.service';
+import { getButeurs, getButeursParMatch, getButeursParSaison, getButsMultiplesParJoueur, getDernierMatch, getEfficaciteButeurs, getExclusionsRapides, getMeilleursGardiens, getNombreAnneesAuClub, getParSaison, getPerformances, getPhysique, getPlusSelectionnes, getPremierMatch, getSanctions, getSanctionsParSaison, getSeriesButeurs, getSeriesInviolabilite, getTransferts, type PhysiqueMetric, type TransfertMetric } from '../../services/stats/joueur/apparitions.service';
 import { getEquipeType } from '../../services/stats/saison/equipeType.service';
 
 export async function getApparitionsPlusSelectionnes(_req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -181,6 +181,21 @@ export async function getPassesParMatchStat(req: Request, res: Response, next: N
     next(error);
   }
 }
+
+function butsMultiplesHandler(metric: 'buts' | 'passes', minButs: number) {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const data = await getButsMultiplesParJoueur(metric, minButs, parseScopeParam(req.query.scope));
+      res.status(200).json({ data });
+    } catch (error) { next(error); }
+  };
+}
+
+export const getDoublesStat = butsMultiplesHandler('buts', 2);
+export const getTriplesStat = butsMultiplesHandler('buts', 3);
+export const getQuadruplesStat = butsMultiplesHandler('buts', 4);
+export const getPassesDoublesStat = butsMultiplesHandler('passes', 2);
+export const getPassesTriplesStat = butsMultiplesHandler('passes', 3);
 
 export async function getEfficaciteButeursStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

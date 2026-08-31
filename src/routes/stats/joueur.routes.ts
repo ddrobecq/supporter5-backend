@@ -8,9 +8,14 @@ import {
 	getButeursStat,
 	getButeursParSaisonStat,
 	getButeursParMatchStat,
+	getDoublesStat,
+	getTriplesStat,
+	getQuadruplesStat,
 	getPassesStat,
 	getPassesParSaisonStat,
 	getPassesParMatchStat,
+	getPassesDoublesStat,
+	getPassesTriplesStat,
 	getAvertissementsStat,
 	getAvertissementsParSaisonStat,
 	getExclusionsStat,
@@ -47,11 +52,16 @@ router.get('/apparitions/plus-vieux', getDernierMatchStat);
 router.get('/buts/general', getButeursStat);
 router.get('/buts/saison', getButeursParSaisonStat);
 router.get('/buts/match', getButeursParMatchStat);
+router.get('/buts/doubles', getDoublesStat);
+router.get('/buts/triples', getTriplesStat);
+router.get('/buts/quadruples', getQuadruplesStat);
 router.get('/buts/moyenne', getEfficaciteButeursStat);
 router.get('/buts/serie', getSeriesButeursStat);
 router.get('/passes/general', getPassesStat);
 router.get('/passes/saison', getPassesParSaisonStat);
 router.get('/passes/match', getPassesParMatchStat);
+router.get('/passes/doubles', getPassesDoublesStat);
+router.get('/passes/triples', getPassesTriplesStat);
 router.get('/passes/moyenne', getEfficacitePassesStat);
 router.get('/passes/serie', getSeriesPassesStat);
 router.get('/sanctions/avertissements/general', getAvertissementsStat);
