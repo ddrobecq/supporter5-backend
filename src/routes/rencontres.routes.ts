@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import ctrl, { getCalendar, getRencontreDetail, getRencontreHighlights, getTourMatches, getComposition, saveComposition, getSquad, createEvent, updateEvent, deleteEvent } from '../controllers/rencontres.controller';
+import ctrl, { getCalendar, getRencontreDetail, getRencontreHighlights, getTourMatches, getComposition, saveComposition, getSquad, createEvent, updateEvent, deleteEvent, recomputeStats } from '../controllers/rencontres.controller';
 const router = Router();
 router.get('/calendar', getCalendar);
 router.get('/:id/detail', getRencontreDetail);
@@ -11,6 +11,7 @@ router.get('/:id/squad', getSquad);
 router.post('/:id/events', createEvent);
 router.put('/:id/events/:evid', updateEvent);
 router.delete('/:id/events/:evid', deleteEvent);
+router.post('/:id/recompute-stats', recomputeStats);
 router.get('/', ctrl.getAll);
 router.get('/:id', ctrl.getById);
 export default router;

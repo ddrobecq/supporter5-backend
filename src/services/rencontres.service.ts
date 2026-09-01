@@ -668,7 +668,7 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
 
   if (typeEvent === 10) {
     const minutes = toInt(eventRow.COMMENT, 0);
-    return `${minutes}'  de temps additionnel`;
+    return `${minutes}' de temps additionnel`;
   }
 
   if (adversaire) {
@@ -3019,7 +3019,8 @@ export async function createEventForRencontre(rencontreId: string | number, payl
     isAdditionalTime ? null : (payload.joueur2 || null),
     payload.comment || null,
   );
-  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
+  // Pas de recalcul ici : les stats sont recalculees explicitement quand l'utilisateur clique sur "Enregistrer"
+  // dans la fiche match (cf. recomputeStatsForRencontreId et la route /recompute-stats).
 }
 
 export async function updateEventForRencontre(evcleunik: string | number, payload: EventPayload): Promise<void> {
@@ -3027,11 +3028,7 @@ export async function updateEventForRencontre(evcleunik: string | number, payloa
   if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const eventRow = db.prepare(
-    `SELECT e."MACLEUNIK", m."RECLEUNIK"
-     FROM "EVENT" e
-     INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
-     WHERE e."EVCLEUNIK" = ?
-     LIMIT 1`,
+    `SELECT "MACLEUNIK" FROM "EVENT" WHERE "EVCLEUNIK" = ? LIMIT 1`,
   ).get(id) as Record<string, unknown> | undefined;
 
   if (!eventRow) throw new AppError(404, 'Événement introuvable.');
@@ -3056,24 +3053,17 @@ export async function updateEventForRencontre(evcleunik: string | number, payloa
 
   if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
 
-  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(eventRow.RECLEUNIK)));
+  // Pas de recalcul ici : les stats sont recalculees explicitement quand l'utilisateur clique sur "Enregistrer".
 }
 
 export async function deleteEventForRencontre(evcleunik: string | number): Promise<void> {
   const id = toInt(evcleunik);
   if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
 
-  const seasonRow = db.prepare(
-    `SELECT m."RECLEUNIK"
-     FROM "EVENT" e
-     INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
-     WHERE e."EVCLEUNIK" = ?
-     LIMIT 1`,
-  ).get(id) as Record<string, unknown> | undefined;
   const result = db.prepare(`DELETE FROM "EVENT" WHERE "EVCLEUNIK" = ?`).run(id);
   if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
 
-  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(seasonRow?.RECLEUNIK)));
+  // Pas de recalcul ici : les stats sont recalculees explicitement quand l'utilisateur clique sur "Enregistrer".
 }
 
 /** Outils > Statistiques : rejoue, saison par saison, le meme recalcul que lors de l'enregistrement d'un match. */

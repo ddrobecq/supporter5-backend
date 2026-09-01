@@ -206,6 +206,17 @@ export async function deleteEvent(req: Request, res: Response, next: NextFunctio
 	}
 }
 
+export async function recomputeStats(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const id = String(req.params.id ?? '').trim();
+		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
+		rencontresService.recomputeStatsForRencontreId(id);
+		res.status(204).send();
+	} catch (error) {
+		next(error);
+	}
+}
+
 export default {
 	...baseController,
 	createWithImpact,
