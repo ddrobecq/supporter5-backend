@@ -74,6 +74,8 @@ export interface RencontreDetailRow {
   PENALTY: number;
   FIN_TPS_REG: number;
   FIN_PROLONG: number;
+  DUREE_TPS_REG: number;
+  DUREE_TPS_PROLONG: number;
   SUPPORTED_CLUB_ID: string;
   IS_SUPPORTED_CLUB_MATCH: number;
   SUPPORTED_CLUB_SIDE: 'home' | 'away' | 'none';
@@ -663,6 +665,11 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
 
   const typeEvent = toInt(eventRow.TYPE_EVENT, 0);
   const periode = toInt(eventRow.PERIODE, 0);
+
+  if (typeEvent === 10) {
+    const minutes = toInt(eventRow.COMMENT, 0);
+    return `${minutes}'  de temps additionnel`;
+  }
 
   if (adversaire) {
     let baseText = '';
@@ -2173,7 +2180,9 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       COALESCE(m.EXTRATIME, 0) AS EXTRATIME,
       COALESCE(m.PENALTY, 0) AS PENALTY,
       COALESCE(td.FIN_TPS_REG, 0) AS FIN_TPS_REG,
-      COALESCE(td.FIN_PROLONG, 0) AS FIN_PROLONG
+      COALESCE(td.FIN_PROLONG, 0) AS FIN_PROLONG,
+      COALESCE(td.DUREE_TPS_REG, m.MADUREE, 90) AS DUREE_TPS_REG,
+      COALESCE(td.DUREE_TPS_PROLONG, 0) AS DUREE_TPS_PROLONG
      FROM RENCO r
      LEFT JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
      LEFT JOIN CIRC ci ON ci.IDCIRC = r.IDCIRC
@@ -2321,11 +2330,15 @@ export async function getRencontreHighlightsById(id: string | number): Promise<R
 
   const events: RencontreHighlightEventRow[] = eventsRaw.map((row) => {
     const adversaire = toInt(row.ADVERSAIRE, 0) === 1;
+    const typeEvent = toInt(row.TYPE_EVENT, 0);
     let side: 'home' | 'away' | null = null;
-    if (supportedSide === 'home') {
-      side = adversaire ? 'away' : 'home';
-    } else if (supportedSide === 'away') {
-      side = adversaire ? 'home' : 'away';
+    // Le temps additionnel est un fait de match neutre, il n'appartient a aucun cote.
+    if (typeEvent !== 10) {
+      if (supportedSide === 'home') {
+        side = adversaire ? 'away' : 'home';
+      } else if (supportedSide === 'away') {
+        side = adversaire ? 'home' : 'away';
+      }
     }
 
     return {
@@ -2509,6 +2522,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
              + CASE WHEN COALESCE(m."EXTRATIME", 0) = 1 THEN COALESCE(td."DUREE_TPS_PROLONG", 0) ELSE 0 END
          ELSE COALESCE(m."MADUREE", 90)
        END AS "MATCH_DURATION",
+       COALESCE(m."EXTRATIME", 0) AS "MATCH_EXTRATIME",
        q.*,
        e.*
      FROM "RENCO" r
@@ -2527,6 +2541,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
   const totalsByPlayer = new Map<string, PlayerMatchTotals>();
   const matches = new Map<number, {
     duration: number;
+    extratime: boolean;
     starters: Set<string>;
     eventIds: Set<number>;
     events: Array<Record<string, unknown>>;
@@ -2540,6 +2555,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
     if (!match) {
       match = {
         duration: Math.max(1, toInt(row.MATCH_DURATION, 90)),
+        extratime: toInt(row.MATCH_EXTRATIME) === 1,
         starters: new Set<string>(),
         eventIds: new Set<number>(),
         events: [],
@@ -2562,6 +2578,20 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
   });
 
   matches.forEach((match) => {
+    // Temps additionnel (TYPE_EVENT=10) : allonge la duree du match pour les joueurs
+    // presents jusqu'au bout d'une periode (titulaires/entrants jamais sortis).
+    // Les periodes 3/4 (prolongation) ne comptent que si le match a EXTRATIME=1.
+    let extraMinutes = 0;
+    match.events.forEach((event) => {
+      if (toInt(event.TYPE_EVENT) !== 10 || toInt(event.ADVERSAIRE) !== 0) return;
+      const periode = toInt(event.PERIODE);
+      const appliesToPeriode = periode === 1 || periode === 2
+        || ((periode === 3 || periode === 4) && match.extratime);
+      if (!appliesToPeriode) return;
+      extraMinutes += Math.max(0, toInt(event.COMMENT));
+    });
+    if (extraMinutes > 0) match.duration += extraMinutes;
+
     // Temps de jeu calcule match par match (intervalle entree -> sortie), puis cumule sur la saison.
     const spans = new Map<string, { start: number; end: number }>();
     const markExit = (playerId: string, minute: number) => {
@@ -2927,6 +2957,39 @@ export interface EventPayload {
   comment: string | null;
 }
 
+// TYPE_EVENT=10 (temps additionnel) : aucun joueur, aucune equipe (fait de match neutre),
+// une seule declaration par periode, et les prolongations (3/4) exigent MATCH.EXTRATIME=1.
+function validateAdditionalTimeEvent(payload: EventPayload, macleunik: number, excludeEvcleunik: number): void {
+  if (payload.typeEvent !== 10) return;
+
+  if (payload.periode < 1 || payload.periode > 4) {
+    throw new AppError(400, "Le temps additionnel ne peut concerner que le temps reglementaire ou la prolongation, pas les tirs au but.");
+  }
+
+  if (payload.periode === 3 || payload.periode === 4) {
+    const matchRow = db.prepare(
+      `SELECT "EXTRATIME" FROM "MATCH" WHERE "MACLEUNIK" = ? LIMIT 1`,
+    ).get(macleunik) as Record<string, unknown> | undefined;
+    if (toInt(matchRow?.EXTRATIME) !== 1) {
+      throw new AppError(400, "Ce match n'a pas de prolongation : impossible d'ajouter du temps additionnel pour cette periode.");
+    }
+  }
+
+  const minutes = parseInt(toText(payload.comment), 10);
+  if (!Number.isInteger(minutes) || minutes < 1) {
+    throw new AppError(400, 'Le temps additionnel doit etre un nombre entier de minutes superieur a 0.');
+  }
+
+  const duplicate = db.prepare(
+    `SELECT "EVCLEUNIK" FROM "EVENT"
+     WHERE "MACLEUNIK" = ? AND "TYPE_EVENT" = 10 AND "PERIODE" = ? AND "EVCLEUNIK" != ?
+     LIMIT 1`,
+  ).get(macleunik, payload.periode, excludeEvcleunik) as Record<string, unknown> | undefined;
+  if (duplicate) {
+    throw new AppError(409, "Un temps additionnel est deja defini pour cette periode. Modifiez l'evenement existant plutot que d'en creer un nouveau.");
+  }
+}
+
 export async function createEventForRencontre(rencontreId: string | number, payload: EventPayload): Promise<void> {
   const recleunik = toInt(rencontreId);
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
@@ -2939,17 +3002,21 @@ export async function createEventForRencontre(rencontreId: string | number, payl
 
   if (!row) throw new AppError(404, 'Match introuvable pour cette rencontre.');
 
+  const macleunik = toInt(row.MACLEUNIK);
+  validateAdditionalTimeEvent(payload, macleunik, 0);
+  const isAdditionalTime = payload.typeEvent === 10;
+
   db.prepare(
     `INSERT INTO "EVENT" ("MACLEUNIK","MINUTE","PERIODE","TYPE_EVENT","ADVERSAIRE","JOUEUR1","JOUEUR2","COMMENT")
      VALUES (?,?,?,?,?,?,?,?)`,
   ).run(
-    toInt(row.MACLEUNIK),
+    macleunik,
     payload.minute,
     payload.periode,
     payload.typeEvent,
-    payload.adversaire,
-    payload.joueur1 || null,
-    payload.joueur2 || null,
+    isAdditionalTime ? 0 : payload.adversaire,
+    isAdditionalTime ? null : (payload.joueur1 || null),
+    isAdditionalTime ? null : (payload.joueur2 || null),
     payload.comment || null,
   );
   recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
@@ -2959,6 +3026,20 @@ export async function updateEventForRencontre(evcleunik: string | number, payloa
   const id = toInt(evcleunik);
   if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
 
+  const eventRow = db.prepare(
+    `SELECT e."MACLEUNIK", m."RECLEUNIK"
+     FROM "EVENT" e
+     INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
+     WHERE e."EVCLEUNIK" = ?
+     LIMIT 1`,
+  ).get(id) as Record<string, unknown> | undefined;
+
+  if (!eventRow) throw new AppError(404, 'Événement introuvable.');
+
+  const macleunik = toInt(eventRow.MACLEUNIK);
+  validateAdditionalTimeEvent(payload, macleunik, id);
+  const isAdditionalTime = payload.typeEvent === 10;
+
   const result = db.prepare(
     `UPDATE "EVENT" SET "MINUTE"=?,"PERIODE"=?,"TYPE_EVENT"=?,"ADVERSAIRE"=?,"JOUEUR1"=?,"JOUEUR2"=?,"COMMENT"=?
      WHERE "EVCLEUNIK"=?`,
@@ -2966,23 +3047,16 @@ export async function updateEventForRencontre(evcleunik: string | number, payloa
     payload.minute,
     payload.periode,
     payload.typeEvent,
-    payload.adversaire,
-    payload.joueur1 || null,
-    payload.joueur2 || null,
+    isAdditionalTime ? 0 : payload.adversaire,
+    isAdditionalTime ? null : (payload.joueur1 || null),
+    isAdditionalTime ? null : (payload.joueur2 || null),
     payload.comment || null,
     id,
   );
 
   if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');
 
-  const seasonRow = db.prepare(
-    `SELECT m."RECLEUNIK"
-     FROM "EVENT" e
-     INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
-     WHERE e."EVCLEUNIK" = ?
-     LIMIT 1`,
-  ).get(id) as Record<string, unknown> | undefined;
-  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(seasonRow?.RECLEUNIK)));
+  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(toInt(eventRow.RECLEUNIK)));
 }
 
 export async function deleteEventForRencontre(evcleunik: string | number): Promise<void> {
