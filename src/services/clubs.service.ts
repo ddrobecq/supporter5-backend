@@ -680,21 +680,11 @@ export async function updateClubProfileById(
   }
 
   const villeId = await resolveVilleIdForClub(natioId, payload.villeId ?? current.IDVILLE ?? undefined);
-  const nowDate = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const nameChanged = normalizeText(String(current.CLUB_ABREGE ?? '')) !== name;
 
   await dbRun(
     'UPDATE CLUB SET CLUB = ?, IDNATIO = ?, IDVILLE = ?, FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
     [name.slice(0, 100), natioId, villeId, payload.fond ?? null, payload.texte ?? null, clubId],
   );
-
-  if (nameChanged) {
-    await dbRun(
-      `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
-       VALUES (?, ?, ?, ?)`,
-      [name.slice(0, 200), clubId, nowDate, 2],
-    );
-  }
 
   return getClubProfileById(clubId);
 }

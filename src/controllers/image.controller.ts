@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import type { Request, Response } from 'express';
 import { getEntityImage, setEntityImage } from '../lib/imageService';
 
@@ -22,10 +23,20 @@ export async function getImage(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  const maxAge = 60 * 60 * 24; // 24 h
+  // L'image peut changer sans que l'URL ne change (pas de parametre de version garanti
+  // apres un rechargement complet) : on force la revalidation a chaque requete et on
+  // s'appuie sur l'ETag pour eviter de retransferer une image inchangee.
+  const etag = `"${createHash('sha1').update(result.buffer).digest('hex')}"`;
+  res.setHeader('ETag', etag);
+  res.setHeader('Cache-Control', 'no-cache');
+
+  if (req.headers['if-none-match'] === etag) {
+    res.status(304).end();
+    return;
+  }
+
   res.setHeader('Content-Type', result.mimeType);
   res.setHeader('Content-Length', result.buffer.length);
-  res.setHeader('Cache-Control', `public, max-age=${maxAge}`);
   res.end(result.buffer);
 }
 
