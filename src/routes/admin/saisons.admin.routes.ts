@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/saisons.controller';
+import ctrl, { createSaisonWithWizard } from '../../controllers/saisons.controller';
 const router = Router();
 router.post('/',       ctrl.create);
+router.post('/wizard-create', createSaisonWithWizard);
 router.put('/:id',    ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);

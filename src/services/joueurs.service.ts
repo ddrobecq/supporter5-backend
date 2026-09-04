@@ -467,6 +467,59 @@ export async function getJoueursGridBySeason(season: string, search: string, pos
   );
 }
 
+export interface JoueurSeasonWizardRow {
+  JOCLEUNIK: number;
+  IDJOUEUR: string;
+  NOM: string | null;
+  PRENOM: string | null;
+  SURNOM: string | null;
+  IDNATIO: string | null;
+  JOUEUR_NOM: string;
+  POSTE: number;
+  POSTE_NOM: string;
+  CONTRAT_FIN: string | null;
+}
+
+/** Effectif joueurs (POS_TYPE=1) d'une saison, avec la derniere date de fin de contrat connue (TRANSAC.TN_ECHEANCE). Utilise par le wizard de creation de saison. */
+export async function getJoueurRosterForSeasonWizard(season: string): Promise<JoueurSeasonWizardRow[]> {
+  const normalizedSeason = normalizeSaison(season);
+
+  return dbAll<JoueurSeasonWizardRow>(
+    `SELECT
+      j.JOCLEUNIK,
+      j.IDJOUEUR,
+      jr.NOM,
+      jr.PRENOM,
+      jr.SURNOM,
+      jr.IDNATIO,
+      COALESCE(
+        NULLIF(TRIM(jr.SURNOM), ''),
+        TRIM(UPPER(COALESCE(jr.NOM, '')) || ' ' || COALESCE(jr.PRENOM, ''))
+      ) AS JOUEUR_NOM,
+      j.POSTE,
+      p.POS_NOM AS POSTE_NOM,
+      tx.TN_ECHEANCE AS CONTRAT_FIN
+     FROM JOUEUR j
+     INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = j.IDJOUEUR
+     INNER JOIN Poste p ON p.POS_ID = j.POSTE
+     LEFT JOIN (
+       SELECT t1.IDJOUEUR, t1.TN_ECHEANCE
+       FROM TRANSAC t1
+       INNER JOIN (
+         SELECT IDJOUEUR, MAX(DATE || '-' || printf('%010d', TNCLEUNIK)) AS latest_key
+         FROM TRANSAC
+         WHERE TN_ECHEANCE IS NOT NULL AND TRIM(TN_ECHEANCE) <> ''
+         GROUP BY IDJOUEUR
+       ) latest ON latest.IDJOUEUR = t1.IDJOUEUR
+        AND (t1.DATE || '-' || printf('%010d', t1.TNCLEUNIK)) = latest.latest_key
+     ) tx ON tx.IDJOUEUR = j.IDJOUEUR
+     WHERE j.SAISON = ?
+       AND p.POS_TYPE = 1
+     ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
+    [normalizedSeason],
+  );
+}
+
 export async function getJoueurHistoryById(idJoueur: string | number): Promise<JoueurHistoryRow[]> {
   return dbAll<JoueurHistoryRow>(
     `SELECT
@@ -1194,6 +1247,7 @@ export default {
   create: createJoueurRg,
   update: updateJoueurRg,
   getJoueursGridBySeason,
+  getJoueurRosterForSeasonWizard,
   getJoueurPostes,
   getJoueurByIdWithVille,
   getJoueurHistoryById,

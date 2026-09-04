@@ -189,16 +189,16 @@ async function createCompetitionRecord(body: Record<string, unknown>): Promise<R
   return undefined;
 }
 
-async function clonePreviousCompetition(
+export async function clonePreviousCompetition(
   previousCompetitionId: number,
   target: {
-    epreuveId: number;
+    epreuveId?: number;
     saison: string;
-    name: string;
+    name?: string;
   },
 ): Promise<Record<string, unknown> | undefined> {
   const previousCompetition = await dbGet<Record<string, unknown>>(
-    `SELECT "COCLEUNIK", "LOGO", "COCOMMENT", "CO_WEB", "CO_ANNEE"
+    `SELECT "COCLEUNIK", "IDEPREUVE", "NOM", "LOGO", "COCOMMENT", "CO_WEB", "CO_ANNEE"
      FROM "${COMPET_TABLE}"
      WHERE "${COMPET_PK}" = ?
      LIMIT 1`,
@@ -207,6 +207,15 @@ async function clonePreviousCompetition(
 
   if (!previousCompetition) {
     throw new AppError(404, 'La compétition précédente est introuvable.');
+  }
+
+  const epreuveId = target.epreuveId ?? Number(previousCompetition.IDEPREUVE ?? 0);
+  const name = String(target.name ?? previousCompetition.NOM ?? '').trim();
+  if (!Number.isInteger(epreuveId) || epreuveId <= 0) {
+    throw new AppError(400, 'Épreuve requise.');
+  }
+  if (!name) {
+    throw new AppError(400, 'Nom de la competition requis.');
   }
 
   const previousTours = await dbAll<Record<string, unknown>>(
@@ -240,8 +249,8 @@ async function clonePreviousCompetition(
 
     const insertedCompetition = insertCompetition.run(
       normalizeSaison(target.saison),
-      target.epreuveId,
-      String(target.name ?? '').trim(),
+      epreuveId,
+      name,
       typeof previousCompetition.COCOMMENT === 'string' ? previousCompetition.COCOMMENT : '',
       typeof previousCompetition.CO_WEB === 'string' ? previousCompetition.CO_WEB : '',
       previousCompetition.LOGO ?? null,
@@ -334,6 +343,34 @@ async function clonePreviousCompetition(
 
   const createdCompetitionId = Number(transaction());
   return getCompetitionById(createdCompetitionId);
+}
+
+/** Cree une competition pour une nouvelle saison en reprenant les infos de la precedente, sans dupliquer ses Tours/Class. */
+export async function createCompetitionFromPrevious(
+  previousCompetitionId: number,
+  target: { saison: string },
+): Promise<Record<string, unknown> | undefined> {
+  const previousCompetition = await dbGet<Record<string, unknown>>(
+    `SELECT "COCLEUNIK", "IDEPREUVE", "NOM", "LOGO", "COCOMMENT", "CO_WEB", "CO_ANNEE"
+     FROM "${COMPET_TABLE}"
+     WHERE "${COMPET_PK}" = ?
+     LIMIT 1`,
+    [previousCompetitionId],
+  );
+
+  if (!previousCompetition) {
+    throw new AppError(404, 'La compétition précédente est introuvable.');
+  }
+
+  return createCompetitionRecord({
+    SAISON: normalizeSaison(target.saison),
+    IDEPREUVE: Number(previousCompetition.IDEPREUVE ?? 0),
+    NOM: String(previousCompetition.NOM ?? '').trim(),
+    COCOMMENT: typeof previousCompetition.COCOMMENT === 'string' ? previousCompetition.COCOMMENT : '',
+    CO_WEB: typeof previousCompetition.CO_WEB === 'string' ? previousCompetition.CO_WEB : '',
+    LOGO: previousCompetition.LOGO ?? null,
+    CO_ANNEE: Number(previousCompetition.CO_ANNEE ?? 0),
+  });
 }
 
 async function updateCompetitionRecord(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {

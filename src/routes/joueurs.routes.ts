@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import ctrl, { getJoueurById, getJoueurHistory, getJoueurPostes, getJoueurSuggestions, getJoueurTransactionOptions, getJoueurTransactions, getJoueursGrid, getJoueurSeasonsByPlayedMatches, getJoueurMatches } from '../controllers/joueurs.controller';
+import ctrl, { getJoueurById, getJoueurHistory, getJoueurPostes, getJoueurSeasonRoster, getJoueurSuggestions, getJoueurTransactionOptions, getJoueurTransactions, getJoueursGrid, getJoueurSeasonsByPlayedMatches, getJoueurMatches } from '../controllers/joueurs.controller';
 const router = Router();
 router.get('/grid', getJoueursGrid);
+router.get('/season-roster/:saison', getJoueurSeasonRoster);
 router.get('/postes', getJoueurPostes);
 router.get('/suggest', getJoueurSuggestions);
 router.get('/:id/history', getJoueurHistory);

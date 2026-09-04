@@ -24,6 +24,20 @@ export async function getJoueursGrid(req: Request, res: Response, next: NextFunc
 	}
 }
 
+export async function getJoueurSeasonRoster(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const season = String(req.params.saison ?? '').trim();
+		if (!/^\d{4}-\d{4}$/.test(season)) {
+			throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu)');
+		}
+
+		const data = await joueursService.getJoueurRosterForSeasonWizard(season);
+		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getJoueurPostes(_req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const data = await joueursService.getJoueurPostes();
