@@ -19,6 +19,15 @@ export async function getCalendar(req: Request, res: Response, next: NextFunctio
 	}
 }
 
+export async function getOnThisDay(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const data = await rencontresService.getOnThisDayMatch();
+		res.status(200).json(data ?? null);
+	} catch (error) {
+		next(error);
+	}
+}
+
 export async function getRencontreDetail(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const id = String(req.params.id ?? '').trim();

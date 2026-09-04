@@ -3,6 +3,7 @@ import { createEntityService } from '../lib/baseService';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
+import { buildCircCompletResolver, type CircCompletSourceRow } from '../lib/circComplet';
 
 export interface CalendarMatchRow {
   RECLEUNIK: string | number;
@@ -2365,6 +2366,181 @@ export async function getRencontreHighlightsById(id: string | number): Promise<R
   };
 }
 
+export interface OnThisDayMatchRow {
+  RECLEUNIK: number;
+  DATE: string;
+  HEURE: string;
+  ETAT: number;
+  DOMICILE: string;
+  EXTERIEUR: string;
+  DOMICILE_NOM: string;
+  EXTERIEUR_NOM: string;
+  BUTDOM: number;
+  BUTEXT: number;
+  TABDOM: number;
+  TABEXT: number;
+  TERRAIN_NOM: string;
+  CIRC_COMPLET: string;
+  SAISON: string;
+  SUPPORTED_CLUB_ID: string;
+  SUPPORTED_CLUB_SIDE: 'home' | 'away';
+  /** Résumé du match : COMMENT (rencontre) si renseigné, sinon reconstruit à partir des buts (EVENT). */
+  RESUME: string;
+  RESUME_SOURCE: 'comment' | 'events' | 'none';
+  YEARS_AGO: number;
+  /** 0 si un match existe exactement à dd/mm ; sinon décalage (jours) du jour de repli retenu. */
+  DAYS_OFFSET: number;
+}
+
+interface OnThisDayCandidateRow extends CircCompletSourceRow {
+  RECLEUNIK: number;
+  DATE: string;
+  HEURE: string | null;
+  ETAT: number;
+  DOMICILE: string;
+  EXTERIEUR: string;
+  BUTDOM: number;
+  BUTEXT: number;
+  TABDOM: number;
+  TABEXT: number;
+  COMMENT: string | null;
+  DOMICILE_NOM: string;
+  EXTERIEUR_NOM: string;
+  TERRAIN_NOM: string;
+  MACLEUNIK: number | null;
+  EVENT_COUNT: number;
+}
+
+/** Repli en cas d'absence de match exact à dd/mm (ex: trêve estivale) : jour exact puis proximité croissante. */
+const ON_THIS_DAY_OFFSETS = [0, -1, 1, -2, 2, -3, 3];
+
+function parisDateParts(date: Date): { year: number; month: number; day: number } {
+  const formatted = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Paris',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+  const [year, month, day] = formatted.split('-').map((part) => Number(part));
+  return { year, month, day };
+}
+
+function findOnThisDayCandidate(supportedClubId: string, mmdd: string): OnThisDayCandidateRow | undefined {
+  return db.prepare(
+    `SELECT
+      r.RECLEUNIK, r.DATE, r.HEURE, r.ETAT, r.DOMICILE, r.EXTERIEUR,
+      r.BUTDOM, r.BUTEXT, r.TABDOM, r.TABEXT, r.COMMENT, r.TUCLEUNIK,
+      t.COCLEUNIK,
+      COALESCE(ci.CIRC, '') AS CIRC,
+      COALESCE(t.NOM, '') AS TOUR_NOM,
+      COALESCE(co.NOM, '') AS COMPET_NOM,
+      COALESCE(co.SAISON, r.SAISON, '') AS SAISON,
+      COALESCE(co.CO_ANNEE, 0) AS CO_ANNEE,
+      COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
+      COALESCE(ce.CLUB, r.EXTERIEUR, '') AS EXTERIEUR_NOM,
+      COALESCE(te.STADE, '') AS TERRAIN_NOM,
+      m.MACLEUNIK,
+      COALESCE((SELECT COUNT(*) FROM EVENT e WHERE e.MACLEUNIK = m.MACLEUNIK), 0) AS EVENT_COUNT
+     FROM RENCO r
+     LEFT JOIN CIRC ci ON ci.IDCIRC = r.IDCIRC
+     LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
+     LEFT JOIN COMPET co ON co.COCLEUNIK = t.COCLEUNIK
+     LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
+     LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
+     LEFT JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
+     LEFT JOIN TERRAIN te ON te.TECLEUNIK = m.TECLEUNIK
+     WHERE r.ETAT = 3
+       AND r.DATE IS NOT NULL
+       AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
+       AND strftime('%m-%d', r.DATE) = ?
+     ORDER BY
+       (CASE WHEN COALESCE(r.COMMENT, '') <> '' THEN 1 ELSE 0 END) DESC,
+       EVENT_COUNT DESC,
+       r.DATE ASC
+     LIMIT 1`,
+  ).get(supportedClubId, supportedClubId, mmdd) as OnThisDayCandidateRow | undefined;
+}
+
+function buildOnThisDayResume(candidate: OnThisDayCandidateRow): { text: string; source: OnThisDayMatchRow['RESUME_SOURCE'] } {
+  const comment = toText(candidate.COMMENT);
+  if (comment) {
+    return { text: comment, source: 'comment' };
+  }
+
+  if (!candidate.MACLEUNIK) {
+    return { text: '', source: 'none' };
+  }
+
+  const goalRows = db.prepare(
+    `SELECT e.EVCLEUNIK, e.MINUTE, e.PERIODE, e.TYPE_EVENT, e.ADVERSAIRE, e.JOUEUR1, e.JOUEUR2, e.COMMENT,
+            j1.PRENOM AS J1_PRENOM, j1.NOM AS J1_NOM, j2.PRENOM AS J2_PRENOM, j2.NOM AS J2_NOM
+     FROM EVENT e
+     LEFT JOIN JOUEURRG j1 ON j1.IDJOUEUR = e.JOUEUR1
+     LEFT JOIN JOUEURRG j2 ON j2.IDJOUEUR = e.JOUEUR2
+     WHERE e.MACLEUNIK = ? AND e.TYPE_EVENT = 1
+     ORDER BY e.PERIODE ASC, e.MINUTE ASC, e.EVCLEUNIK ASC`,
+  ).all(candidate.MACLEUNIK) as Array<Record<string, unknown>>;
+
+  if (goalRows.length === 0) {
+    return { text: '', source: 'none' };
+  }
+
+  const text = goalRows
+    .map((row) => `${toInt(row.MINUTE)}' ${buildSupportedEventText(row)}`.trim())
+    .join(' · ');
+  return { text, source: 'events' };
+}
+
+/**
+ * Match "anniversaire" du club soutenu : joué le même jour/mois qu'aujourd'hui dans le passé.
+ * A defaut de match exact, elargit la recherche de proche en proche (ON_THIS_DAY_OFFSETS) pour
+ * rester utile meme en treve (ex: coupure estivale sans aucun match a dd/mm exact).
+ */
+export async function getOnThisDayMatch(referenceDate: Date = new Date()): Promise<OnThisDayMatchRow | undefined> {
+  const supportedClubId = getSupportedClubId();
+  const { year: todayYear, month: todayMonth, day: todayDay } = parisDateParts(referenceDate);
+  const todayUtc = Date.UTC(todayYear, todayMonth - 1, todayDay);
+
+  for (const offset of ON_THIS_DAY_OFFSETS) {
+    const target = new Date(todayUtc + offset * 86_400_000);
+    const mmdd = `${String(target.getUTCMonth() + 1).padStart(2, '0')}-${String(target.getUTCDate()).padStart(2, '0')}`;
+
+    const candidate = findOnThisDayCandidate(supportedClubId, mmdd);
+    if (!candidate) continue;
+
+    const { saison, circComplet } = await buildCircCompletResolver([candidate]);
+    const side: 'home' | 'away' = normalizeClubIdentifier(candidate.DOMICILE) === normalizeClubIdentifier(supportedClubId) ? 'home' : 'away';
+    const matchYear = Number(toText(candidate.DATE).slice(0, 4)) || todayYear;
+    const resume = buildOnThisDayResume(candidate);
+
+    return {
+      RECLEUNIK: toInt(candidate.RECLEUNIK),
+      DATE: toText(candidate.DATE).replace(/-/g, ''),
+      HEURE: toText(candidate.HEURE),
+      ETAT: toInt(candidate.ETAT),
+      DOMICILE: toText(candidate.DOMICILE),
+      EXTERIEUR: toText(candidate.EXTERIEUR),
+      DOMICILE_NOM: toText(candidate.DOMICILE_NOM),
+      EXTERIEUR_NOM: toText(candidate.EXTERIEUR_NOM),
+      BUTDOM: toInt(candidate.BUTDOM),
+      BUTEXT: toInt(candidate.BUTEXT),
+      TABDOM: toInt(candidate.TABDOM),
+      TABEXT: toInt(candidate.TABEXT),
+      TERRAIN_NOM: toText(candidate.TERRAIN_NOM),
+      CIRC_COMPLET: circComplet(candidate),
+      SAISON: saison(candidate),
+      SUPPORTED_CLUB_ID: supportedClubId,
+      SUPPORTED_CLUB_SIDE: side,
+      RESUME: resume.text,
+      RESUME_SOURCE: resume.source,
+      YEARS_AGO: Math.max(0, todayYear - matchYear),
+      DAYS_OFFSET: offset,
+    };
+  }
+
+  return undefined;
+}
+
 export interface TourMatchWithNamesRow {
   RECLEUNIK: number;
   DATE: string;
@@ -3087,6 +3263,7 @@ export default {
   getCalendarByDate,
   getRencontreDetailById,
   getRencontreHighlightsById,
+  getOnThisDayMatch,
   getTourMatchesForRencontre,
   getCompositionForRencontre,
   upsertCompositionForRencontre,

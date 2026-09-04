@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import ctrl, { getCalendar, getRencontreDetail, getRencontreHighlights, getTourMatches, getComposition, saveComposition, getSquad, createEvent, updateEvent, deleteEvent, recomputeStats } from '../controllers/rencontres.controller';
+import ctrl, { getCalendar, getOnThisDay, getRencontreDetail, getRencontreHighlights, getTourMatches, getComposition, saveComposition, getSquad, createEvent, updateEvent, deleteEvent, recomputeStats } from '../controllers/rencontres.controller';
 const router = Router();
 router.get('/calendar', getCalendar);
+router.get('/on-this-day', getOnThisDay);
 router.get('/:id/detail', getRencontreDetail);
 router.get('/:id/highlights', getRencontreHighlights);
 router.get('/:id/tour-matches', getTourMatches);
