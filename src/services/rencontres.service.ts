@@ -652,7 +652,9 @@ function resolveSupportedClubSide(
   return 'none';
 }
 
-function resolvePlayerDisplayName(prenom: unknown, nom: unknown, fallbackId: unknown): string {
+function resolvePlayerDisplayName(prenom: unknown, nom: unknown, surnom: unknown, fallbackId: unknown): string {
+  const surnomText = toText(surnom);
+  if (surnomText) return surnomText;
   const prenomText = toText(prenom);
   const nomText = toText(nom);
   const full = [prenomText, nomText].filter(Boolean).join(' ');
@@ -696,8 +698,8 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
     return comment ? (baseText ? `${baseText} ${comment}` : comment) : baseText;
   }
 
-  const joueur1 = resolvePlayerDisplayName(eventRow.J1_PRENOM, eventRow.J1_NOM, eventRow.JOUEUR1);
-  const joueur2 = resolvePlayerDisplayName(eventRow.J2_PRENOM, eventRow.J2_NOM, eventRow.JOUEUR2);
+  const joueur1 = resolvePlayerDisplayName(eventRow.J1_PRENOM, eventRow.J1_NOM, eventRow.J1_SURNOM, eventRow.JOUEUR1);
+  const joueur2 = resolvePlayerDisplayName(eventRow.J2_PRENOM, eventRow.J2_NOM, eventRow.J2_SURNOM, eventRow.JOUEUR2);
 
   let baseText = '';
   if (typeEvent === 1) {
@@ -2320,8 +2322,10 @@ export async function getRencontreHighlightsById(id: string | number): Promise<R
       e."COMMENT",
       j1."PRENOM" AS "J1_PRENOM",
       j1."NOM" AS "J1_NOM",
+      j1."SURNOM" AS "J1_SURNOM",
       j2."PRENOM" AS "J2_PRENOM",
-      j2."NOM" AS "J2_NOM"
+      j2."NOM" AS "J2_NOM",
+      j2."SURNOM" AS "J2_SURNOM"
      FROM "EVENT" e
      LEFT JOIN "JOUEURRG" j1 ON j1."IDJOUEUR" = e."JOUEUR1"
      LEFT JOIN "JOUEURRG" j2 ON j2."IDJOUEUR" = e."JOUEUR2"
@@ -2473,7 +2477,8 @@ function buildOnThisDayResume(candidate: OnThisDayCandidateRow): { text: string;
 
   const goalRows = db.prepare(
     `SELECT e.EVCLEUNIK, e.MINUTE, e.PERIODE, e.TYPE_EVENT, e.ADVERSAIRE, e.JOUEUR1, e.JOUEUR2, e.COMMENT,
-            j1.PRENOM AS J1_PRENOM, j1.NOM AS J1_NOM, j2.PRENOM AS J2_PRENOM, j2.NOM AS J2_NOM
+            j1.PRENOM AS J1_PRENOM, j1.NOM AS J1_NOM, j1.SURNOM AS J1_SURNOM,
+            j2.PRENOM AS J2_PRENOM, j2.NOM AS J2_NOM, j2.SURNOM AS J2_SURNOM
      FROM EVENT e
      LEFT JOIN JOUEURRG j1 ON j1.IDJOUEUR = e.JOUEUR1
      LEFT JOIN JOUEURRG j2 ON j2.IDJOUEUR = e.JOUEUR2
