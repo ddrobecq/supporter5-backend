@@ -203,7 +203,7 @@ async function loadActualites(): Promise<Actualite[]> {
       const subject = normalize(`${item.titre} ${item.extrait}`);
       const title = normalize(item.titre);
       const mentionsClubInTitle = aliases.some((alias) => hasPhrase(title, alias));
-      const isRelevantCompetitionDraw = title.includes('tirage') && competitionNames.some((name) => hasPhrase(title, name));
+      const isRelevantCompetitionDraw = title.includes('tirage') && competitionNames.some((name) => hasPhrase(title, name)) && aliases.some((alias) => hasPhrase(subject, alias));
       if (!isRecent(item.publieLe, now) || (!mentionsClubInTitle && !isRelevantCompetitionDraw) || isCalendarSubject(subject)) continue;
       const dedupeKey = normalize(item.lien || item.titre);
       if (!dedupeKey || seen.has(dedupeKey)) continue;
