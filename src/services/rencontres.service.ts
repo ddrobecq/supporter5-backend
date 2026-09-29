@@ -1748,6 +1748,12 @@ function recomputeAllGroupsForTour(tourId: number): void {
   });
 }
 
+/** Recalcule les stats/classements de tous les groupes d'un tour, puis resout les participants programmes qui en dependent. */
+export function recomputeTourStandings(tourId: number): void {
+  recomputeAllGroupsForTour(tourId);
+  propagateProgrammedParticipantsAndMatches();
+}
+
 function collectImpactedGroups(row: RencontresRow): string[] {
   const groups = new Set<string>();
 
@@ -3276,6 +3282,7 @@ export default {
   upsertMatchMetaForRencontre,
   recomputeStatsForRencontreId,
   recomputeStatsForMatchId,
+  recomputeTourStandings,
   getSquadForRencontre,
   createEventForRencontre,
   updateEventForRencontre,

@@ -341,12 +341,34 @@ async function resolveNextJoueurId(): Promise<string> {
   return String(nextId).padStart(4, '0');
 }
 
-export async function createJoueurWithWizard(payload: { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string }): Promise<Record<string, unknown> | undefined> {
+function normalizeNaissance(value: string | null | undefined): string {
+  const raw = String(value ?? '').trim();
+  if (!raw) {
+    return '';
+  }
+
+  const iso = raw.match(/^\d{4}-\d{2}-\d{2}$/)
+    ? raw
+    : raw.match(/^\d{4}\/\d{2}\/\d{2}$/)
+      ? raw.replace(/\//g, '-')
+      : raw.match(/^\d{2}\/\d{2}\/\d{4}$/)
+        ? `${raw.slice(6, 10)}-${raw.slice(3, 5)}-${raw.slice(0, 2)}`
+        : null;
+
+  if (!iso) {
+    throw new AppError(400, 'La date de naissance est invalide.');
+  }
+
+  return iso;
+}
+
+export async function createJoueurWithWizard(payload: { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string }): Promise<Record<string, unknown> | undefined> {
   const nom = String(payload.nom ?? '').trim().toUpperCase();
   const prenom = String(payload.prenom ?? '').trim();
   const alias = String(payload.alias ?? '').trim();
   const natioId = String(payload.natioId ?? '').trim().toUpperCase();
   const posteId = Number(payload.posteId);
+  const naissance = normalizeNaissance(payload.naissance);
 
   if (!nom) throw new AppError(400, 'Nom requis.');
   if (!natioId) throw new AppError(400, 'Nationalite requise.');
@@ -373,7 +395,7 @@ export async function createJoueurWithWizard(payload: { nom: string; prenom?: st
       idJoueur,
       nom.slice(0, 30),
       prenom.slice(0, 20),
-      null,
+      naissance,
       natioId,
       posteId,
       0,
@@ -385,7 +407,7 @@ export async function createJoueurWithWizard(payload: { nom: string; prenom?: st
       alias.slice(0, 20),
       '',
       0,
-      null,
+      0,
       0,
     ],
   );
@@ -397,7 +419,8 @@ export async function getJoueurPostes(): Promise<PosteOption[]> {
   return dbAll<PosteOption>(
     `SELECT POS_ID, POS_NOM, POS_TYPE
      FROM Poste
-     ORDER BY POS_TYPE ASC, POS_NOM ASC, POS_ID ASC`,
+     WHERE POS_TYPE = 1
+     ORDER BY POS_NOM ASC, POS_ID ASC`,
   );
 }
 

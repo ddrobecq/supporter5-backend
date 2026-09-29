@@ -6,6 +6,7 @@ import ctrl, {
 	getTourRencontres,
 	getToursByCompetition,
 	moveTour,
+	recomputeTour,
 	removeTour,
 	removeTourParticipants,
 } from '../../controllers/tours.controller';
@@ -23,6 +24,7 @@ router.put('/:id',    ctrl.update);
 router.post('/:id/participants', addTourParticipant);
 router.delete('/:id/participants', removeTourParticipants);
 router.patch('/:id/move', moveTour);
+router.post('/:id/recompute', recomputeTour);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 

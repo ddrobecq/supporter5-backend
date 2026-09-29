@@ -197,7 +197,7 @@ export async function getJoueurSuggestions(req: Request, res: Response, next: Ne
 
 export async function createJoueurWithWizard(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const created = await joueursService.createJoueurWithWizard(req.body as { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string });
+		const created = await joueursService.createJoueurWithWizard(req.body as { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string });
 		res.status(201).json(created);
 	} catch (error) {
 		next(error);

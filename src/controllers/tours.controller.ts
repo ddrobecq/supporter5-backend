@@ -1,5 +1,7 @@
 import { createEntityController } from '../lib/controllerFactory';
 import toursService from '../services/tours.service';
+import rencontresService from '../services/rencontres.service';
+import { AppError } from '../types';
 import type { NextFunction, Request, Response } from 'express';
 
 const baseController = createEntityController(toursService);
@@ -93,6 +95,19 @@ export async function getTourRencontres(req: Request, res: Response, next: NextF
 	try {
 		const data = await toursService.getTourRencontres(req.params.id);
 		res.status(200).json({ data });
+	} catch (error) {
+		next(error);
+	}
+}
+
+export async function recomputeTour(req: Request, res: Response, next: NextFunction): Promise<void> {
+	try {
+		const tourId = Number(req.params.id);
+		if (!Number.isInteger(tourId) || tourId <= 0) {
+			throw new AppError(400, 'Identifiant de tour invalide.');
+		}
+		rencontresService.recomputeTourStandings(tourId);
+		res.status(200).json({ recomputed: true });
 	} catch (error) {
 		next(error);
 	}

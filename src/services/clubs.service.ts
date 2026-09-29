@@ -891,10 +891,23 @@ async function resolveVilleIdForClub(natioId: string, villeId?: string | number)
   return Number(fallback.VICLEUNIK);
 }
 
+async function resolveExplicitVilleId(villeId?: string | number): Promise<number> {
+  const explicit = normalizeText(villeId);
+  if (!explicit) {
+    return 0;
+  }
+
+  const found = await dbGet<{ VICLEUNIK: number }>('SELECT VICLEUNIK FROM VILLE WHERE VICLEUNIK = ?', [explicit]);
+  if (!found) {
+    throw new AppError(400, 'La ville selectionnee est introuvable.');
+  }
+  return Number(found.VICLEUNIK);
+}
+
 function normalizeCreationDate(value: string | number | null | undefined): string {
   const raw = normalizeText(value);
   if (!raw) {
-    throw new AppError(400, 'La date de création est requise.');
+    return '';
   }
 
   const iso = raw.match(/^\d{4}-\d{2}-\d{2}$/)
@@ -935,12 +948,8 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
     throw new AppError(400, 'Le pays selectionne est introuvable.');
   }
 
-  if (!isSelection && !normalizeText(payload.villeId)) {
-    throw new AppError(400, 'La ville est requise lorsque le club nest pas une selection nationale.');
-  }
-
   const idClub = await resolveNextClubId();
-  const idVille = await resolveVilleIdForClub(natioId, payload.villeId);
+  const idVille = await resolveExplicitVilleId(payload.villeId);
 
   await dbRun(
     `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
