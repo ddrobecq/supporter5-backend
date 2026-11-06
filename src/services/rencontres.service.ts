@@ -3100,7 +3100,9 @@ export async function getSquadForRencontre(id: string | number): Promise<SquadPl
 
   // A player is available if:
   // - they have no transactions at all (historical data), OR
-  // - their last transaction across ALL seasons on/before the match date is not a departure (STATUT != 1)
+  // - their last transaction across ALL seasons on/before the match date is not a departure (STATUT != 1), OR
+  // - they have no transaction on/before the match date and their first transaction after it is a departure
+  //   (the player was already at the club before the first recorded movement)
   // STATUT=1=departure, STATUT=2=arrival, STATUT=3=contract/renewal
   const rows = db.prepare(
     `SELECT jr."IDJOUEUR", jr."NOM", jr."PRENOM", jr."SURNOM", jr."POSTE", p."POS_TYPE", jr."IDNATIO"
@@ -3118,10 +3120,17 @@ export async function getSquadForRencontre(id: string | number): Promise<SquadPl
            AND t_last."DATE" <= ?
          ORDER BY t_last."DATE" DESC, t_last."TNCLEUNIK" DESC
          LIMIT 1
-       ), 1) != 1
+       ), CASE WHEN (
+         SELECT t_next."STATUT"
+         FROM "TRANSAC" t_next
+         WHERE t_next."IDJOUEUR" = jr."IDJOUEUR"
+           AND t_next."DATE" > ?
+         ORDER BY t_next."DATE" ASC, t_next."TNCLEUNIK" ASC
+         LIMIT 1
+       ) = 1 THEN 0 ELSE 1 END) != 1
      )
      ORDER BY COALESCE(NULLIF(TRIM(jr."SURNOM"), ''), jr."NOM")`,
-  ).all(saison, matchDate) as SquadPlayerRow[];
+  ).all(saison, matchDate, matchDate) as SquadPlayerRow[];
 
   return rows.map((row) => ({
     IDJOUEUR: toText(row.IDJOUEUR),
