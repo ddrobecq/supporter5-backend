@@ -443,7 +443,7 @@ export async function createClubTerrainHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubNameDate(payload.date);
+  const normalizedDate = normalizeClubDate(payload.date);
   const terrainId = normalizeTerrainId(payload.terrainId);
 
   await dbRun(
@@ -490,7 +490,7 @@ export async function updateClubTerrainHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubNameDate(payload.date);
+  const normalizedDate = normalizeClubDate(payload.date);
   const terrainId = normalizeTerrainId(payload.terrainId);
 
   await dbRun(
@@ -546,7 +546,7 @@ export async function createClubNameHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubNameDate(payload.date);
+  const normalizedDate = normalizeClubDate(payload.date);
   const eventType = normalizeClubNameEventType(payload.eventType);
   const name = normalizeText(payload.name);
 
@@ -593,7 +593,7 @@ export async function updateClubNameHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubNameDate(payload.date);
+  const normalizedDate = normalizeClubDate(payload.date);
   const eventType = normalizeClubNameEventType(payload.eventType);
   const name = normalizeText(payload.name);
   if (!name) {
@@ -821,23 +821,36 @@ function normalizeText(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-function normalizeClubNameDate(value: unknown): string | null {
+/**
+ * Normalizes a club history date to the database convention "YYYY-MM-DD" ('' when empty).
+ * Accepted inputs (legacy clients): YYYY-MM-DD, YYYYMMDD, YYYY/MM/DD, DD/MM/YYYY.
+ */
+function normalizeClubDate(value: unknown, invalidMessage = 'La date est invalide.'): string {
   const text = normalizeText(value);
   if (!text) {
-    return null;
+    return '';
   }
 
-  const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
-  if (compact) {
-    return `${compact[1]}${compact[2]}${compact[3]}`;
+  const ymd = text.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    ?? text.match(/^(\d{4})(\d{2})(\d{2})$/)
+    ?? text.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
+  const dmy = ymd ? null : text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+
+  let iso: string;
+  if (ymd) {
+    iso = `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+  } else if (dmy) {
+    iso = `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
+  } else {
+    throw new AppError(400, invalidMessage);
   }
 
-  const dashed = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (dashed) {
-    return `${dashed[1]}${dashed[2]}${dashed[3]}`;
+  const date = new Date(`${iso}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso) {
+    throw new AppError(400, invalidMessage);
   }
 
-  throw new AppError(400, 'La date est invalide.');
+  return iso;
 }
 
 function normalizeClubNameEventType(value: unknown): number {
@@ -904,37 +917,11 @@ async function resolveExplicitVilleId(villeId?: string | number): Promise<number
   return Number(found.VICLEUNIK);
 }
 
-function normalizeCreationDate(value: string | number | null | undefined): string {
-  const raw = normalizeText(value);
-  if (!raw) {
-    return '';
-  }
-
-  const iso = raw.match(/^\d{4}-\d{2}-\d{2}$/)
-    ? raw
-    : raw.match(/^\d{4}\/\d{2}\/\d{2}$/)
-      ? raw.replace(/\//g, '-')
-      : raw.match(/^\d{2}\/\d{2}\/\d{4}$/)
-        ? `${raw.slice(6, 10)}-${raw.slice(3, 5)}-${raw.slice(0, 2)}`
-        : null;
-
-  if (!iso) {
-    throw new AppError(400, 'La date de création est invalide.');
-  }
-
-  const date = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(date.getTime())) {
-    throw new AppError(400, 'La date de création est invalide.');
-  }
-
-  return iso.replace(/-/g, '');
-}
-
 export async function createClubWithWizard(payload: CreateClubWizardPayload): Promise<ClubGridRow> {
   const name = normalizeText(payload.name);
   const natioId = normalizeText(payload.natioId).toUpperCase();
   const isSelection = Boolean(payload.isSelection);
-  const creationDate = normalizeCreationDate(payload.creationDate);
+  const creationDate = normalizeClubDate(payload.creationDate, 'La date de création est invalide.');
 
   if (!name) {
     throw new AppError(400, 'Le nom du club est requis.');
