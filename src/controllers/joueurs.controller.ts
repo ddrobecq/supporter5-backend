@@ -96,7 +96,7 @@ export async function createJoueurTransaction(req: Request, res: Response, next:
 			idClub?: string | null;
 			salaire?: number | string | null;
 			indemnites?: number | string | null;
-			deviseId: number | string;
+			deviseId?: number | string | null;
 			echeance?: string | null;
 		});
 		res.status(201).json(row);
@@ -114,7 +114,7 @@ export async function updateJoueurTransaction(req: Request, res: Response, next:
 			idClub?: string | null;
 			salaire?: number | string | null;
 			indemnites?: number | string | null;
-			deviseId: number | string;
+			deviseId?: number | string | null;
 			echeance?: string | null;
 		});
 		if (!row) {

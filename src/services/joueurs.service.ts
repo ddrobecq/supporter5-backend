@@ -183,7 +183,7 @@ interface JoueurTransactionUpsertPayload {
   idClub?: string | null;
   salaire?: number | string | null;
   indemnites?: number | string | null;
-  deviseId: number | string;
+  deviseId?: number | string | null;
   echeance?: string | null;
 }
 
@@ -658,8 +658,12 @@ function normalizeMoney(value: unknown, fieldName: string, allowNull: boolean): 
   return amount;
 }
 
-function normalizeDeviseId(value: unknown): number {
-  const deviseId = Number(value);
+function normalizeDeviseId(value: unknown): number | null {
+  const text = String(value ?? '').trim();
+  if (!text || Number(text) === 0) {
+    return null;
+  }
+  const deviseId = Number(text);
   if (!Number.isInteger(deviseId) || deviseId <= 0) {
     throw new AppError(400, 'Devise invalide.');
   }
@@ -716,6 +720,25 @@ async function ensureDeviseExists(deviseId: number): Promise<void> {
   if (!devise) {
     throw new AppError(400, 'Devise introuvable.');
   }
+}
+
+async function getDefaultDeviseId(): Promise<number | null> {
+  const devise = await dbGet<{ DVCLEUNIK: number }>(
+    `SELECT DVCLEUNIK
+     FROM DEVISE
+     WHERE DVDEFAUT <> 0
+     ORDER BY DVDEFAUT DESC, NOM ASC, DVCLEUNIK ASC
+     LIMIT 1`,
+  );
+  return devise?.DVCLEUNIK ?? null;
+}
+
+async function resolveDeviseId(value: unknown): Promise<number> {
+  const deviseId = normalizeDeviseId(value) ?? await getDefaultDeviseId();
+  if (deviseId === null) {
+    throw new AppError(400, 'La devise est requise.');
+  }
+  return deviseId;
 }
 
 async function getJoueurTransactionById(idJoueur: string, transactionId: number): Promise<JoueurTransactionRow | undefined> {
@@ -806,7 +829,7 @@ export async function createJoueurTransactionById(
     await ensureClubExists(clubId);
   }
 
-  const deviseId = normalizeDeviseId(payload.deviseId);
+  const deviseId = await resolveDeviseId(payload.deviseId);
   await ensureDeviseExists(deviseId);
 
   const salaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0
@@ -820,10 +843,6 @@ export async function createJoueurTransactionById(
   const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
     ? normalizeOptionalIsoDate(payload.echeance)
     : null;
-
-  if (Number(transactionType.TYT_ECHEANCE ?? 0) !== 0 && !echeance) {
-    throw new AppError(400, 'La date d echeance est requise pour ce type de transaction.');
-  }
 
   await dbRun(
     `INSERT INTO TRANSAC (
@@ -898,7 +917,7 @@ export async function updateJoueurTransactionById(
     await ensureClubExists(clubId);
   }
 
-  const deviseId = normalizeDeviseId(payload.deviseId);
+  const deviseId = await resolveDeviseId(payload.deviseId);
   await ensureDeviseExists(deviseId);
 
   const salaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0
@@ -912,10 +931,6 @@ export async function updateJoueurTransactionById(
   const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
     ? normalizeOptionalIsoDate(payload.echeance)
     : null;
-
-  if (Number(transactionType.TYT_ECHEANCE ?? 0) !== 0 && !echeance) {
-    throw new AppError(400, 'La date d echeance est requise pour ce type de transaction.');
-  }
 
   await dbRun(
     `UPDATE TRANSAC
