@@ -159,16 +159,15 @@ interface TourDefRules {
   TDCLEFTRI: string;
   CLASS_GAD: number;
   TDCalculDiffBut: number;
+  TDTYPETOUR: number;
+  FIN_PROLONG: number;
 }
 
 type SortDirection = '+' | '-';
 
-type SortCriterionKind = 'standard' | 'goalAverage';
-
 interface ParticipantSortCriterion {
   direction: SortDirection;
   field: keyof ParticipantStats;
-  kind: SortCriterionKind;
 }
 
 interface ParticipantStats {
@@ -801,7 +800,9 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
       td."VALEUR_BONUS_D",
       td."TDCLEFTRI",
       td."CLASS_GAD",
-      td."TDCalculDiffBut"
+      td."TDCalculDiffBut",
+      td."TDTYPETOUR",
+      td."FIN_PROLONG"
      FROM "TOUR" t
      JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
      WHERE t."TUCLEUNIK" = ?
@@ -827,6 +828,8 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
     TDCLEFTRI: toText(row.TDCLEFTRI),
     CLASS_GAD: toInt(row.CLASS_GAD, 1),
     TDCalculDiffBut: toInt(row.TDCalculDiffBut, 1),
+    TDTYPETOUR: toInt(row.TDTYPETOUR, 1),
+    FIN_PROLONG: toInt(row.FIN_PROLONG, 0),
   };
 }
 
@@ -1122,6 +1125,19 @@ function determineOutcome(row: RencontresRow): MatchOutcome {
   return 'draw';
 }
 
+/** FIN_PROLONG = 3 (tirs au but) : en poule, un nul departage aux TaB compte comme victoire / defaite. */
+const FIN_PROLONG_PENALTIES = 3;
+
+/** Resultat retenu pour le classement d'un groupe (points, V/N/D, confrontations directes). */
+function determineStandingsOutcome(row: RencontresRow, rules: TourDefRules): MatchOutcome {
+  const outcome = determineOutcome(row);
+  const adminDecision = toInt(row['READMIN'] ?? 0);
+  if (outcome !== 'draw' || (adminDecision >= 1 && adminDecision <= 4)) return outcome;
+  if (toInt(rules.TDTYPETOUR, 1) !== 1 || toInt(rules.FIN_PROLONG) !== FIN_PROLONG_PENALTIES) return outcome;
+  if (row.TABDOM === row.TABEXT) return outcome;
+  return row.TABDOM > row.TABEXT ? 'dom-win' : 'ext-win';
+}
+
 function resolveTeamOutcome(side: TeamSide, outcome: MatchOutcome): TeamOutcome {
   if (outcome === 'both-loss') return 'D';
   if (outcome === 'draw') return 'N';
@@ -1183,18 +1199,19 @@ function resolveMatchBonus(
   const bonusBase = resolveBonusValueForOutcome(rules, outcome);
   const threshold = toNum(rules.BONUS_NB_BUT, 0);
 
+  // BONUS_NB_BUT est un seuil inclusif (confirme par les PABonus historiques).
   if (bonusType === 2) {
-    return butsPour > threshold ? bonusBase : 0;
+    return butsPour >= threshold ? bonusBase : 0;
   }
 
   if (bonusType === 3) {
     const diff = butsPour - butsContre;
-    return diff > threshold ? bonusBase : 0;
+    return diff >= threshold ? bonusBase : 0;
   }
 
   if (bonusType === 4) {
-    if (butsPour <= threshold) return 0;
-    return (butsPour - threshold) * bonusBase;
+    if (butsPour < threshold) return 0;
+    return (butsPour - threshold + 1) * bonusBase;
   }
 
   return 0;
@@ -1206,7 +1223,7 @@ function applyMatchToParticipant(
   row: RencontresRow,
   rules: TourDefRules,
 ): void {
-  const outcome = determineOutcome(row);
+  const outcome = determineStandingsOutcome(row, rules);
   const teamOutcome = resolveTeamOutcome(side, outcome);
 
   const butsPour = side === 'dom' ? row.BUTDOM : row.BUTEXT;
@@ -1252,109 +1269,57 @@ function finalizeParticipantStats(stats: ParticipantStats): ParticipantStats {
   return stats;
 }
 
-const DEFAULT_SORT_CRITERIA: ParticipantSortCriterion[] = [{ direction: '-', field: 'PANbPoints', kind: 'standard' }];
+const DEFAULT_SORT_CRITERIA: ParticipantSortCriterion[] = [{ direction: '-', field: 'PANbPoints' }];
 
-const GOAL_AVERAGE_FIELDS = new Set<keyof ParticipantStats>(['PADiff', 'PARatio']);
-
-interface HeadToHeadTotals {
-  butsPour: number;
-  butsContre: number;
+interface HeadToHeadMatch {
+  home: string;
+  away: string;
+  homePoints: number;
+  awayPoints: number;
+  homeGoals: number;
+  awayGoals: number;
 }
 
 interface HeadToHeadContext {
   enabled: boolean;
   calculDiffBut: number;
-  totals: Map<string, HeadToHeadTotals>;
+  matches: HeadToHeadMatch[];
 }
 
 const DISABLED_HEAD_TO_HEAD: HeadToHeadContext = {
   enabled: false,
   calculDiffBut: 1,
-  totals: new Map(),
+  matches: [],
 };
 
-function headToHeadKey(clubId: string, opponentId: string): string {
-  return `${clubId}\u0000${opponentId}`;
-}
-
-function addHeadToHeadGoals(
-  totals: Map<string, HeadToHeadTotals>,
-  clubId: string,
-  opponentId: string,
-  butsPour: number,
-  butsContre: number,
-): void {
-  const key = headToHeadKey(clubId, opponentId);
-  const current = totals.get(key) ?? { butsPour: 0, butsContre: 0 };
-  current.butsPour += butsPour;
-  current.butsContre += butsContre;
-  totals.set(key, current);
-}
-
-/** Agrege les confrontations directes (aller-retour compris) entre clubs d'un meme groupe. */
+/** CLASS_GAD = 1 : les egalites de points sont departagees par les confrontations directes. */
 function buildHeadToHeadContext(matchRows: RencontresRow[], rules: TourDefRules): HeadToHeadContext {
   const calculDiffBut = toInt(rules.TDCalculDiffBut, 1);
   if (toInt(rules.CLASS_GAD, 1) !== 1) {
-    return { enabled: false, calculDiffBut, totals: new Map() };
+    return { enabled: false, calculDiffBut, matches: [] };
   }
 
-  const totals = new Map<string, HeadToHeadTotals>();
+  const matches: HeadToHeadMatch[] = [];
   matchRows.forEach((row) => {
     if (!shouldCountMatch(row)) {
       return;
     }
-    addHeadToHeadGoals(totals, row.DOMICILE, row.EXTERIEUR, row.BUTDOM, row.BUTEXT);
-    addHeadToHeadGoals(totals, row.EXTERIEUR, row.DOMICILE, row.BUTEXT, row.BUTDOM);
+    const outcome = determineStandingsOutcome(row, rules);
+    const homeOutcome = resolveTeamOutcome('dom', outcome);
+    const awayOutcome = resolveTeamOutcome('ext', outcome);
+    matches.push({
+      home: row.DOMICILE,
+      away: row.EXTERIEUR,
+      homePoints: resolvePointsForOutcome(rules, 'dom', homeOutcome)
+        + resolveMatchBonus(rules, homeOutcome, row.BUTDOM, row.BUTEXT),
+      awayPoints: resolvePointsForOutcome(rules, 'ext', awayOutcome)
+        + resolveMatchBonus(rules, awayOutcome, row.BUTEXT, row.BUTDOM),
+      homeGoals: row.BUTDOM,
+      awayGoals: row.BUTEXT,
+    });
   });
 
-  return { enabled: true, calculDiffBut, totals };
-}
-
-/** Retourne 1 si le club a devance b sur leurs confrontations directes, -1 si b devance a, 0 sinon. */
-function compareHeadToHeadGoalAverage(
-  a: ParticipantStats,
-  b: ParticipantStats,
-  context: HeadToHeadContext,
-): number | null {
-  const totals = context.totals.get(headToHeadKey(a.IDCLUB, b.IDCLUB));
-  if (!totals) {
-    return null;
-  }
-
-  if (context.calculDiffBut === 2) {
-    // Ratio croise : (BP/BC) compare a (BC/BP) revient a comparer BP^2 et BC^2.
-    const left = totals.butsPour * totals.butsPour;
-    const right = totals.butsContre * totals.butsContre;
-    if (left === right) return 0;
-    return left > right ? 1 : -1;
-  }
-
-  const diff = totals.butsPour - totals.butsContre;
-  if (diff === 0) return 0;
-  return diff > 0 ? 1 : -1;
-}
-
-function compareParticipantsAtCriterion(
-  a: ParticipantStats,
-  b: ParticipantStats,
-  criterion: ParticipantSortCriterion,
-  context: HeadToHeadContext,
-): number {
-  if (criterion.kind === 'goalAverage' && context.enabled) {
-    const direct = compareHeadToHeadGoalAverage(a, b, context);
-    if (direct !== null) {
-      if (direct === 0) return 0;
-      return criterion.direction === '-' ? -direct : direct;
-    }
-  }
-
-  const left = toNum(a[criterion.field]);
-  const right = toNum(b[criterion.field]);
-  if (left === right) return 0;
-  if (criterion.direction === '-') {
-    return right - left;
-  }
-  return left - right;
+  return { enabled: true, calculDiffBut, matches };
 }
 
 function hasParticipantStatsField(field: string): field is keyof ParticipantStats {
@@ -1379,11 +1344,7 @@ function parseParticipantSortCriteria(raw: string): ParticipantSortCriterion[] {
     if (!hasParticipantStatsField(field)) continue;
     if (field === 'IDCLUB') continue;
 
-    parsed.push({
-      direction,
-      field,
-      kind: GOAL_AVERAGE_FIELDS.has(field) ? 'goalAverage' : 'standard',
-    });
+    parsed.push({ direction, field });
   }
 
   if (parsed.length === 0) {
@@ -1393,11 +1354,217 @@ function parseParticipantSortCriteria(raw: string): ParticipantSortCriterion[] {
   return parsed;
 }
 
+function compareByClubId(a: ParticipantStats, b: ParticipantStats): number {
+  return a.IDCLUB.localeCompare(b.IDCLUB, 'fr', { sensitivity: 'base' });
+}
+
+/** Repartit les lignes en paquets de meme valeur, ordonnes du meilleur au moins bon. */
+function bucketParticipants(
+  rows: ParticipantStats[],
+  valueOf: (row: ParticipantStats) => number,
+  direction: SortDirection,
+): ParticipantStats[][] {
+  const buckets = new Map<number, ParticipantStats[]>();
+  rows.forEach((row) => {
+    const value = valueOf(row);
+    const bucket = buckets.get(value);
+    if (bucket) {
+      bucket.push(row);
+      return;
+    }
+    buckets.set(value, [row]);
+  });
+
+  return [...buckets.keys()]
+    .sort((left, right) => (direction === '-' ? right - left : left - right))
+    .map((value) => buckets.get(value)!);
+}
+
+/**
+ * Mini-classement entre clubs a egalite de points, sur leurs seuls matchs entre eux :
+ * points, difference de buts particuliere (ou ratio si TDCalculDiffBut = 2), buts marques particuliers.
+ * Les clubs encore a egalite sont departages par les criteres generaux suivants de TDCLEFTRI.
+ */
+function orderTiedByHeadToHead(
+  rows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[],
+  nextIndex: number,
+  context: HeadToHeadContext,
+): ParticipantStats[][] {
+  const table = new Map<string, { points: number; goalsFor: number; goalsAgainst: number }>();
+  rows.forEach((row) => table.set(row.IDCLUB, { points: 0, goalsFor: 0, goalsAgainst: 0 }));
+  context.matches.forEach((match) => {
+    const home = table.get(match.home);
+    const away = table.get(match.away);
+    if (!home || !away) return;
+    home.points += match.homePoints;
+    home.goalsFor += match.homeGoals;
+    home.goalsAgainst += match.awayGoals;
+    away.points += match.awayPoints;
+    away.goalsFor += match.awayGoals;
+    away.goalsAgainst += match.homeGoals;
+  });
+
+  const entry = (row: ParticipantStats) => table.get(row.IDCLUB)!;
+  const goalAverage = context.calculDiffBut === 2
+    ? (row: ParticipantStats) => (entry(row).goalsAgainst === 0 ? 99999 : entry(row).goalsFor / entry(row).goalsAgainst)
+    : (row: ParticipantStats) => entry(row).goalsFor - entry(row).goalsAgainst;
+  const keys = [
+    (row: ParticipantStats) => entry(row).points,
+    goalAverage,
+    (row: ParticipantStats) => entry(row).goalsFor,
+  ];
+
+  let groups: ParticipantStats[][] = [rows];
+  keys.forEach((valueOf) => {
+    groups = groups.flatMap((group) => (group.length > 1 ? bucketParticipants(group, valueOf, '-') : [group]));
+  });
+
+  return groups.flatMap((group) => (
+    group.length > 1 ? orderParticipantGroups(group, criteria, nextIndex, DISABLED_HEAD_TO_HEAD) : [group]
+  ));
+}
+
+/** Ordonne les participants et retourne des paquets de clubs a egalite parfaite (meme rang). */
+function orderParticipantGroups(
+  rows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[],
+  index: number,
+  context: HeadToHeadContext,
+): ParticipantStats[][] {
+  if (rows.length === 0) {
+    return [];
+  }
+
+  if (rows.length === 1 || index >= criteria.length) {
+    return [[...rows].sort(compareByClubId)];
+  }
+
+  const criterion = criteria[index];
+  const buckets = bucketParticipants(rows, (row) => toNum(row[criterion.field]), criterion.direction);
+
+  return buckets.flatMap((bucket) => {
+    if (bucket.length > 1 && context.enabled && criterion.field === 'PANbPoints') {
+      return orderTiedByHeadToHead(bucket, criteria, index + 1, context);
+    }
+    return orderParticipantGroups(bucket, criteria, index + 1, context);
+  });
+}
+
+/** Classement d'un groupe : paquets ordonnes, les clubs d'un meme paquet partagent le rang. */
+export function sortParticipantsByPointsDesc(
+  rows: ParticipantStats[],
+  criteria: ParticipantSortCriterion[] = DEFAULT_SORT_CRITERIA,
+  context: HeadToHeadContext = DISABLED_HEAD_TO_HEAD,
+): ParticipantStats[][] {
+  return orderParticipantGroups(rows, criteria, 0, context);
+}
+
+// --- Tours hors poule (elimination directe) : algorithme de classement historique, inchange. ---
+// Le goal-average direct (CLASS_GAD = 1) y est evalue club contre club au critere PADiff/PARatio de TDCLEFTRI.
+
+const GOAL_AVERAGE_FIELDS = new Set<keyof ParticipantStats>(['PADiff', 'PARatio']);
+
+interface HeadToHeadTotals {
+  butsPour: number;
+  butsContre: number;
+}
+
+interface PairwiseHeadToHeadContext {
+  enabled: boolean;
+  calculDiffBut: number;
+  totals: Map<string, HeadToHeadTotals>;
+}
+
+function headToHeadKey(clubId: string, opponentId: string): string {
+  return `${clubId}\u0000${opponentId}`;
+}
+
+function addHeadToHeadGoals(
+  totals: Map<string, HeadToHeadTotals>,
+  clubId: string,
+  opponentId: string,
+  butsPour: number,
+  butsContre: number,
+): void {
+  const key = headToHeadKey(clubId, opponentId);
+  const current = totals.get(key) ?? { butsPour: 0, butsContre: 0 };
+  current.butsPour += butsPour;
+  current.butsContre += butsContre;
+  totals.set(key, current);
+}
+
+/** Agrege les confrontations directes (aller-retour compris) entre clubs d'un meme groupe. */
+function buildPairwiseHeadToHeadContext(matchRows: RencontresRow[], rules: TourDefRules): PairwiseHeadToHeadContext {
+  const calculDiffBut = toInt(rules.TDCalculDiffBut, 1);
+  if (toInt(rules.CLASS_GAD, 1) !== 1) {
+    return { enabled: false, calculDiffBut, totals: new Map() };
+  }
+
+  const totals = new Map<string, HeadToHeadTotals>();
+  matchRows.forEach((row) => {
+    if (!shouldCountMatch(row)) {
+      return;
+    }
+    addHeadToHeadGoals(totals, row.DOMICILE, row.EXTERIEUR, row.BUTDOM, row.BUTEXT);
+    addHeadToHeadGoals(totals, row.EXTERIEUR, row.DOMICILE, row.BUTEXT, row.BUTDOM);
+  });
+
+  return { enabled: true, calculDiffBut, totals };
+}
+
+/** Retourne 1 si le club a devance b sur leurs confrontations directes, -1 si b devance a, 0 sinon. */
+function compareHeadToHeadGoalAverage(
+  a: ParticipantStats,
+  b: ParticipantStats,
+  context: PairwiseHeadToHeadContext,
+): number | null {
+  const totals = context.totals.get(headToHeadKey(a.IDCLUB, b.IDCLUB));
+  if (!totals) {
+    return null;
+  }
+
+  if (context.calculDiffBut === 2) {
+    // Ratio croise : (BP/BC) compare a (BC/BP) revient a comparer BP^2 et BC^2.
+    const left = totals.butsPour * totals.butsPour;
+    const right = totals.butsContre * totals.butsContre;
+    if (left === right) return 0;
+    return left > right ? 1 : -1;
+  }
+
+  const diff = totals.butsPour - totals.butsContre;
+  if (diff === 0) return 0;
+  return diff > 0 ? 1 : -1;
+}
+
+function compareParticipantsAtCriterion(
+  a: ParticipantStats,
+  b: ParticipantStats,
+  criterion: ParticipantSortCriterion,
+  context: PairwiseHeadToHeadContext,
+): number {
+  if (GOAL_AVERAGE_FIELDS.has(criterion.field) && context.enabled) {
+    const direct = compareHeadToHeadGoalAverage(a, b, context);
+    if (direct !== null) {
+      if (direct === 0) return 0;
+      return criterion.direction === '-' ? -direct : direct;
+    }
+  }
+
+  const left = toNum(a[criterion.field]);
+  const right = toNum(b[criterion.field]);
+  if (left === right) return 0;
+  if (criterion.direction === '-') {
+    return right - left;
+  }
+  return left - right;
+}
+
 function compareParticipantsByCriteria(
   a: ParticipantStats,
   b: ParticipantStats,
   criteria: ParticipantSortCriterion[],
-  context: HeadToHeadContext = DISABLED_HEAD_TO_HEAD,
+  context: PairwiseHeadToHeadContext,
 ): number {
   for (const criterion of criteria) {
     const compare = compareParticipantsAtCriterion(a, b, criterion, context);
@@ -1406,10 +1573,6 @@ function compareParticipantsByCriteria(
     }
   }
   return 0;
-}
-
-function compareByClubId(a: ParticipantStats, b: ParticipantStats): number {
-  return a.IDCLUB.localeCompare(b.IDCLUB, 'fr', { sensitivity: 'base' });
 }
 
 /**
@@ -1452,11 +1615,11 @@ function buildPrecedenceComponents(rows: ParticipantStats[], beats: boolean[][])
  * Les precedences etablies par les confrontations sont conservees ; les clubs
  * non departages sont ordonnes par les criteres suivants de TDCLEFTRI.
  */
-function orderParticipantsByHeadToHead(
+function orderParticipantsByPairwiseHeadToHead(
   rows: ParticipantStats[],
   criteria: ParticipantSortCriterion[],
   index: number,
-  context: HeadToHeadContext,
+  context: PairwiseHeadToHeadContext,
 ): ParticipantStats[] {
   const criterion = criteria[index];
   const size = rows.length;
@@ -1475,7 +1638,7 @@ function orderParticipantsByHeadToHead(
   const members: number[][] = Array.from({ length: componentCount }, () => []);
   componentByIndex.forEach((componentId, rowIndex) => members[componentId].push(rowIndex));
   const orderedMembers = members.map((rowIndexes) => (
-    orderParticipants(rowIndexes.map((rowIndex) => rows[rowIndex]), criteria, index + 1, context)
+    orderParticipantsPairwise(rowIndexes.map((rowIndex) => rows[rowIndex]), criteria, index + 1, context)
   ));
 
   const successors: Set<number>[] = Array.from({ length: componentCount }, () => new Set<number>());
@@ -1517,11 +1680,11 @@ function orderParticipantsByHeadToHead(
   return ordered;
 }
 
-function orderParticipants(
+function orderParticipantsPairwise(
   rows: ParticipantStats[],
   criteria: ParticipantSortCriterion[],
   index: number,
-  context: HeadToHeadContext,
+  context: PairwiseHeadToHeadContext,
 ): ParticipantStats[] {
   if (rows.length <= 1) {
     return [...rows];
@@ -1532,8 +1695,8 @@ function orderParticipants(
   }
 
   const criterion = criteria[index];
-  if (criterion.kind === 'goalAverage' && context.enabled) {
-    return orderParticipantsByHeadToHead(rows, criteria, index, context);
+  if (GOAL_AVERAGE_FIELDS.has(criterion.field) && context.enabled) {
+    return orderParticipantsByPairwiseHeadToHead(rows, criteria, index, context);
   }
 
   const buckets = new Map<number, ParticipantStats[]>();
@@ -1551,23 +1714,33 @@ function orderParticipants(
     criterion.direction === '-' ? right - left : left - right
   ));
 
-  return values.flatMap((value) => orderParticipants(buckets.get(value)!, criteria, index + 1, context));
+  return values.flatMap((value) => orderParticipantsPairwise(buckets.get(value)!, criteria, index + 1, context));
 }
 
-export function sortParticipantsByPointsDesc(
+
+/** Classement historique en paquets : clubs consecutifs egaux sur tous les criteres = meme rang. */
+function rankParticipantsPairwise(
   rows: ParticipantStats[],
-  criteria: ParticipantSortCriterion[] = DEFAULT_SORT_CRITERIA,
-  context: HeadToHeadContext = DISABLED_HEAD_TO_HEAD,
-): ParticipantStats[] {
-  return orderParticipants(rows, criteria, 0, context);
+  criteria: ParticipantSortCriterion[],
+  context: PairwiseHeadToHeadContext,
+): ParticipantStats[][] {
+  const groups: ParticipantStats[][] = [];
+  let previous: ParticipantStats | null = null;
+  orderParticipantsPairwise(rows, criteria, 0, context).forEach((row) => {
+    if (previous == null || compareParticipantsByCriteria(previous, row, criteria, context) !== 0) {
+      groups.push([row]);
+    } else {
+      groups[groups.length - 1].push(row);
+    }
+    previous = row;
+  });
+  return groups;
 }
 
 function writeParticipantStats(
   tourId: number,
   groupName: string,
-  rankedRows: ParticipantStats[],
-  criteria: ParticipantSortCriterion[],
-  context: HeadToHeadContext,
+  rankedGroups: ParticipantStats[][],
 ): void {
   const updateStmt = db.prepare(
     `UPDATE "PARTICIP" SET
@@ -1598,17 +1771,10 @@ function writeParticipantStats(
        AND COALESCE("GROUPE", '') = ?`,
   );
 
-  let previous: ParticipantStats | null = null;
   let currentRank = 1;
 
-  rankedRows.forEach((row, index) => {
-    if (previous == null) {
-      currentRank = 1;
-    } else if (compareParticipantsByCriteria(previous, row, criteria, context) !== 0) {
-      currentRank = index + 1;
-    }
-
-    updateStmt.run(
+  rankedGroups.forEach((group) => {
+    group.forEach((row) => updateStmt.run(
       currentRank,
       row.PANbMatch,
       row.PANbPoints,
@@ -1634,9 +1800,8 @@ function writeParticipantStats(
       tourId,
       row.IDCLUB,
       groupName,
-    );
-
-    previous = row;
+    ));
+    currentRank += group.length;
   });
 }
 
@@ -1645,7 +1810,8 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
     `SELECT
       "IDCLUB",
       "TUCLEUNIK",
-      COALESCE("GROUPE", '') AS "GROUPE"
+      COALESCE("GROUPE", '') AS "GROUPE",
+      COALESCE("PAMalus", 0) AS "PAMalus"
      FROM "PARTICIP"
      WHERE "TUCLEUNIK" = ? AND COALESCE("GROUPE", '') = ?
      ORDER BY "IDCLUB" ASC`,
@@ -1725,11 +1891,20 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
     applyMatchToParticipant(extStats, 'ext', row, rules);
   });
 
-  const finalized = Array.from(statsByClub.values()).map((row) => finalizeParticipantStats(row));
+  // PAMalus (saisi a la main, jamais ecrase ici) est retire des points avant le classement.
+  const malusByClub = new Map<string, number>();
+  participants.forEach((row) => malusByClub.set(toText(row.IDCLUB), toInt(row.PAMalus)));
+  const finalized = Array.from(statsByClub.values()).map((row) => {
+    const stats = finalizeParticipantStats(row);
+    stats.PANbPoints -= malusByClub.get(stats.IDCLUB) ?? 0;
+    return stats;
+  });
   const criteria = parseParticipantSortCriteria(rules.TDCLEFTRI);
-  const headToHead = buildHeadToHeadContext(matchRows, rules);
-  const ranked = sortParticipantsByPointsDesc(finalized, criteria, headToHead);
-  writeParticipantStats(tourId, groupName, ranked, criteria, headToHead);
+  // Mini-classement par confrontation directe : tours de poule uniquement.
+  const ranked = toInt(rules.TDTYPETOUR, 1) === 1
+    ? sortParticipantsByPointsDesc(finalized, criteria, buildHeadToHeadContext(matchRows, rules))
+    : rankParticipantsPairwise(finalized, criteria, buildPairwiseHeadToHeadContext(matchRows, rules));
+  writeParticipantStats(tourId, groupName, ranked);
 }
 
 function recomputeAllGroupsForTour(tourId: number): void {
