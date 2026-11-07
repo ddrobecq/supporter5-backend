@@ -10,6 +10,10 @@ dotenv.config();
 
 const app = express();
 
+// Hosted behind a single reverse proxy (Render): trust its X-Forwarded-For hop only,
+// so req.ip (used by express-rate-limit) is the real client address.
+app.set('trust proxy', 1);
+
 // Sécurité
 app.use(helmet());
 app.use(
