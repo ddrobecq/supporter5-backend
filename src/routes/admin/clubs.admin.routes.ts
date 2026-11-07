@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/clubs.controller';
 import { removeClub } from '../../controllers/clubs.controller';
 import { createClubWithWizard } from '../../controllers/clubs.controller';
 import { mergeClubs } from '../../controllers/clubs.controller';
@@ -14,7 +13,6 @@ import { deleteClubTerrainHistory } from '../../controllers/clubs.controller';
 import { checkClubIntegrity } from '../../lib/integrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 const router = Router();
-router.post('/',       ctrl.create);
 router.post('/wizard-create', createClubWithWizard);
 router.post('/merge', mergeClubs);
 router.put('/:id/profile', updateClubProfile);
@@ -25,9 +23,6 @@ router.delete('/:id/names/:nameId', deleteClubNameHistory);
 router.post('/:id/terrains', createClubTerrainHistory);
 router.put('/:id/terrains/:terrainId', updateClubTerrainHistory);
 router.delete('/:id/terrains/:terrainId', deleteClubTerrainHistory);
-router.put('/:id',    ctrl.update);
-router.patch('/bulk', ctrl.bulkUpdate);
-router.delete('/bulk', ctrl.bulkDelete);
 
 bindCanDeleteRoute(router, checkClubIntegrity);
 

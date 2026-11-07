@@ -4,7 +4,7 @@ import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
-import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
+import { normalizeDayDate } from '../lib/dates';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** CLUB_NOM = historique des noms de clubs */
@@ -983,47 +983,6 @@ async function getClubNomById(id: string | number): Promise<Record<string, unkno
   );
 }
 
-async function createClubNom(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = normalizeDayDateFields(CLUB_NOM_TABLE, rawBody);
-  const keys = Object.keys(body);
-  if (!keys.length) {
-    throw new AppError(400, 'No fields provided');
-  }
-
-  const cols = keys.map((key) => `"${key}"`).join(', ');
-  const marks = keys.map(() => '?').join(', ');
-  const result = await dbRun(
-    `INSERT INTO "${CLUB_NOM_TABLE}" (${cols}) VALUES (${marks})`,
-    Object.values(body),
-  );
-
-  const explicitPkValue = body[CLUB_NOM_PK];
-  if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
-    return getClubNomById(explicitPkValue);
-  }
-  if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
-    return getClubNomById(result.lastInsertRowid);
-  }
-
-  return undefined;
-}
-
-async function updateClubNom(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = normalizeDayDateFields(CLUB_NOM_TABLE, rawBody);
-  const keys = Object.keys(body);
-  if (!keys.length) {
-    throw new AppError(400, 'No fields provided');
-  }
-
-  const sets = keys.map((key) => `"${key}" = ?`).join(', ');
-  await dbRun(
-    `UPDATE "${CLUB_NOM_TABLE}" SET ${sets} WHERE "${CLUB_NOM_PK}" = ?`,
-    [...Object.values(body), id],
-  );
-
-  return getClubNomById(id);
-}
-
 export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
   const clubId = normalizeText(id);
   if (!clubId) throw new AppError(400, 'Identifiant de club invalide.');
@@ -1130,8 +1089,6 @@ export default {
   ...baseService,
   getAll: getClubNomAll,
   getById: getClubNomById,
-  create: createClubNom,
-  update: updateClubNom,
   getClubsGrid,
   getClubGridById,
   getClubProfileById,
