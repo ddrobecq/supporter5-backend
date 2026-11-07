@@ -1,5 +1,5 @@
 import { createEntityService } from '../lib/baseService';
-import { dbGet, dbAll, dbRun } from '../config/database';
+import { dbGet, dbAll } from '../config/database';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
@@ -12,6 +12,8 @@ const baseService = createEntityService({
   searchCols: ['IDARBITRE', 'NOM', 'PRENOM'],
   filterCols: ['IDNATIO'],
   searchStrategy: 'backend-memory',
+  // Same ARB_PHOTO placeholder as the read endpoints, so create/update responses keep their shape.
+  extraSelectCols: ['NULL AS "ARB_PHOTO"'],
 });
 
 const ARBITRE_TABLE = 'ARBITRE';
@@ -87,45 +89,6 @@ async function getArbitreById(id: string | number): Promise<Record<string, unkno
   );
 }
 
-async function createArbitreRecord(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const keys = Object.keys(body);
-  if (!keys.length) {
-    throw new AppError(400, 'No fields provided');
-  }
-
-  const cols = keys.map((key) => `"${key}"`).join(', ');
-  const marks = keys.map(() => '?').join(', ');
-  const result = await dbRun(
-    `INSERT INTO "${ARBITRE_TABLE}" (${cols}) VALUES (${marks})`,
-    Object.values(body),
-  );
-
-  const explicitPkValue = body[ARBITRE_PK];
-  if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
-    return getArbitreById(explicitPkValue);
-  }
-  if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
-    return getArbitreById(result.lastInsertRowid);
-  }
-
-  return undefined;
-}
-
-async function updateArbitreRecord(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const keys = Object.keys(body);
-  if (!keys.length) {
-    throw new AppError(400, 'No fields provided');
-  }
-
-  const sets = keys.map((key) => `"${key}" = ?`).join(', ');
-  await dbRun(
-    `UPDATE "${ARBITRE_TABLE}" SET ${sets} WHERE "${ARBITRE_PK}" = ?`,
-    [...Object.values(body), id],
-  );
-
-  return getArbitreById(id);
-}
-
 function computeApproxScore(query: string, nom: string, prenom: string): number {
   const q = normalizeSearchText(query);
   if (!q) return 0;
@@ -190,7 +153,9 @@ export async function createArbitreWithWizard(payload: { nom: string; prenom?: s
 }
 
 // Override create pour générer IDARBITRE automatiquement
-async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+// The body is first reduced to the real ARBITRE columns, then written by the generic create.
+async function create(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const body = baseService.pickWritableFields(rawBody, { allowPk: true });
   const idarbitreValue = body.IDARBITRE;
 
   // Si IDARBITRE est vide, null, ou une string vide, générer automatiquement
@@ -211,7 +176,7 @@ async function create(body: Record<string, unknown>): Promise<Record<string, unk
     throw new AppError(400, 'IDNATIO (Nationalité) est requis');
   }
 
-  return createArbitreRecord(body);
+  return baseService.create(body);
 }
 
 export default {
@@ -219,7 +184,6 @@ export default {
   getAll: getArbitreAll,
   getById: getArbitreById,
   create: create,
-  update: updateArbitreRecord,
   getArbitreSuggestions,
   createArbitreWithWizard,
 };
