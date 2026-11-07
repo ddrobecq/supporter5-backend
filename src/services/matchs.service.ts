@@ -1,5 +1,4 @@
 import { createEntityService } from '../lib/baseService';
-import { dbAll } from '../config/database';
 import { recomputeStatsForRencontreId, recomputeStatsForMatchId } from './rencontres.service';
 
 const baseService = createEntityService({
@@ -54,28 +53,9 @@ async function bulkUpdate(ids: (string | number)[], body: Record<string, unknown
   return changes;
 }
 
-async function remove(id: string | number): Promise<boolean> {
-  const before = await baseService.getById(id);
-  const removed = await baseService.remove(id);
-  if (removed) recomputeStatsForRencontreId(before?.RECLEUNIK as string | number | null | undefined);
-  return removed;
-}
-
-async function bulkDelete(ids: (string | number)[]): Promise<number> {
-  const marks = ids.map(() => '?').join(', ');
-  const rows = ids.length
-    ? await dbAll<{ RECLEUNIK: number }>(`SELECT "RECLEUNIK" FROM "MATCH" WHERE "MACLEUNIK" IN (${marks})`, ids)
-    : [];
-  const changes = await baseService.bulkDelete(ids);
-  rows.forEach((row) => recomputeStatsForRencontreId(row.RECLEUNIK));
-  return changes;
-}
-
 export default {
   ...baseService,
   create,
   update,
   bulkUpdate,
-  remove,
-  bulkDelete,
 };

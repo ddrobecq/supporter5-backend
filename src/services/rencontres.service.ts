@@ -1907,6 +1907,15 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
       return false;
     }
 
+    const statsSeason = resolveStatsSeasonForRencontre(row.RECLEUNIK);
+
+    db.prepare(
+      'DELETE FROM "EVENT" WHERE "MACLEUNIK" IN (SELECT "MACLEUNIK" FROM "MATCH" WHERE "RECLEUNIK" = ?)',
+    ).run(rencontreId);
+    db.prepare(
+      'DELETE FROM "EQUIPE" WHERE "MACLEUNIK" IN (SELECT "MACLEUNIK" FROM "MATCH" WHERE "RECLEUNIK" = ?)',
+    ).run(rencontreId);
+    db.prepare('DELETE FROM "MATCH" WHERE "RECLEUNIK" = ?').run(rencontreId);
     db.prepare('DELETE FROM "RENCO" WHERE "RECLEUNIK" = ?').run(rencontreId);
     clearEliminatoireGroupForMatchIfUnused(
       row.TUCLEUNIK,
@@ -1917,7 +1926,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     );
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
-    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(row.RECLEUNIK));
+    recomputeSupportedClubPlayerStatsForSeason(statsSeason);
     return true;
   });
 

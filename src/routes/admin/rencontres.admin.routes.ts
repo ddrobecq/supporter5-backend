@@ -3,7 +3,6 @@ import ctrl, { setArbitre, setMatchMeta, saveComposition, createEvent, updateEve
 const router = Router();
 router.post('/',       ctrl.createWithImpact);
 router.put('/:id',    ctrl.updateWithImpact);
-router.delete('/bulk', ctrl.bulkDelete);
 router.delete('/:id', ctrl.removeWithImpact);
 router.put('/:id/arbitre', setArbitre);
 router.put('/:id/match-meta', setMatchMeta);

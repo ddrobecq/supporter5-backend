@@ -184,6 +184,10 @@ PATCH  /api/admin/{entite}/bulk
 DELETE /api/admin/{entite}/bulk
 ```
 
+Exceptions (suppression en cascade obligatoire via `DELETE /api/admin/rencontres/:id`):
+- `/api/admin/rencontres` : ni `PATCH /bulk` ni `DELETE /bulk`.
+- `/api/admin/matchs` : ni `DELETE /:id` ni `DELETE /bulk`.
+
 Note: les lectures `GET` passent par les routes publiques `/api/...`.
 
 ### Endpoints admin spécifiques
@@ -229,18 +233,18 @@ POST /api/admin/rencontres
 
 **Bulk Update** (PATCH)
 ```bash
-PATCH /api/admin/rencontres/bulk
+PATCH /api/admin/joueurs/bulk
 {
-  "ids": ["RECLEUNIK1", "RECLEUNIK2"],
-  "data": {"ETAT":3}
+  "ids": ["IDJOUEUR1", "IDJOUEUR2"],
+  "data": {"POSTE":2}
 }
 ```
 
 **Bulk Delete** (DELETE)
 ```bash
-DELETE /api/admin/rencontres/bulk
+DELETE /api/admin/joueurs/bulk
 {
-  "ids": ["RECLEUNIK1", "RECLEUNIK2"]
+  "ids": ["IDJOUEUR1", "IDJOUEUR2"]
 }
 ```
 
@@ -329,12 +333,12 @@ back/
 
 ```bash
 # Bulk Update : modifier plusieurs enregistrements
-PATCH /api/admin/rencontres/bulk
-{ "ids": ["123", "456"], "data": { "ETAT": 3 } }
+PATCH /api/admin/joueurs/bulk
+{ "ids": ["0001", "0002"], "data": { "POSTE": 2 } }
 
 # Bulk Delete : supprimer plusieurs enregistrements
-DELETE /api/admin/rencontres/bulk
-{ "ids": ["123", "456"] }
+DELETE /api/admin/joueurs/bulk
+{ "ids": ["0001", "0002"] }
 ```
 
 ---
