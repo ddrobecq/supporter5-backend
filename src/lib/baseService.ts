@@ -1,4 +1,4 @@
-import { dbAll, dbGet, dbRun } from '../config/database';
+import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { AppError, QueryParams, PaginatedResult } from '../types';
 import { sanitizeSort, buildWhere } from './queryBuilder';
 import { normalizeDayDateFields } from './dates';
@@ -45,6 +45,57 @@ export interface EntityConfig {
   extraSelectCols?: readonly string[];
 }
 
+export interface PickWritableOptions {
+  /** When false, the primary key is removed (a PK is never modified through the API). */
+  allowPk: boolean;
+}
+
+/** ASCII-only case folding, matching SQLite's case-insensitive identifier comparison. */
+function foldIdentifier(name: string): string {
+  return name.replace(/[a-z]/g, (c) => c.toUpperCase());
+}
+
+/**
+ * Reads the real columns of a table (folded name -> real name) through the
+ * table-valued form of PRAGMA table_info, with the table name bound as a parameter.
+ */
+function readTableColumns(table: string): ReadonlyMap<string, string> {
+  const rows = db.prepare('SELECT name FROM pragma_table_info(?)').all(table) as Array<{ name: string }>;
+  if (!rows.length) {
+    throw new Error(`Unknown table or no columns: ${table}`);
+  }
+  return new Map(rows.map((row) => [foldIdentifier(row.name), row.name]));
+}
+
+/**
+ * Builds a whitelist filter for write payloads, based on the real columns of `table`.
+ * - Unknown keys are silently dropped; matching is case-insensitive and the real column name is kept.
+ * - The primary key is kept only when `allowPk` is true.
+ * The column list is read lazily on first use, then cached for the lifetime of the picker.
+ */
+export function createWritableFieldPicker(table: string, pk: string) {
+  let columns: ReadonlyMap<string, string> | null = null;
+  const foldedPk = foldIdentifier(pk);
+
+  return function pickWritableFields(body: unknown, options: PickWritableOptions): Record<string, unknown> {
+    if (columns === null) {
+      columns = readTableColumns(table);
+    }
+    const picked: Record<string, unknown> = {};
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return picked;
+    }
+    for (const [key, value] of Object.entries(body as Record<string, unknown>)) {
+      const folded = foldIdentifier(key);
+      const realName = columns.get(folded);
+      if (realName === undefined) continue;
+      if (!options.allowPk && folded === foldedPk) continue;
+      picked[realName] = value;
+    }
+    return picked;
+  };
+}
+
 export function createEntityService(config: EntityConfig) {
   const {
     table,
@@ -63,6 +114,7 @@ export function createEntityService(config: EntityConfig) {
   const selectClause = [...selectCols.map((col) => `${colPrefix}"${col}"`), ...extraSelectCols].join(', ');
   const tableSql = `"${table}"${tableAlias ? ` ${tableAlias}` : ''}${joinClause ? ` ${joinClause}` : ''}`;
   const pkRef = `${colPrefix}"${pk}"`;
+  const pickWritableFields = createWritableFieldPicker(table, pk);
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
     const page   = Math.max(1, Number(params.page)  || 1);
@@ -98,7 +150,7 @@ export function createEntityService(config: EntityConfig) {
   }
 
   async function create(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-    const body = normalizeDayDateFields(table, rawBody);
+    const body = normalizeDayDateFields(table, pickWritableFields(rawBody, { allowPk: true }));
     const keys = Object.keys(body);
     if (!keys.length) throw new AppError(400, 'No fields provided');
     const cols   = keys.map((c) => `"${c}"`).join(', ');
@@ -116,7 +168,7 @@ export function createEntityService(config: EntityConfig) {
   }
 
   async function update(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-    const body = normalizeDayDateFields(table, rawBody);
+    const body = normalizeDayDateFields(table, pickWritableFields(rawBody, { allowPk: false }));
     const keys = Object.keys(body);
     if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
@@ -126,7 +178,7 @@ export function createEntityService(config: EntityConfig) {
 
   async function bulkUpdate(ids: (string | number)[], rawBody: Record<string, unknown>): Promise<number> {
     if (!ids.length) return 0;
-    const body = normalizeDayDateFields(table, rawBody);
+    const body = normalizeDayDateFields(table, pickWritableFields(rawBody, { allowPk: false }));
     const keys = Object.keys(body);
     if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets   = keys.map((c) => `"${c}" = ?`).join(', ');
@@ -148,7 +200,7 @@ export function createEntityService(config: EntityConfig) {
     return (await dbRun(`DELETE FROM "${table}" WHERE "${pk}" IN (${marks})`, ids)).changes;
   }
 
-  return { getAll, getById, create, update, bulkUpdate, remove, bulkDelete };
+  return { getAll, getById, create, update, bulkUpdate, remove, bulkDelete, pickWritableFields };
 }
 
 export type EntityService = ReturnType<typeof createEntityService>;

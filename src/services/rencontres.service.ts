@@ -1797,7 +1797,7 @@ function assertValidRencontreBody(body: Record<string, unknown>): void {
 async function createWithImpact(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
   assertValidRencontreBody(body);
 
-  const payload = normalizeDayDateFields('RENCO', body);
+  const payload = normalizeDayDateFields('RENCO', baseService.pickWritableFields(body, { allowPk: true }));
   if (Object.prototype.hasOwnProperty.call(payload, 'IDCIRC')) {
     payload.IDCIRC = normalizeOptionalText(payload.IDCIRC);
   }
@@ -1813,7 +1813,7 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
 
   const transaction = db.transaction((payloadValues: unknown[]) => {
     const result = db.prepare(`INSERT INTO "RENCO" (${cols}) VALUES (${marks})`).run(...payloadValues as []);
-    const insertedIdRaw = body.RECLEUNIK ?? result.lastInsertRowid;
+    const insertedIdRaw = payload.RECLEUNIK ?? result.lastInsertRowid;
     const insertedId = toInt(typeof insertedIdRaw === 'bigint' ? Number(insertedIdRaw) : insertedIdRaw);
     if (!Number.isInteger(insertedId) || insertedId <= 0) {
       throw new AppError(500, 'Impossible de determiner la rencontre creee.');
@@ -1849,7 +1849,7 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     throw new AppError(400, 'Identifiant de rencontre invalide.');
   }
 
-  const normalizedBody = normalizeDayDateFields('RENCO', body);
+  const normalizedBody = normalizeDayDateFields('RENCO', baseService.pickWritableFields(body, { allowPk: false }));
   if (Object.prototype.hasOwnProperty.call(normalizedBody, 'IDCIRC')) {
     normalizedBody.IDCIRC = normalizeOptionalText(normalizedBody.IDCIRC);
   }

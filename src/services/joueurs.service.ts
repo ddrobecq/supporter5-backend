@@ -237,7 +237,7 @@ async function getJoueurRgById(id: string | number): Promise<Record<string, unkn
 }
 
 async function createJoueurRg(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = normalizeDayDateFields(JOUEURRG_TABLE, rawBody);
+  const body = normalizeDayDateFields(JOUEURRG_TABLE, baseService.pickWritableFields(rawBody, { allowPk: true }));
   const keys = Object.keys(body);
   if (!keys.length) {
     throw new AppError(400, 'No fields provided');
@@ -262,7 +262,7 @@ async function createJoueurRg(rawBody: Record<string, unknown>): Promise<Record<
 }
 
 async function updateJoueurRg(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = normalizeDayDateFields(JOUEURRG_TABLE, rawBody);
+  const body = normalizeDayDateFields(JOUEURRG_TABLE, baseService.pickWritableFields(rawBody, { allowPk: false }));
   const keys = Object.keys(body);
   if (!keys.length) {
     throw new AppError(400, 'No fields provided');
