@@ -123,6 +123,7 @@ export interface RencontreIncompleteRow {
   BUTEURS_CLUB_INCONNUS: number;
   MINUTES_BUTS_INCONNUES: number;
   REMPLACEMENTS_INCOMPLETS: number;
+  EVENEMENTS_INCOHERENTS: number;
   CLUBS_INCOHERENTS: number;
   DESYNCHRO: number;
 }
@@ -138,6 +139,7 @@ const RENCONTRE_INCOMPLETE_FLAGS = [
   'BUTEURS_CLUB_INCONNUS',
   'MINUTES_BUTS_INCONNUES',
   'REMPLACEMENTS_INCOMPLETS',
+  'EVENEMENTS_INCOHERENTS',
   'CLUBS_INCOHERENTS',
   'DESYNCHRO',
 ] as const;
@@ -176,6 +178,89 @@ async function getCompoIssuesByMatch(): Promise<Map<number, boolean>> {
 
     const hasDuplicate = new Set(allPlayers).size !== allPlayers.length;
     issues.set(macleunik, starters.length !== STARTERS_EXPECTED || hasDuplicate);
+  });
+  return issues;
+}
+
+const SUBSTITUTION_EVENT_TYPE = 2;
+/** Types d'evenement ne citant pas un joueur de la compo (exclus du controle "joueur hors effectif"). */
+const EVENT_TYPES_WITHOUT_PLAYER = new Set([6, 10]);
+/** Buts (1) et penaltys (7): JOUEUR2 designe le passeur. */
+const EVENT_TYPES_WITH_ASSIST = new Set([1, 7]);
+/** Code joueur reserve au but contre son camp. */
+const OWN_GOAL_PLAYER_CODE = '0000';
+
+interface MatchEventRow {
+  MACLEUNIK: number | null;
+  TYPE_EVENT: number | null;
+  JOUEUR1: string | null;
+  JOUEUR2: string | null;
+}
+
+/**
+ * Evenements du club supporte incoherents avec la compo (matchs ayant au moins un titulaire):
+ * entrant deja titulaire, entrant absent des remplacants declares, sortant = entrant,
+ * ou joueur cite ni titulaire, ni remplacant, ni entrant. Les remplacements sans sortant/entrant
+ * relevent de REMPLACEMENTS_INCOMPLETS et ne sont pas comptes ici.
+ */
+async function getEventIssuesByMatch(): Promise<Map<number, boolean>> {
+  const compoRows = await dbAll<Record<string, unknown>>(
+    `SELECT e."MACLEUNIK", e."ENTRAINEUR", ${[...COMPO_STARTER_FIELDS, ...COMPO_SUB_FIELDS].map((col) => `e."${col}"`).join(', ')}
+     FROM "EQUIPE" e`,
+  );
+  const eventRows = await dbAll<MatchEventRow>(
+    `SELECT ev."MACLEUNIK", ev."TYPE_EVENT", ev."JOUEUR1", ev."JOUEUR2"
+     FROM "EVENT" ev
+     WHERE COALESCE(ev."ADVERSAIRE", 0) = 0`,
+  );
+
+  const eventsByMatch = new Map<number, MatchEventRow[]>();
+  eventRows.forEach((event) => {
+    const macleunik = Number(event.MACLEUNIK ?? 0);
+    if (!macleunik) return;
+    const list = eventsByMatch.get(macleunik);
+    if (list) list.push(event);
+    else eventsByMatch.set(macleunik, [event]);
+  });
+
+  const readCode = (value: unknown): string => String(value ?? '').trim();
+  const issues = new Map<number, boolean>();
+  compoRows.forEach((row) => {
+    const macleunik = Number(row.MACLEUNIK ?? 0);
+    if (!macleunik) return;
+
+    const starters = new Set(COMPO_STARTER_FIELDS.map((field) => readCode(row[field])).filter(Boolean));
+    if (starters.size === 0) return;
+    const subs = new Set(COMPO_SUB_FIELDS.map((field) => readCode(row[field])).filter(Boolean));
+    const coach = readCode(row.ENTRAINEUR);
+    const events = eventsByMatch.get(macleunik) ?? [];
+
+    const substitutions = events.filter((event) => Number(event.TYPE_EVENT) === SUBSTITUTION_EVENT_TYPE);
+    const incomingPlayers = new Set(substitutions.map((event) => readCode(event.JOUEUR2)).filter(Boolean));
+
+    const hasSubstitutionIssue = substitutions.some((event) => {
+      const outgoing = readCode(event.JOUEUR1);
+      const incoming = readCode(event.JOUEUR2);
+      if (!incoming) return false;
+      return starters.has(incoming)
+        || (subs.size > 0 && !subs.has(incoming))
+        || outgoing === incoming;
+    });
+
+    const isUnknownPlayer = (code: string): boolean => Boolean(code)
+      && code !== OWN_GOAL_PLAYER_CODE
+      && code !== coach
+      && !starters.has(code)
+      && !subs.has(code)
+      && !incomingPlayers.has(code);
+    const hasUnknownPlayer = events.some((event) => {
+      const type = Number(event.TYPE_EVENT);
+      if (EVENT_TYPES_WITHOUT_PLAYER.has(type)) return false;
+      return isUnknownPlayer(readCode(event.JOUEUR1))
+        || (EVENT_TYPES_WITH_ASSIST.has(type) && isUnknownPlayer(readCode(event.JOUEUR2)));
+    });
+
+    issues.set(macleunik, hasSubstitutionIssue || hasUnknownPlayer);
   });
   return issues;
 }
@@ -297,11 +382,15 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
 
   // L'effectif (11 titulaires, aucun joueur en double) se verifie plus lisiblement hors SQL.
   const compoIssues = await getCompoIssuesByMatch();
+  const eventIssues = await getEventIssuesByMatch();
   return rows
     .map((row) => ({
       ...row,
       EFFECTIF_KO: Number(row.ETAT) === 3 && row.MACLEUNIK != null
         ? Number(compoIssues.get(Number(row.MACLEUNIK)) ?? true)
+        : 0,
+      EVENEMENTS_INCOHERENTS: Number(row.ETAT) === 3 && row.MACLEUNIK != null
+        ? Number(eventIssues.get(Number(row.MACLEUNIK)) ?? false)
         : 0,
     }))
     .filter((row) => RENCONTRE_INCOMPLETE_FLAGS.some((flag) => Number(row[flag]) === 1));
