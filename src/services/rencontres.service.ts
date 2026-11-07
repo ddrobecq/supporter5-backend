@@ -2650,6 +2650,9 @@ const COMPO_FIELDS = [
 
 const STARTER_FIELDS = COMPO_FIELDS.filter((field) => !field.startsWith('REMP') && field !== 'ENTRAINEUR');
 
+/** Poste.POS_ID du poste "Entraineur" : ligne staff prioritaire pour les matchs dirigés. */
+const COACH_POSTE_ID = 5;
+
 interface PlayerMatchTotals {
   TITULAIRETOTAL: number;
   REMPTOTAL: number;
@@ -2737,6 +2740,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
     duration: number;
     extratime: boolean;
     starters: Set<string>;
+    coaches: Set<string>;
     eventIds: Set<number>;
     events: Array<Record<string, unknown>>;
   }>();
@@ -2751,6 +2755,7 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
         duration: Math.max(1, toInt(row.MATCH_DURATION, 90)),
         extratime: toInt(row.MATCH_EXTRATIME) === 1,
         starters: new Set<string>(),
+        coaches: new Set<string>(),
         eventIds: new Set<number>(),
         events: [],
       };
@@ -2763,6 +2768,8 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
         match!.starters.add(playerId);
       }
     });
+    const coachId = toText(row.ENTRAINEUR);
+    if (coachId) match.coaches.add(coachId);
     const evcleunik = toInt(row.EVCLEUNIK);
     // La jointure EQUIPE x EVENT peut repeter le meme evenement: on ne le garde qu'une fois.
     if (evcleunik && !match.eventIds.has(evcleunik)) {
@@ -2771,7 +2778,16 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
     }
   });
 
+  const coachedMatchesByPlayer = new Map<string, number>();
+  // Cartons recus hors joueurs du match, comptes sur une ligne staff : par l'entraineur du match
+  // (staffCardsByPlayer) ou par une autre personne du banc (benchCardsByPlayer).
+  const staffCardsByPlayer = new Map<string, PlayerMatchTotals>();
+  const benchCardsByPlayer = new Map<string, PlayerMatchTotals>();
   matches.forEach((match) => {
+    match.coaches.forEach((coachId) => {
+      coachedMatchesByPlayer.set(coachId, (coachedMatchesByPlayer.get(coachId) ?? 0) + 1);
+    });
+
     // Temps additionnel (TYPE_EVENT=10) : allonge la duree du match pour les joueurs
     // presents jusqu'au bout d'une periode (titulaires/entrants jamais sortis).
     // Les periodes 3/4 (prolongation) ne comptent que si le match a EXTRATIME=1.
@@ -2786,9 +2802,31 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
     });
     if (extraMinutes > 0) match.duration += extraMinutes;
 
+    // Joueurs du match : titulaires et entrants. Eux seuls recoivent des stats de joueur.
+    const matchPlayers = new Set<string>(match.starters);
+    match.events.forEach((event) => {
+      if (toInt(event.ADVERSAIRE) !== 0 || toInt(event.TYPE_EVENT) !== 2) return;
+      const joueur1 = toText(event.JOUEUR1);
+      const joueur2 = toText(event.JOUEUR2);
+      if (joueur1 && joueur2) matchPlayers.add(joueur2);
+    });
+    const addMatchPlayerTotals = (playerId: string, update: (totals: PlayerMatchTotals) => void) => {
+      if (matchPlayers.has(playerId)) addPlayerMatchTotals(totalsByPlayer, playerId, update);
+    };
+    const addCard = (playerId: string, field: 'JAUNETOTAL' | 'ROUGETOTAL') => {
+      if (matchPlayers.has(playerId)) {
+        addPlayerMatchTotals(totalsByPlayer, playerId, (totals) => { totals[field] += 1; });
+      } else {
+        const cards = match.coaches.has(playerId) ? staffCardsByPlayer : benchCardsByPlayer;
+        addPlayerMatchTotals(cards, playerId, (totals) => { totals[field] += 1; });
+      }
+    };
+
     // Temps de jeu calcule match par match (intervalle entree -> sortie), puis cumule sur la saison.
+    // Seuls les joueurs du match ont un intervalle : pas de minutes fictives pour un non-joueur.
     const spans = new Map<string, { start: number; end: number }>();
     const markExit = (playerId: string, minute: number) => {
+      if (!matchPlayers.has(playerId)) return;
       const span = spans.get(playerId);
       if (span) span.end = Math.min(span.end, minute);
       else spans.set(playerId, { start: 0, end: minute });
@@ -2822,17 +2860,17 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
       }
 
       if ((typeEvent === 1 || (typeEvent === 7 && toInt(event.PERIODE) !== 5)) && joueur1) {
-        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.BUTTOTAL += 1; });
+        addMatchPlayerTotals(joueur1, (totals) => { totals.BUTTOTAL += 1; });
         if (joueur2) {
-          addPlayerMatchTotals(totalsByPlayer, joueur2, (totals) => { totals.PASSETOTAL += 1; });
+          addMatchPlayerTotals(joueur2, (totals) => { totals.PASSETOTAL += 1; });
         }
       }
-      if (typeEvent === 3 || typeEvent === 4) {
-        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.JAUNETOTAL += 1; });
+      if ((typeEvent === 3 || typeEvent === 4) && joueur1) {
+        addCard(joueur1, 'JAUNETOTAL');
       }
-      if (typeEvent === 4 || typeEvent === 5) {
-        addPlayerMatchTotals(totalsByPlayer, joueur1, (totals) => { totals.ROUGETOTAL += 1; });
-        if (joueur1) markExit(joueur1, minute);
+      if ((typeEvent === 4 || typeEvent === 5) && joueur1) {
+        addCard(joueur1, 'ROUGETOTAL');
+        markExit(joueur1, minute);
       }
     });
 
@@ -2857,15 +2895,39 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
       WHERE "SAISON" = ?`,
     ).run(normalizedSeason);
 
-    if (totalsByPlayer.size === 0) return;
+    if (
+      totalsByPlayer.size === 0
+      && coachedMatchesByPlayer.size === 0
+      && staffCardsByPlayer.size === 0
+      && benchCardsByPlayer.size === 0
+    ) return;
+
+  // Ligne "joueur" : poste de type 1, ou poste inconnu de la table Poste.
+  const seasonRows = db.prepare(
+    `SELECT j."JOCLEUNIK", j."IDJOUEUR", j."POSTE",
+            CASE WHEN p."POS_ID" IS NULL OR p."POS_TYPE" = 1 THEN 1 ELSE 0 END AS "IS_PLAYER_ROW"
+     FROM "JOUEUR" j
+     LEFT JOIN "Poste" p ON p."POS_ID" = j."POSTE"
+     WHERE j."SAISON" = ?
+     ORDER BY j."JOCLEUNIK" ASC`,
+  ).all(normalizedSeason) as Array<{ JOCLEUNIK: number; IDJOUEUR: unknown; POSTE: number; IS_PLAYER_ROW: number }>;
+
+  const rowsByPlayer = new Map<string, Array<{ id: number; poste: number; isPlayerRow: boolean }>>();
+  seasonRows.forEach((row) => {
+    const playerId = toText(row.IDJOUEUR);
+    if (!playerId) return;
+    const rows = rowsByPlayer.get(playerId) ?? [];
+    rows.push({ id: row.JOCLEUNIK, poste: toInt(row.POSTE), isPlayerRow: row.IS_PLAYER_ROW === 1 });
+    rowsByPlayer.set(playerId, rows);
+  });
 
   const update = db.prepare(
     `UPDATE "JOUEUR" SET
        "BUTTOTAL" = ?, "PASSETOTAL" = ?, "JAUNETOTAL" = ?, "ROUGETOTAL" = ?,
        "TITULAIRETOTAL" = ?, "REMPTOTAL" = ?, "TEMPSTOTAL" = ?
-     WHERE "SAISON" = ? AND "IDJOUEUR" = ?`,
+     WHERE "JOCLEUNIK" = ?`,
   );
-  totalsByPlayer.forEach((totals, playerId) => {
+  const writeTotals = (rowId: number, totals: PlayerMatchTotals) => {
     update.run(
       totals.BUTTOTAL,
       totals.PASSETOTAL,
@@ -2874,9 +2936,40 @@ function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
       totals.TITULAIRETOTAL,
       totals.REMPTOTAL,
       totals.TEMPSTOTAL,
-      normalizedSeason,
-      playerId,
+      rowId,
     );
+  };
+
+  rowsByPlayer.forEach((rows, playerId) => {
+    const playerTotals = totalsByPlayer.get(playerId);
+    const hasPlayerRow = rows.some((row) => row.isPlayerRow);
+    if (playerTotals && !hasPlayerRow) {
+      // Pas de ligne de type joueur : on conserve les stats de joueur sur les lignes existantes.
+      rows.forEach((row) => writeTotals(row.id, playerTotals));
+      return;
+    }
+    if (playerTotals) {
+      rows.filter((row) => row.isPlayerRow).forEach((row) => writeTotals(row.id, playerTotals));
+    }
+
+    // Stats staff ecrites sur une seule ligne staff (rows est trie par JOCLEUNIK) :
+    // ligne "Entraineur" en priorite pour ce qui releve de l'ENTRAINEUR du match, sinon la premiere ligne staff.
+    const staffRows = rows.filter((row) => !row.isPlayerRow);
+    if (staffRows.length === 0) return;
+    const firstStaffRow = staffRows[0];
+    const coachRow = staffRows.find((row) => row.poste === COACH_POSTE_ID) ?? firstStaffRow;
+    const staffTotalsByRow = new Map<number, PlayerMatchTotals>();
+    const addStaffTotals = (rowId: number, titulaire: number, cards: PlayerMatchTotals | undefined) => {
+      if (titulaire === 0 && !cards) return;
+      const totals = staffTotalsByRow.get(rowId) ?? emptyPlayerMatchTotals();
+      totals.TITULAIRETOTAL += titulaire;
+      totals.JAUNETOTAL += cards?.JAUNETOTAL ?? 0;
+      totals.ROUGETOTAL += cards?.ROUGETOTAL ?? 0;
+      staffTotalsByRow.set(rowId, totals);
+    };
+    addStaffTotals(coachRow.id, coachedMatchesByPlayer.get(playerId) ?? 0, staffCardsByPlayer.get(playerId));
+    addStaffTotals(firstStaffRow.id, 0, benchCardsByPlayer.get(playerId));
+    staffTotalsByRow.forEach((totals, rowId) => writeTotals(rowId, totals));
   });
 }
 
