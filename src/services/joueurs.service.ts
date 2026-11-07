@@ -4,6 +4,7 @@ import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
+import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
@@ -426,11 +427,19 @@ export async function getJoueurByIdWithVille(id: string | number): Promise<Recor
   );
 }
 
-export async function getJoueursGridBySeason(season: string, search: string, posType = 1): Promise<JoueurGridRow[]> {
+/** Hard row limit of the unpaginated players grid (75 rows max per season in the dev database, 2026-11). */
+const JOUEURS_GRID_MAX_ROWS = 2_000;
+
+export async function getJoueursGridBySeason(
+  season: string,
+  search: string,
+  posType = 1,
+  pagination?: GridPagination,
+): Promise<GridPageResult<JoueurGridRow>> {
   const normalizedSearch = search.trim().toLowerCase();
   const likeSearch = `%${normalizedSearch}%`;
 
-  return dbAll<JoueurGridRow>(
+  return fetchGridPage<JoueurGridRow>(
     `SELECT
       j.JOCLEUNIK,
       j.IDJOUEUR,
@@ -469,6 +478,8 @@ export async function getJoueursGridBySeason(season: string, search: string, pos
        )
      ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
     [season, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
+    pagination,
+    JOUEURS_GRID_MAX_ROWS,
   );
 }
 

@@ -5,6 +5,7 @@ import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { normalizeDayDate } from '../lib/dates';
+import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** CLUB_NOM = historique des noms de clubs */
@@ -64,9 +65,10 @@ export interface ClubPalmareRow {
   ANNEES: string[];
 }
 
-export interface ClubsGridResponse {
-  data: ClubGridRow[];
-}
+export type ClubsGridResponse = GridPageResult<ClubGridRow>;
+
+/** Hard row limit of the unpaginated clubs grid (2 756 clubs in the dev database, 2026-11). */
+const CLUBS_GRID_MAX_ROWS = 10_000;
 
 export interface ClubSuggestionsResponse {
   data: ClubSuggestionRow[];
@@ -248,11 +250,11 @@ function computeApproxScore(
   return { score, bestDistance };
 }
 
-export async function getClubsGrid(search: string): Promise<ClubsGridResponse> {
+export async function getClubsGrid(search: string, pagination?: GridPagination): Promise<ClubsGridResponse> {
   const normalizedSearch = search.trim().toLowerCase();
   const likeSearch = `%${normalizedSearch}%`;
   const params = [normalizedSearch, likeSearch, likeSearch];
-  const data = await dbAll<ClubGridRow>(
+  return fetchGridPage<ClubGridRow>(
     `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
@@ -274,9 +276,9 @@ export async function getClubsGrid(search: string): Promise<ClubsGridResponse> {
      )
      ORDER BY c.CLUB ASC, c.IDCLUB ASC`,
     params,
+    pagination,
+    CLUBS_GRID_MAX_ROWS,
   );
-
-  return { data };
 }
 
 export async function getClubGridById(id: string): Promise<ClubGridRow | undefined> {

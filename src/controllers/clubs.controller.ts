@@ -1,5 +1,6 @@
 import { createEntityController } from '../lib/controllerFactory';
 import { parseSuggestQuery } from '../lib/requestQuery';
+import { parseGridPagination } from '../lib/gridPagination';
 import { sendNotFound } from '../lib/responseHelpers';
 import clubsService from '../services/clubs.service';
 import type { NextFunction, Request, Response } from 'express';
@@ -9,7 +10,7 @@ const baseController = createEntityController(clubsService);
 export async function getClubsGrid(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
 		const search = String(req.query.search ?? '').trim();
-		const result = await clubsService.getClubsGrid(search);
+		const result = await clubsService.getClubsGrid(search, parseGridPagination(req.query));
 		res.status(200).json(result);
 	} catch (error) {
 		next(error);

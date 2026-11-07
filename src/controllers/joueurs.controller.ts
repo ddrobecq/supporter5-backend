@@ -1,5 +1,6 @@
 import { createEntityController } from '../lib/controllerFactory';
 import { parseSuggestQuery } from '../lib/requestQuery';
+import { parseGridPagination } from '../lib/gridPagination';
 import { sendNotFound } from '../lib/responseHelpers';
 import joueursService from '../services/joueurs.service';
 import { AppError } from '../types';
@@ -17,8 +18,8 @@ export async function getJoueursGrid(req: Request, res: Response, next: NextFunc
 		const search = String(req.query.search ?? '').trim();
 		const posTypeRaw = req.query.posType;
 		const posType = posTypeRaw != null ? parseInt(String(posTypeRaw), 10) : undefined;
-		const data = await joueursService.getJoueursGridBySeason(season, search, posType);
-		res.status(200).json({ data });
+		const result = await joueursService.getJoueursGridBySeason(season, search, posType, parseGridPagination(req.query));
+		res.status(200).json(result);
 	} catch (error) {
 		next(error);
 	}
