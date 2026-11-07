@@ -1,9 +1,12 @@
 import { XMLParser } from 'fast-xml-parser';
 import db, { dbAll, dbGet } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
+import { isHttpUrl, safeFetch } from '../lib/safeFetch';
 
 const MAX_ARTICLES = 8;
 const RSS_FETCH_TIMEOUT_MS = 8_000;
+const MAX_FEED_BYTES = 5_000_000;
+const MAX_IMAGE_BYTES = 5_000_000;
 
 interface RssSource { RSSID: number; RSSURL: string; RSSDescription: string | null; }
 interface ClubRow { CLUB: string | null; }
@@ -103,7 +106,7 @@ function readImageUrl(item: Record<string, unknown>): string {
     const record = candidate as Record<string, unknown>;
     const url = String(record['@_url'] ?? record['@_href'] ?? '').trim();
     const mimeType = String(record['@_type'] ?? '').toLowerCase();
-    if (url && (!mimeType || mimeType.startsWith('image/'))) return url;
+    if (isHttpUrl(url) && (!mimeType || mimeType.startsWith('image/'))) return url;
   }
   return '';
 }
@@ -117,7 +120,9 @@ function parseFeed(xml: string): ParsedFeedItem[] {
     if (!rawItem || typeof rawItem !== 'object') return [];
     const item = rawItem as Record<string, unknown>;
     const titre = readText(item.title);
-    const lien = readAtomLink(item.link);
+    // Only http(s) links are kept: the link is rendered as-is in the public site.
+    const rawLien = readAtomLink(item.link);
+    const lien = isHttpUrl(rawLien) ? rawLien : '';
     const publieLe = parseDate(item.pubDate ?? item.published ?? item.updated ?? item['dc:date']);
     const extrait = cleanExcerpt(readText(item.description ?? item.summary ?? item.content ?? item['content:encoded']));
     return titre && lien && publieLe ? [{ titre, lien, publieLe, extrait, imageUrl: readImageUrl(item) }] : [];
@@ -179,10 +184,13 @@ async function getClubCompetitionNames(): Promise<string[]> {
 }
 
 async function fetchSource(source: RssSource): Promise<ParsedFeedItem[]> {
-  const url = new URL(source.RSSURL);
-  if (url.protocol !== 'https:' && url.protocol !== 'http:') return [];
-  const response = await fetch(url, { signal: AbortSignal.timeout(RSS_FETCH_TIMEOUT_MS), headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml' } });
-  return response.ok ? parseFeed(await response.text()) : [];
+  if (!isHttpUrl(source.RSSURL)) return [];
+  const response = await safeFetch(source.RSSURL, {
+    accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+    maxBytes: MAX_FEED_BYTES,
+    timeoutMs: RSS_FETCH_TIMEOUT_MS,
+  });
+  return parseFeed(response.body.toString('utf8'));
 }
 
 async function loadActualites(): Promise<Actualite[]> {
@@ -215,17 +223,17 @@ async function loadActualites(): Promise<Actualite[]> {
 }
 
 async function downloadImage(urlValue: string | undefined): Promise<Buffer | null> {
-  if (!urlValue) return null;
+  if (!urlValue || !isHttpUrl(urlValue)) return null;
   try {
-    const url = new URL(urlValue);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
-    const response = await fetch(url, { signal: AbortSignal.timeout(RSS_FETCH_TIMEOUT_MS), headers: { Accept: 'image/*' } });
-    const contentType = String(response.headers.get('content-type') ?? '').toLowerCase();
-    const contentLength = Number(response.headers.get('content-length') ?? 0);
-    if (!response.ok || !contentType.startsWith('image/') || contentLength > 5_000_000) return null;
-    const image = Buffer.from(await response.arrayBuffer());
-    return image.length > 0 && image.length <= 5_000_000 ? image : null;
-  } catch {
+    const { body } = await safeFetch(urlValue, {
+      accept: 'image/*',
+      maxBytes: MAX_IMAGE_BYTES,
+      timeoutMs: RSS_FETCH_TIMEOUT_MS,
+      isAcceptedContentType: (contentType) => contentType.startsWith('image/'),
+    });
+    return body.length > 0 ? body : null;
+  } catch (error) {
+    console.warn(`[news] image ignoree (${urlValue}): ${error instanceof Error ? error.message : String(error)}`);
     return null;
   }
 }
