@@ -2,6 +2,7 @@ import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { sanitizeImageFields } from '../lib/imageUpload';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 const sanitizeFields = createFieldSanitizer(
@@ -10,7 +11,7 @@ const sanitizeFields = createFieldSanitizer(
 );
 
 function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-  const clean = sanitizeFields(body, includePk);
+  const clean = sanitizeImageFields('EPREUVE', sanitizeFields(body, includePk));
 
   if (typeof clean.EPREUVE === 'string') {
     clean.EPREUVE = clean.EPREUVE.trim();

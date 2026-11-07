@@ -3,6 +3,7 @@ import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
+import { sanitizeImageFields } from '../lib/imageUpload';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 const sanitizeFields = createFieldSanitizer(
@@ -18,7 +19,7 @@ function sanitize(body: Record<string, unknown>, includePk: boolean): Record<str
   }
   delete source.CO_COMMENT;
 
-  const clean = sanitizeFields(source, includePk);
+  const clean = sanitizeImageFields('COMPET', sanitizeFields(source, includePk));
 
   if (typeof clean.NOM === 'string') {
     clean.NOM = clean.NOM.trim();

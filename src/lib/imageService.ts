@@ -1,5 +1,6 @@
 import { dbGet, dbRun } from '../config/database';
 import { IMAGE_CONFIGS, type ImageConfig } from './imageConfig';
+import { prepareImageForStorage } from './imageUpload';
 
 export interface ImageResult {
   buffer: Buffer;
@@ -16,6 +17,7 @@ function detectMimeType(buf: Buffer): string {
     buf[2] === 0x4e && buf[3] === 0x47
   ) return 'image/png';
   if (buf.length >= 3 && buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+  if (buf.length >= 12 && buf.toString('latin1', 0, 4) === 'RIFF' && buf.toString('latin1', 8, 12) === 'WEBP') return 'image/webp';
   const head = buf
     .slice(0, 512)
     .toString('utf8')
@@ -101,13 +103,6 @@ function toBuffer(raw: unknown): Buffer | null {
   return null;
 }
 
-function normalizeImageInput(value: unknown): Buffer | null {
-  if (value === null || value === undefined || value === '') {
-    return null;
-  }
-  return toBuffer(value);
-}
-
 /** Retourne l'image d'une entité ou null si absente. */
 export async function getEntityImage(
   entityType: string,
@@ -160,7 +155,7 @@ export async function setEntityImage(
     return false;
   }
 
-  const buffer = normalizeImageInput(imageValue);
+  const buffer = prepareImageForStorage(imageValue);
 
   await dbRun(
     `UPDATE ${config.table} SET ${config.field} = ? WHERE ${config.pk} = ?`,

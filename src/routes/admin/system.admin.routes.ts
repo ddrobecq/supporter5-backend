@@ -5,13 +5,15 @@ import os from 'node:os';
 import path from 'node:path';
 import ctrl from '../../controllers/system.controller';
 import { AppError } from '../../types';
+import { UPLOAD_LIMITS } from '../../config/uploadLimits';
 
 const router = Router();
 
 function getUploadMaxBytes(): number {
   const configuredMb = Number.parseInt(process.env.SQLITE_UPLOAD_MAX_MB ?? '', 10);
-  const mb = Number.isFinite(configuredMb) && configuredMb > 0 ? configuredMb : 512;
-  return mb * 1024 * 1024;
+  return Number.isFinite(configuredMb) && configuredMb > 0
+    ? configuredMb * 1024 * 1024
+    : UPLOAD_LIMITS.sqliteDatabaseBytes;
 }
 
 function resolveUploadTempDir(): string {

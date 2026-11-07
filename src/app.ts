@@ -4,6 +4,8 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import routes from './routes/index';
 import { errorMiddleware } from './middlewares/error.middleware';
+import { jsonBody } from './middlewares/jsonBody.middleware';
+import { DEFAULT_JSON_BODY_LIMIT_BYTES } from './config/uploadLimits';
 import { getSitemapXml } from './services/sitemap.service';
 
 dotenv.config();
@@ -27,7 +29,23 @@ app.use(
 );
 
 // Parsing
-app.use(express.json({ limit: '1mb' }));
+// These admin routers parse their own JSON body with a larger limit, after the JWT check
+// (see their route files); every other route keeps the default 1 MB limit.
+const OWN_JSON_PARSER_PREFIXES = [
+  '/api/admin/images',
+  '/api/admin/epreuves',
+  '/api/admin/competitions',
+  '/api/admin/import/rencontres',
+];
+const defaultJsonBody = jsonBody(DEFAULT_JSON_BODY_LIMIT_BYTES);
+app.use((req, res, next) => {
+  const path = req.path.toLowerCase();
+  if (OWN_JSON_PARSER_PREFIXES.some((prefix) => path === prefix || path.startsWith(`${prefix}/`))) {
+    next();
+    return;
+  }
+  defaultJsonBody(req, res, next);
+});
 
 // Santé
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));

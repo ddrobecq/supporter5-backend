@@ -2,6 +2,7 @@ import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { AppError, QueryParams, PaginatedResult } from '../types';
 import { sanitizeSort, buildWhere } from './queryBuilder';
 import { normalizeDayDateFields } from './dates';
+import { sanitizeImageFields } from './imageUpload';
 
 function normalizeSearchText(value: string): string {
   return value
@@ -92,7 +93,8 @@ export function createWritableFieldPicker(table: string, pk: string) {
       if (!options.allowPk && folded === foldedPk) continue;
       picked[realName] = value;
     }
-    return picked;
+    // Image columns (IMAGE_CONFIGS) are validated, size-limited and SVG-sanitized before any write.
+    return sanitizeImageFields(table, picked);
   };
 }
 

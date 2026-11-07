@@ -2,8 +2,13 @@ import { Router } from 'express';
 import ctrl, { createCompetitionWithWizard } from '../../controllers/competition.controller';
 import { checkCompetitionIntegrity } from '../../lib/integrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
+import { jsonBody } from '../../middlewares/jsonBody.middleware';
+import { IMAGE_JSON_BODY_LIMIT_BYTES } from '../../config/uploadLimits';
 
 const router = Router();
+
+// LOGO is sent as a data URL (global JSON parser skipped for this prefix in app.ts).
+router.use(jsonBody(IMAGE_JSON_BODY_LIMIT_BYTES));
 
 router.post('/', ctrl.create);
 router.post('/wizard-create', createCompetitionWithWizard);
