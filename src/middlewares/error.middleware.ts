@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { AppError } from '../types';
 
+const INTERNAL_ERROR_ENVIRONMENTS = new Set(['development', 'debug']);
+
 function maskSensitiveKey(key: string, value: unknown): unknown {
   const normalized = key.toLowerCase();
   if (normalized.includes('password') || normalized.includes('token') || normalized.includes('secret') || normalized.includes('authorization')) {
@@ -71,7 +73,8 @@ export function errorMiddleware(
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
-  const isProduction = process.env.NODE_ENV === 'production';
+  // Internal error details are only exposed in explicit development/debug environments.
+  const exposeInternalErrors = INTERNAL_ERROR_ENVIRONMENTS.has(process.env.NODE_ENV ?? '');
 
   if (err instanceof AppError) {
     const appErrorAsError = err as unknown as Error;
@@ -81,8 +84,8 @@ export function errorMiddleware(
   }
 
   if (err instanceof Error) {
-    if (!isProduction) {
-      // Keep verbose diagnostics in non-production environments.
+    if (exposeInternalErrors) {
+      // Keep verbose diagnostics in development/debug environments.
       console.error('[errorMiddleware]', err);
     }
 
@@ -102,14 +105,14 @@ export function errorMiddleware(
     logServerError(req, err, status, isConstraintError);
     if (isConstraintError) {
       res.status(status).json({
-        message: isProduction
-          ? 'Operation impossible: contrainte d integrite.'
-          : err.message,
+        message: exposeInternalErrors
+          ? err.message
+          : 'Operation impossible: contrainte d integrite.',
       });
       return;
     }
 
-    res.status(status).json({ message: isProduction ? 'Internal server error' : err.message });
+    res.status(status).json({ message: exposeInternalErrors ? err.message : 'Internal server error' });
     return;
   }
 
