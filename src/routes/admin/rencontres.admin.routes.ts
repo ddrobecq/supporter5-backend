@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import ctrl, { setArbitre, setMatchMeta } from '../../controllers/rencontres.controller';
+import ctrl, { setArbitre, setMatchMeta, saveComposition, createEvent, updateEvent, deleteEvent, recomputeStats } from '../../controllers/rencontres.controller';
 const router = Router();
 router.post('/',       ctrl.createWithImpact);
 router.put('/:id',    ctrl.updateWithImpact);
@@ -8,4 +8,9 @@ router.delete('/bulk', ctrl.bulkDelete);
 router.delete('/:id', ctrl.removeWithImpact);
 router.put('/:id/arbitre', setArbitre);
 router.put('/:id/match-meta', setMatchMeta);
+router.put('/:id/composition', saveComposition);
+router.post('/:id/events', createEvent);
+router.put('/:id/events/:evid', updateEvent);
+router.delete('/:id/events/:evid', deleteEvent);
+router.post('/:id/recompute-stats', recomputeStats);
 export default router;
