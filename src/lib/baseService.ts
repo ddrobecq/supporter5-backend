@@ -1,6 +1,7 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { AppError, QueryParams, PaginatedResult } from '../types';
 import { sanitizeSort, buildWhere } from './queryBuilder';
+import { normalizeDayDateFields } from './dates';
 
 function normalizeSearchText(value: string): string {
   return value
@@ -96,7 +97,8 @@ export function createEntityService(config: EntityConfig) {
     return dbGet(`SELECT ${selectClause} FROM ${tableSql} WHERE ${pkRef} = ?`, [id]);
   }
 
-  async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  async function create(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+    const body = normalizeDayDateFields(table, rawBody);
     const keys = Object.keys(body);
     if (!keys.length) throw new AppError(400, 'No fields provided');
     const cols   = keys.map((c) => `"${c}"`).join(', ');
@@ -113,7 +115,8 @@ export function createEntityService(config: EntityConfig) {
     return undefined;
   }
 
-  async function update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  async function update(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+    const body = normalizeDayDateFields(table, rawBody);
     const keys = Object.keys(body);
     if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
@@ -121,8 +124,9 @@ export function createEntityService(config: EntityConfig) {
     return getById(id);
   }
 
-  async function bulkUpdate(ids: (string | number)[], body: Record<string, unknown>): Promise<number> {
+  async function bulkUpdate(ids: (string | number)[], rawBody: Record<string, unknown>): Promise<number> {
     if (!ids.length) return 0;
+    const body = normalizeDayDateFields(table, rawBody);
     const keys = Object.keys(body);
     if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets   = keys.map((c) => `"${c}" = ?`).join(', ');

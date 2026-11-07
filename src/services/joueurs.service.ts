@@ -3,6 +3,7 @@ import { createEntityService } from '../lib/baseService';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
+import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
@@ -235,7 +236,8 @@ async function getJoueurRgById(id: string | number): Promise<Record<string, unkn
   );
 }
 
-async function createJoueurRg(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+async function createJoueurRg(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const body = normalizeDayDateFields(JOUEURRG_TABLE, rawBody);
   const keys = Object.keys(body);
   if (!keys.length) {
     throw new AppError(400, 'No fields provided');
@@ -259,7 +261,8 @@ async function createJoueurRg(body: Record<string, unknown>): Promise<Record<str
   return undefined;
 }
 
-async function updateJoueurRg(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+async function updateJoueurRg(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const body = normalizeDayDateFields(JOUEURRG_TABLE, rawBody);
   const keys = Object.keys(body);
   if (!keys.length) {
     throw new AppError(400, 'No fields provided');
@@ -341,34 +344,13 @@ async function resolveNextJoueurId(): Promise<string> {
   return String(nextId).padStart(4, '0');
 }
 
-function normalizeNaissance(value: string | null | undefined): string {
-  const raw = String(value ?? '').trim();
-  if (!raw) {
-    return '';
-  }
-
-  const iso = raw.match(/^\d{4}-\d{2}-\d{2}$/)
-    ? raw
-    : raw.match(/^\d{4}\/\d{2}\/\d{2}$/)
-      ? raw.replace(/\//g, '-')
-      : raw.match(/^\d{2}\/\d{2}\/\d{4}$/)
-        ? `${raw.slice(6, 10)}-${raw.slice(3, 5)}-${raw.slice(0, 2)}`
-        : null;
-
-  if (!iso) {
-    throw new AppError(400, 'La date de naissance est invalide.');
-  }
-
-  return iso;
-}
-
 export async function createJoueurWithWizard(payload: { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string }): Promise<Record<string, unknown> | undefined> {
   const nom = String(payload.nom ?? '').trim().toUpperCase();
   const prenom = String(payload.prenom ?? '').trim();
   const alias = String(payload.alias ?? '').trim();
   const natioId = String(payload.natioId ?? '').trim().toUpperCase();
   const posteId = Number(payload.posteId);
-  const naissance = normalizeNaissance(payload.naissance);
+  const naissance = normalizeDayDate(payload.naissance, { field: 'de naissance' });
 
   if (!nom) throw new AppError(400, 'Nom requis.');
   if (!natioId) throw new AppError(400, 'Nationalite requise.');
@@ -617,23 +599,6 @@ function normalizeTransactionId(transactionId: string | number): number {
   return rowId;
 }
 
-function normalizeIsoDate(value: unknown, fieldName: string): string {
-  const text = String(value ?? '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    throw new AppError(400, `${fieldName} invalide (format yyyy-mm-dd).`);
-  }
-  return text;
-}
-
-function normalizeOptionalIsoDate(value: unknown): string | null {
-  const text = String(value ?? '').trim();
-  if (!text) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    throw new AppError(400, 'Date d echeance invalide (format yyyy-mm-dd).');
-  }
-  return text;
-}
-
 function seasonFromDate(isoDate: string): string {
   const year = Number(isoDate.slice(0, 4));
   const month = Number(isoDate.slice(5, 7));
@@ -811,7 +776,7 @@ export async function createJoueurTransactionById(
   const joueurId = normalizeJoueurId(idJoueur);
   await ensureJoueurExists(joueurId);
 
-  const date = normalizeIsoDate(payload.date, 'Date');
+  const date = normalizeDayDate(payload.date, { required: true, field: 'de la transaction' });
   const season = seasonFromDate(date);
   const typeId = Number(payload.type);
   if (!Number.isInteger(typeId) || typeId <= 0) {
@@ -841,8 +806,8 @@ export async function createJoueurTransactionById(
     : 0;
 
   const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
-    ? normalizeOptionalIsoDate(payload.echeance)
-    : null;
+    ? normalizeDayDate(payload.echeance, { field: "d'échéance" })
+    : '';
 
   await dbRun(
     `INSERT INTO TRANSAC (
@@ -899,7 +864,7 @@ export async function updateJoueurTransactionById(
     return undefined;
   }
 
-  const date = normalizeIsoDate(payload.date, 'Date');
+  const date = normalizeDayDate(payload.date, { required: true, field: 'de la transaction' });
   const season = seasonFromDate(date);
   const typeId = Number(payload.type);
   if (!Number.isInteger(typeId) || typeId <= 0) {
@@ -929,8 +894,8 @@ export async function updateJoueurTransactionById(
     : 0;
 
   const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
-    ? normalizeOptionalIsoDate(payload.echeance)
-    : null;
+    ? normalizeDayDate(payload.echeance, { field: "d'échéance" })
+    : '';
 
   await dbRun(
     `UPDATE TRANSAC

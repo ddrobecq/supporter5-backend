@@ -2,6 +2,7 @@ import db, { dbAll } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
+import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import { buildCircCompletResolver, type CircCompletSourceRow } from '../lib/circComplet';
 
@@ -1796,7 +1797,7 @@ function assertValidRencontreBody(body: Record<string, unknown>): void {
 async function createWithImpact(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
   assertValidRencontreBody(body);
 
-  const payload = { ...body };
+  const payload = normalizeDayDateFields('RENCO', body);
   if (Object.prototype.hasOwnProperty.call(payload, 'IDCIRC')) {
     payload.IDCIRC = normalizeOptionalText(payload.IDCIRC);
   }
@@ -1848,7 +1849,7 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     throw new AppError(400, 'Identifiant de rencontre invalide.');
   }
 
-  const normalizedBody = { ...body };
+  const normalizedBody = normalizeDayDateFields('RENCO', body);
   if (Object.prototype.hasOwnProperty.call(normalizedBody, 'IDCIRC')) {
     normalizedBody.IDCIRC = normalizeOptionalText(normalizedBody.IDCIRC);
   }
@@ -1978,12 +1979,9 @@ export async function importRencontresForTour(
   }
 
   const prepared = rows.map((row, index) => {
-    const date = toText(row.DATE);
+    const date = normalizeDayDate(row.DATE, { required: true, field: `de la ligne ${index + 1}` });
     const domicile = toText(row.DOMICILE);
     const exterieur = toText(row.EXTERIEUR);
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      throw new AppError(400, `Ligne ${index + 1}: date invalide.`);
-    }
     if (!domicile || !exterieur) {
       throw new AppError(400, `Ligne ${index + 1}: club domicile ou exterieur non associe.`);
     }
@@ -3045,7 +3043,7 @@ export async function upsertCompositionForRencontre(
 
   const macleunik = toInt(matchRow.MACLEUNIK);
   const saison = toText(matchRow.SAISON);
-  const date = matchRow.DATE == null ? null : toText(matchRow.DATE);
+  const date = normalizeDayDate(matchRow.DATE);
   const opponentCompositionRaw = payload.MACOMPOADVERSAIRE;
   const opponentComposition = opponentCompositionRaw == null ? null : String(opponentCompositionRaw);
   const normalizedOpponentComposition = opponentComposition && opponentComposition.trim() ? opponentComposition : null;

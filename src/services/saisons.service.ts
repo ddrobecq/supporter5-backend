@@ -1,6 +1,7 @@
 import db, { dbGet } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
+import { normalizeDayDate } from '../lib/dates';
 import { clonePreviousCompetition, createCompetitionFromPrevious } from './competition.service';
 import { AppError } from '../types';
 
@@ -12,14 +13,6 @@ const baseService = createEntityService({
   searchCols:      ['SAISON'],
   filterCols:      [],
 });
-
-function normalizeIsoDate(value: unknown, fieldName: string): string {
-  const text = String(value ?? '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    throw new AppError(400, `${fieldName} invalide (format yyyy-mm-dd).`);
-  }
-  return text;
-}
 
 export interface SaisonWizardJoueurInput {
   idJoueur: string;
@@ -41,8 +34,8 @@ export interface SaisonWizardPayload {
 
 export async function createSaisonWithWizard(payload: SaisonWizardPayload): Promise<Record<string, unknown>> {
   const saison = normalizeSaison(payload.saison);
-  const saDebut = normalizeIsoDate(payload.saDebut, 'La date de debut');
-  const saFin = normalizeIsoDate(payload.saFin, 'La date de fin');
+  const saDebut = normalizeDayDate(payload.saDebut, { required: true, field: 'de debut' });
+  const saFin = normalizeDayDate(payload.saFin, { required: true, field: 'de fin' });
 
   if (saFin < saDebut) {
     throw new AppError(400, 'La date de fin doit etre posterieure ou egale a la date de debut.');

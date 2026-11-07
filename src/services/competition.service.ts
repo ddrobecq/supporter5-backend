@@ -2,6 +2,7 @@ import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService, createFieldSanitizer } from '../lib/baseService';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { normalizeSaison } from '../lib/saisonRules';
+import { normalizeDayDate } from '../lib/dates';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 const sanitizeFields = createFieldSanitizer(
@@ -291,14 +292,14 @@ export async function clonePreviousCompetition(
         previousTour.NB_PARTICIPANTS ?? 0,
         newCompetitionId,
         previousTour.NOM ?? '',
-        previousTour.DATE_DEBUT ?? null,
-        previousTour.DATE_FIN ?? null,
+        normalizeDayDate(previousTour.DATE_DEBUT),
+        normalizeDayDate(previousTour.DATE_FIN),
         previousTour.TUHEURE ?? null,
         previousTour.NB_EQUIPE ?? 0,
         previousTour.NB_GROUPE ?? 0,
         previousTour.TU_ORDRE ?? 0,
         previousTour.TU_FINAL ?? 0,
-        previousTour.TU_DATETIRAGE ?? null,
+        normalizeDayDate(previousTour.TU_DATETIRAGE),
         previousTour.TU_HEURETIRAGE ?? null,
         previousTour.TU_SELECTION ?? 0,
         previousTour.TU_COMMENT ?? null,

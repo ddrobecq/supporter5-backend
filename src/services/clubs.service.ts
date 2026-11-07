@@ -4,6 +4,7 @@ import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
+import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
 import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 /** CLUB_NOM = historique des noms de clubs */
@@ -443,7 +444,7 @@ export async function createClubTerrainHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubDate(payload.date);
+  const normalizedDate = normalizeDayDate(payload.date);
   const terrainId = normalizeTerrainId(payload.terrainId);
 
   await dbRun(
@@ -490,7 +491,7 @@ export async function updateClubTerrainHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubDate(payload.date);
+  const normalizedDate = normalizeDayDate(payload.date);
   const terrainId = normalizeTerrainId(payload.terrainId);
 
   await dbRun(
@@ -546,7 +547,7 @@ export async function createClubNameHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubDate(payload.date);
+  const normalizedDate = normalizeDayDate(payload.date);
   const eventType = normalizeClubNameEventType(payload.eventType);
   const name = normalizeText(payload.name);
 
@@ -593,7 +594,7 @@ export async function updateClubNameHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeClubDate(payload.date);
+  const normalizedDate = normalizeDayDate(payload.date);
   const eventType = normalizeClubNameEventType(payload.eventType);
   const name = normalizeText(payload.name);
   if (!name) {
@@ -821,38 +822,6 @@ function normalizeText(value: unknown): string {
   return String(value ?? '').trim();
 }
 
-/**
- * Normalizes a club history date to the database convention "YYYY-MM-DD" ('' when empty).
- * Accepted inputs (legacy clients): YYYY-MM-DD, YYYYMMDD, YYYY/MM/DD, DD/MM/YYYY.
- */
-function normalizeClubDate(value: unknown, invalidMessage = 'La date est invalide.'): string {
-  const text = normalizeText(value);
-  if (!text) {
-    return '';
-  }
-
-  const ymd = text.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-    ?? text.match(/^(\d{4})(\d{2})(\d{2})$/)
-    ?? text.match(/^(\d{4})\/(\d{2})\/(\d{2})$/);
-  const dmy = ymd ? null : text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-
-  let iso: string;
-  if (ymd) {
-    iso = `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
-  } else if (dmy) {
-    iso = `${dmy[3]}-${dmy[2]}-${dmy[1]}`;
-  } else {
-    throw new AppError(400, invalidMessage);
-  }
-
-  const date = new Date(`${iso}T00:00:00Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso) {
-    throw new AppError(400, invalidMessage);
-  }
-
-  return iso;
-}
-
 function normalizeClubNameEventType(value: unknown): number {
   const eventType = Number(value);
   if (!Number.isInteger(eventType) || eventType < 1 || eventType > 3) {
@@ -921,7 +890,7 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   const name = normalizeText(payload.name);
   const natioId = normalizeText(payload.natioId).toUpperCase();
   const isSelection = Boolean(payload.isSelection);
-  const creationDate = normalizeClubDate(payload.creationDate, 'La date de création est invalide.');
+  const creationDate = normalizeDayDate(payload.creationDate, { field: 'de création' });
 
   if (!name) {
     throw new AppError(400, 'Le nom du club est requis.');
@@ -1014,7 +983,8 @@ async function getClubNomById(id: string | number): Promise<Record<string, unkno
   );
 }
 
-async function createClubNom(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+async function createClubNom(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const body = normalizeDayDateFields(CLUB_NOM_TABLE, rawBody);
   const keys = Object.keys(body);
   if (!keys.length) {
     throw new AppError(400, 'No fields provided');
@@ -1038,7 +1008,8 @@ async function createClubNom(body: Record<string, unknown>): Promise<Record<stri
   return undefined;
 }
 
-async function updateClubNom(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+async function updateClubNom(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  const body = normalizeDayDateFields(CLUB_NOM_TABLE, rawBody);
   const keys = Object.keys(body);
   if (!keys.length) {
     throw new AppError(400, 'No fields provided');
