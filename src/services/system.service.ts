@@ -8,6 +8,8 @@ import { AppError } from '../types';
 const ALLOWED_EXTENSIONS = new Set(['.sqlite', '.db']);
 const SQLITE_PENDING_SUFFIX = '.pending-upload';
 const SQLITE_WAL_SIDECAR_SUFFIXES = ['-wal', '-shm'];
+/** First 16 bytes of every SQLite 3 database file. */
+const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
 
 /**
  * Supprime les -wal/-shm laisses par la base precedente. A n'appeler qu'une fois le fichier
@@ -92,29 +94,66 @@ function assertAllowedExtension(originalName: string): void {
   throw new AppError(400, 'Le fichier doit etre une base SQLite (.sqlite ou .db).');
 }
 
+async function readFileHeader(filePath: string, length: number): Promise<Buffer> {
+  const handle = await fs.open(filePath, 'r');
+  try {
+    const header = Buffer.alloc(length);
+    const { bytesRead } = await handle.read(header, 0, length, 0);
+    return header.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+function assertSqliteHeader(header: Buffer): void {
+  if (!header.subarray(0, SQLITE_HEADER.length).equals(SQLITE_HEADER)) {
+    throw new AppError(400, 'Le fichier n est pas une base SQLite valide (en-tete « SQLite format 3 » absent).');
+  }
+}
+
+async function removeUploadedFile(filePath: string): Promise<void> {
+  try {
+    await fs.rm(filePath, { force: true });
+  } catch (error) {
+    console.warn(`[system] Impossible de supprimer le fichier televerse "${filePath}": ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 export async function uploadSqliteDatabase(file: Express.Multer.File): Promise<{ path: string; size: number; restartRequired: true }> {
   if (!file) {
     throw new AppError(400, 'Aucun fichier recu.');
   }
 
-  assertAllowedExtension(file.originalname);
+  const sourcePath = typeof file.path === 'string' && file.path.length > 0 ? file.path : null;
+  let resolvedDbPath: string;
 
-  const resolvedDbPath = resolveDbPath();
-  const dbDirectory = path.dirname(resolvedDbPath);
-  await fs.mkdir(dbDirectory, { recursive: true });
+  try {
+    assertAllowedExtension(file.originalname);
+
+    resolvedDbPath = resolveDbPath();
+    await fs.mkdir(path.dirname(resolvedDbPath), { recursive: true });
+
+    if (sourcePath) {
+      const stats = await fs.stat(sourcePath).catch(() => null);
+      if (!stats || stats.size < 1024) {
+        throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
+      }
+      assertSqliteHeader(await readFileHeader(sourcePath, SQLITE_HEADER.length));
+    } else if (!file.buffer || file.buffer.length < 1024) {
+      throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
+    } else {
+      assertSqliteHeader(file.buffer);
+    }
+  } catch (error) {
+    // A rejected upload must not leave the multer temporary file behind.
+    if (sourcePath) {
+      await removeUploadedFile(sourcePath);
+    }
+    throw error;
+  }
 
   const tempPath = `${resolvedDbPath}.upload-${Date.now()}.tmp`;
   const pendingPath = getPendingUploadPath(resolvedDbPath);
-  const sourcePath = typeof file.path === 'string' && file.path.length > 0 ? file.path : null;
-
-  if (sourcePath) {
-    const stats = await fs.stat(sourcePath).catch(() => null);
-    if (!stats || stats.size < 1024) {
-      throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
-    }
-  } else if (!file.buffer || file.buffer.length < 1024) {
-    throw new AppError(400, 'Fichier SQLite invalide ou trop petit.');
-  }
 
   try {
     if (sourcePath) {

@@ -32,7 +32,7 @@ export interface MaintenanceSelectResult {
 }
 
 export interface MaintenanceMutationResult {
-  kind: 'mutation' | 'script';
+  kind: 'mutation';
   changes: number | null;
   lastInsertRowid: number | string | null;
   durationMs: number;
@@ -52,6 +52,98 @@ function isInsertStatement(sql: string): boolean {
     .replace(/^(\s|--[^\n]*|\/\*[\s\S]*?\*\/)+/, '')
     .trimStart();
   return /^(insert|replace)\b/i.test(withoutLeadingComments);
+}
+
+/** Statements accepted by the console, identified by their first keyword. */
+const ALLOWED_FIRST_KEYWORDS = new Set(['SELECT', 'WITH', 'INSERT', 'REPLACE', 'UPDATE', 'DELETE']);
+
+interface SqlScan {
+  /** SQL with comments removed and string literals emptied; quoted identifiers are kept. */
+  code: string;
+  /** True when something other than whitespace or comments follows the first `;`. */
+  hasContentAfterSeparator: boolean;
+}
+
+/** Returns the index just after the closing quote (a doubled quote is an escaped quote). */
+function findQuoteEnd(sql: string, start: number, quote: string): number {
+  let i = start + 1;
+  while (i < sql.length) {
+    if (sql[i] !== quote) {
+      i += 1;
+    } else if (sql[i + 1] === quote) {
+      i += 2;
+    } else {
+      return i + 1;
+    }
+  }
+  return sql.length;
+}
+
+/** Minimal SQLite lexer: skips comments and literals to locate the statement separator. */
+function scanSql(sql: string): SqlScan {
+  let code = '';
+  let separatorFound = false;
+  let i = 0;
+  while (i < sql.length) {
+    const char = sql[i];
+    const nextChar = sql[i + 1];
+    if (char === '-' && nextChar === '-') {
+      const end = sql.indexOf('\n', i + 2);
+      i = end === -1 ? sql.length : end + 1;
+      code += ' ';
+    } else if (char === '/' && nextChar === '*') {
+      const end = sql.indexOf('*/', i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      code += ' ';
+    } else if (separatorFound) {
+      if (!/\s/.test(char)) {
+        return { code, hasContentAfterSeparator: true };
+      }
+      i += 1;
+    } else if (char === ';') {
+      separatorFound = true;
+      i += 1;
+    } else if (char === "'") {
+      i = findQuoteEnd(sql, i, char);
+      code += "''";
+    } else if (char === '"' || char === '`') {
+      const end = findQuoteEnd(sql, i, char);
+      code += sql.slice(i, end);
+      i = end;
+    } else if (char === '[') {
+      const close = sql.indexOf(']', i + 1);
+      const end = close === -1 ? sql.length : close + 1;
+      code += sql.slice(i, end);
+      i = end;
+    } else {
+      code += char;
+      i += 1;
+    }
+  }
+  return { code, hasContentAfterSeparator: false };
+}
+
+/**
+ * Accepts a single SELECT / WITH / INSERT / REPLACE / UPDATE / DELETE statement.
+ * ATTACH, DETACH, PRAGMA, VACUUM, DDL and transaction statements are rejected: SQLite only
+ * allows them as top-level statements, so they cannot hide behind an allowed first keyword
+ * once a single statement is enforced.
+ */
+function assertAllowedStatement(sql: string): void {
+  const { code, hasContentAfterSeparator } = scanSql(sql);
+  if (hasContentAfterSeparator) {
+    throw new AppError(400, 'Une seule instruction SQL par requete : rien ne doit suivre le « ; » final.');
+  }
+  const firstKeyword = (/^[A-Za-z]+/.exec(code.trimStart())?.[0] ?? '').toUpperCase();
+  if (!ALLOWED_FIRST_KEYWORDS.has(firstKeyword)) {
+    throw new AppError(
+      400,
+      `Instruction non autorisee${firstKeyword ? ` (${firstKeyword})` : ''} : seules SELECT, WITH, INSERT, REPLACE, UPDATE et DELETE sont acceptees.`,
+    );
+  }
+  if (/load_extension/i.test(code)) {
+    throw new AppError(400, 'La fonction load_extension est interdite.');
+  }
 }
 
 function isMultiStatementError(error: unknown): boolean {
@@ -107,25 +199,9 @@ function resolveColumnLabels(names: Array<string | null>): string[] {
   });
 }
 
-/** Execute un script multi-instructions (uniquement apres confirmation explicite). */
-function executeScript(sql: string): MaintenanceMutationResult {
-  const startedAt = Date.now();
-  try {
-    db.exec(sql);
-  } catch (error) {
-    throw toSqlError(error);
-  }
-  return {
-    kind: 'script',
-    changes: null,
-    lastInsertRowid: null,
-    durationMs: Date.now() - startedAt,
-  };
-}
-
 /**
  * Outils > Maintenance : execute une requete SQL libre sur la base.
- * Les requetes non « readonly » (INSERT / UPDATE / DELETE / DDL...) exigent `confirmed`.
+ * Les requetes non « readonly » (INSERT / UPDATE / DELETE...) exigent `confirmed`.
  */
 export async function executeMaintenanceQuery({
   sql,
@@ -140,19 +216,15 @@ export async function executeMaintenanceQuery({
     throw new AppError(400, `Requete SQL trop longue (maximum ${MAX_SQL_LENGTH} caracteres).`);
   }
 
+  assertAllowedStatement(normalizedSql);
+
   let statement;
   try {
     statement = db.prepare(normalizedSql);
   } catch (error) {
+    // Second barrier: better-sqlite3 itself refuses more than one statement.
     if (isMultiStatementError(error)) {
-      // Un script multi-instructions est toujours considere comme modifiant.
-      if (!confirmed) {
-        throw new AppError(
-          CONFIRMATION_REQUIRED_STATUS,
-          'Ce script contient plusieurs instructions et peut modifier la base : confirmation requise.',
-        );
-      }
-      return executeScript(normalizedSql);
+      throw new AppError(400, 'Une seule instruction SQL par requete.');
     }
     throw toSqlError(error);
   }
