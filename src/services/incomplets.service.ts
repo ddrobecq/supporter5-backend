@@ -64,6 +64,7 @@ export interface ClubIncompletRow {
   SANS_STADE: number;
   SANS_DATE_CREATION: number;
   SANS_LOGO: number;
+  DATES_VIE_INCOHERENTES: number;
 }
 
 const CLUB_SANS_PAYS_SQL = `(TRIM(COALESCE(c."IDNATIO", '')) = ''
@@ -77,6 +78,32 @@ const CLUB_SANS_DATE_CREATION_SQL = `NOT EXISTS (
   SELECT 1 FROM "CLUB_NOM" cn
   WHERE cn."IDCLUB" = c."IDCLUB" AND COALESCE(cn."CN_ACTION", 0) = 1 AND TRIM(COALESCE(cn."DATE", '')) <> '')`;
 const CLUB_SANS_LOGO_SQL = `(c."ECUSSON" IS NULL OR LENGTH(c."ECUSSON") = 0)`;
+// Rencontre datee anterieure a la création (plus petite date CN_ACTION=1), ou posterieure a une disparition
+// (CN_ACTION=3) sans création/changement de nom (CN_ACTION 1 ou 2, refondation) date entre les deux.
+// CROSS JOIN fige l'ordre des boucles : on ne parcourt les rencontres que des clubs ayant une création/disparition datee.
+const CLUB_DATES_VIE_INCOHERENTES_SQL = `(EXISTS (
+    SELECT 1
+    FROM (
+      SELECT MIN(cn."DATE") AS "CREATION" FROM "CLUB_NOM" cn
+      WHERE cn."IDCLUB" = c."IDCLUB" AND COALESCE(cn."CN_ACTION", 0) = 1 AND TRIM(COALESCE(cn."DATE", '')) <> ''
+    ) cre
+    CROSS JOIN "RENCO" r
+    WHERE cre."CREATION" IS NOT NULL
+      AND (r."DOMICILE" = c."IDCLUB" OR r."EXTERIEUR" = c."IDCLUB")
+      AND TRIM(COALESCE(r."DATE", '')) <> ''
+      AND r."DATE" < cre."CREATION")
+  OR EXISTS (
+    SELECT 1
+    FROM "CLUB_NOM" dis
+    CROSS JOIN "RENCO" r
+    WHERE dis."IDCLUB" = c."IDCLUB" AND COALESCE(dis."CN_ACTION", 0) = 3 AND TRIM(COALESCE(dis."DATE", '')) <> ''
+      AND (r."DOMICILE" = c."IDCLUB" OR r."EXTERIEUR" = c."IDCLUB")
+      AND TRIM(COALESCE(r."DATE", '')) <> ''
+      AND r."DATE" > dis."DATE"
+      AND NOT EXISTS (
+        SELECT 1 FROM "CLUB_NOM" ref
+        WHERE ref."IDCLUB" = c."IDCLUB" AND COALESCE(ref."CN_ACTION", 0) IN (1, 2) AND TRIM(COALESCE(ref."DATE", '')) <> ''
+          AND ref."DATE" >= dis."DATE" AND ref."DATE" <= r."DATE")))`;
 
 export async function getClubsIncomplets(): Promise<ClubIncompletRow[]> {
   return dbAll<ClubIncompletRow>(
@@ -88,13 +115,15 @@ export async function getClubsIncomplets(): Promise<ClubIncompletRow[]> {
        CASE WHEN ${CLUB_SANS_VILLE_SQL} THEN 1 ELSE 0 END AS "SANS_VILLE",
        CASE WHEN ${CLUB_SANS_STADE_SQL} THEN 1 ELSE 0 END AS "SANS_STADE",
        CASE WHEN ${CLUB_SANS_DATE_CREATION_SQL} THEN 1 ELSE 0 END AS "SANS_DATE_CREATION",
-       CASE WHEN ${CLUB_SANS_LOGO_SQL} THEN 1 ELSE 0 END AS "SANS_LOGO"
+       CASE WHEN ${CLUB_SANS_LOGO_SQL} THEN 1 ELSE 0 END AS "SANS_LOGO",
+       CASE WHEN ${CLUB_DATES_VIE_INCOHERENTES_SQL} THEN 1 ELSE 0 END AS "DATES_VIE_INCOHERENTES"
      FROM "CLUB" c
      WHERE ${CLUB_SANS_PAYS_SQL}
         OR ${CLUB_SANS_VILLE_SQL}
         OR ${CLUB_SANS_STADE_SQL}
         OR ${CLUB_SANS_DATE_CREATION_SQL}
         OR ${CLUB_SANS_LOGO_SQL}
+        OR ${CLUB_DATES_VIE_INCOHERENTES_SQL}
      ORDER BY c."CLUB" ASC`,
   );
 }
