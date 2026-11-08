@@ -28,16 +28,16 @@ export async function getLignesEvolution(): Promise<LigneEvolutionRow[]> {
   const selectLines = LINE_GROUPS.map((group) => `AVG(${lineCountExpr(group.slots)}) AS ${group.key}`).join(',\n       ');
 
   const rows = await dbAll<Record<LineKey, number | null> & { SAISON: string; MATCHES: number }>(
-    `SELECT e.SAISON,
+    `SELECT r.SAISON,
        ${selectLines},
        COUNT(*) AS MATCHES
      FROM EQUIPE e
      INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
      WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
-       AND TRIM(COALESCE(e.SAISON, '')) <> ''
-     GROUP BY e.SAISON
-     ORDER BY e.SAISON ASC`,
+       AND TRIM(COALESCE(r.SAISON, '')) <> ''
+     GROUP BY r.SAISON
+     ORDER BY r.SAISON ASC`,
   );
 
   return rows

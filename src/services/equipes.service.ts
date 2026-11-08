@@ -5,8 +5,6 @@ export default createEntityService({
   pk:              'EQCLEUNIK',
   selectCols:      [
     'EQCLEUNIK',
-    'DATE',
-    'SAISON',
     'GOAL',
     'DLG',
     'DLD',
@@ -43,7 +41,7 @@ export default createEntityService({
     'ENTRAINEUR',
     'MACLEUNIK',
   ],
-  allowedSortCols: ['EQCLEUNIK', 'DATE', 'SAISON'],
+  allowedSortCols: ['EQCLEUNIK'],
   searchCols:      [],
-  filterCols:      ['SAISON', 'MACLEUNIK'],
+  filterCols:      ['MACLEUNIK'],
 });

@@ -3308,19 +3308,14 @@ export async function upsertCompositionForRencontre(
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const matchRow = db.prepare(
-    `SELECT m."MACLEUNIK", r."DATE",
-            COALESCE(NULLIF(TRIM(co."SAISON"), ''), r."SAISON", '') AS "SAISON"
+    `SELECT m."MACLEUNIK"
      FROM "MATCH" m INNER JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
-     LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
-     LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
   ).get(recleunik) as Record<string, unknown> | undefined;
 
   if (!matchRow) throw new AppError(404, 'Match introuvable pour cette rencontre.');
 
   const macleunik = toInt(matchRow.MACLEUNIK);
-  const saison = toText(matchRow.SAISON);
-  const date = normalizeDayDate(matchRow.DATE);
   const opponentCompositionRaw = payload.MACOMPOADVERSAIRE;
   const opponentComposition = opponentCompositionRaw == null ? null : String(opponentCompositionRaw);
   const normalizedOpponentComposition = opponentComposition && opponentComposition.trim() ? opponentComposition : null;
@@ -3339,9 +3334,9 @@ export async function upsertCompositionForRencontre(
     const sets = fieldsToSave.map((f) => `"${f}" = ?`).join(', ');
     db.prepare(`UPDATE "EQUIPE" SET ${sets} WHERE "MACLEUNIK" = ?`).run(...values, macleunik);
   } else {
-    const cols = ['MACLEUNIK', 'SAISON', 'DATE', ...fieldsToSave].map((f) => `"${f}"`).join(', ');
-    const marks = ['?', '?', '?', ...fieldsToSave.map(() => '?')].join(', ');
-    db.prepare(`INSERT INTO "EQUIPE" (${cols}) VALUES (${marks})`).run(macleunik, saison, date, ...values);
+    const cols = ['MACLEUNIK', ...fieldsToSave].map((f) => `"${f}"`).join(', ');
+    const marks = ['?', ...fieldsToSave.map(() => '?')].join(', ');
+    db.prepare(`INSERT INTO "EQUIPE" (${cols}) VALUES (${marks})`).run(macleunik, ...values);
   }
 
   db.prepare(`UPDATE "MATCH" SET "MACOMPOADVERSAIRE" = ? WHERE "MACLEUNIK" = ?`).run(normalizedOpponentComposition, macleunik);

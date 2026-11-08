@@ -83,12 +83,12 @@ function tally(rows: CompoRow[], pick: (row: CompoRow) => string): Map<string, {
  */
 export async function getEquipeType(saison?: string | null): Promise<EquipeTypeResult> {
   const rows = await dbAll<CompoRow>(
-    `SELECT e.*
+    `SELECT e.*, r.DATE
      FROM EQUIPE e
      INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
      WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
-       ${saison ? 'AND e.SAISON = ?' : ''}`,
+       ${saison ? 'AND r.SAISON = ?' : ''}`,
     saison ? [saison] : [],
   );
 

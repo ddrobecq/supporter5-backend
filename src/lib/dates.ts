@@ -8,7 +8,6 @@ export const DAY_DATE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   BLESSURE: ['DATE'],
   CLUB_NOM: ['DATE'],
   CLUB_TERRAIN: ['DATE'],
-  EQUIPE: ['DATE'],
   JOUEURRG: ['NAISSANCE', 'DECES'],
   RENCO: ['DATE'],
   SAISON: ['SA_DEBUT', 'SA_FIN'],

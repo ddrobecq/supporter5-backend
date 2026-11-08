@@ -359,14 +359,7 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
            AND ((COALESCE(cn."CN_ACTION", 0) = 1 AND cn."DATE" > r."DATE")
              OR (COALESCE(cn."CN_ACTION", 0) = 3 AND cn."DATE" < r."DATE"))
        ) THEN 1 ELSE 0 END AS "CLUBS_INCOHERENTS",
-       CASE WHEN r."RECLEUNIK" IS NULL
-         OR EXISTS (
-           SELECT 1 FROM "EQUIPE" e
-           WHERE e."MACLEUNIK" = m."MACLEUNIK"
-             AND (TRIM(COALESCE(e."DATE", '')) <> TRIM(COALESCE(r."DATE", ''))
-               OR TRIM(COALESCE(e."SAISON", '')) <> TRIM(COALESCE(r."SAISON", '')))
-         )
-       THEN 1 ELSE 0 END AS "DESYNCHRO"
+       CASE WHEN r."RECLEUNIK" IS NULL THEN 1 ELSE 0 END AS "DESYNCHRO"
      FROM "MATCH" m
      LEFT JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"
      LEFT JOIN "CLUB" cd ON cd."IDCLUB" = r."DOMICILE"
