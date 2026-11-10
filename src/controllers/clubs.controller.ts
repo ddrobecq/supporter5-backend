@@ -2,9 +2,8 @@ import { createEntityController } from '../lib/controllerFactory';
 import { checkClubIntegrity } from '../lib/integrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
-import { sendNotFound } from '../lib/responseHelpers';
+import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
 import clubsService from '../services/clubs.service';
-import type { NextFunction, Request, Response } from 'express';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = checkClubIntegrity;
@@ -12,251 +11,90 @@ export const integrityChecker = checkClubIntegrity;
 // No integrityChecker here: this generic controller targets CLUB_NOM; club deletion is guarded in removeClub.
 const baseController = createEntityController(clubsService);
 
-export async function getClubsGrid(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const search = String(req.query.search ?? '').trim();
-		const result = await clubsService.getClubsGrid(search, parseGridPagination(req.query));
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-}
+type ClubColorsPayload = { fond: string | number | null; texte: string | number | null };
+type ClubProfilePayload = {
+	name: string;
+	natioId: string;
+	villeId?: string | number | null;
+	fond?: string | number | null;
+	texte?: string | number | null;
+};
+type ClubNamePayload = { date?: string | null; eventType: number | string; name: string };
+type ClubTerrainPayload = { date?: string | null; terrainId: string | number };
+type ClubWizardPayload = {
+	name: string;
+	natioId: string;
+	isSelection: boolean;
+	creationDate?: string;
+	villeId?: string | number;
+};
 
-export async function getClubGridById(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.getClubGridById(req.params.id);
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubsGrid = jsonHandler((req) => {
+	const search = String(req.query.search ?? '').trim();
+	return clubsService.getClubsGrid(search, parseGridPagination(req.query));
+});
 
-export async function getClubProfileById(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.getClubProfileById(req.params.id);
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubGridById = rowOr404((req) => clubsService.getClubGridById(req.params.id));
 
-export async function getClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await clubsService.getClubNameHistoryById(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubProfileById = rowOr404((req) => clubsService.getClubProfileById(req.params.id));
 
-export async function getClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await clubsService.getClubTerrainHistoryById(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubNameHistory = dataHandler((req) => clubsService.getClubNameHistoryById(req.params.id));
 
-export async function getClubMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await clubsService.getClubMatchesById(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubTerrainHistory = dataHandler((req) => clubsService.getClubTerrainHistoryById(req.params.id));
 
-export async function getClubPalmares(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await clubsService.getClubPalmares(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubMatches = dataHandler((req) => clubsService.getClubMatchesById(req.params.id));
 
-export async function updateClubColors(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.updateClubColorsById(req.params.id, req.body as {
-			fond: string | number | null;
-			texte: string | number | null;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubPalmares = dataHandler((req) => clubsService.getClubPalmares(req.params.id));
 
-export async function updateClubProfile(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.updateClubProfileById(req.params.id, req.body as {
-			name: string;
-			natioId: string;
-			villeId?: string | number | null;
-			fond?: string | number | null;
-			texte?: string | number | null;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const updateClubColors = rowOr404(
+	(req) => clubsService.updateClubColorsById(req.params.id, req.body as ClubColorsPayload),
+);
 
-export async function createClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.createClubNameHistoryById(req.params.id, req.body as {
-			date?: string | null;
-			eventType: number | string;
-			name: string;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(201).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const updateClubProfile = rowOr404(
+	(req) => clubsService.updateClubProfileById(req.params.id, req.body as ClubProfilePayload),
+);
 
-export async function updateClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.updateClubNameHistoryById(req.params.id, req.params.nameId, req.body as {
-			date?: string | null;
-			eventType: number | string;
-			name: string;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const createClubNameHistory = rowOr404(
+	(req) => clubsService.createClubNameHistoryById(req.params.id, req.body as ClubNamePayload),
+	201,
+);
 
-export async function deleteClubNameHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const removed = await clubsService.deleteClubNameHistoryById(req.params.id, req.params.nameId);
-		if (!removed) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
+export const updateClubNameHistory = rowOr404(
+	(req) => clubsService.updateClubNameHistoryById(req.params.id, req.params.nameId, req.body as ClubNamePayload),
+);
 
-export async function createClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.createClubTerrainHistoryById(req.params.id, req.body as {
-			date?: string | null;
-			terrainId: string | number;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(201).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const deleteClubNameHistory = removedOr404(
+	(req) => clubsService.deleteClubNameHistoryById(req.params.id, req.params.nameId),
+);
 
-export async function updateClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await clubsService.updateClubTerrainHistoryById(req.params.id, req.params.terrainId, req.body as {
-			date?: string | null;
-			terrainId: string | number;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const createClubTerrainHistory = rowOr404(
+	(req) => clubsService.createClubTerrainHistoryById(req.params.id, req.body as ClubTerrainPayload),
+	201,
+);
 
-export async function deleteClubTerrainHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const removed = await clubsService.deleteClubTerrainHistoryById(req.params.id, req.params.terrainId);
-		if (!removed) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
+export const updateClubTerrainHistory = rowOr404(
+	(req) => clubsService.updateClubTerrainHistoryById(req.params.id, req.params.terrainId, req.body as ClubTerrainPayload),
+);
 
-export async function getClubSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const { search, limit } = parseSuggestQuery(req);
-		const result = await clubsService.getClubSuggestions(search, limit);
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-}
+export const deleteClubTerrainHistory = removedOr404(
+	(req) => clubsService.deleteClubTerrainHistoryById(req.params.id, req.params.terrainId),
+);
 
-export async function createClubWithWizard(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const created = await clubsService.createClubWithWizard(req.body as {
-			name: string;
-			natioId: string;
-			isSelection: boolean;
-			creationDate?: string;
-			villeId?: string | number;
-		});
-		res.status(201).json(created);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getClubSuggestions = jsonHandler((req) => {
+	const { search, limit } = parseSuggestQuery(req);
+	return clubsService.getClubSuggestions(search, limit);
+});
 
-export async function removeClub(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const removed = await clubsService.removeClubById(req.params.id, integrityChecker);
-		if (!removed) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
+export const createClubWithWizard = jsonHandler(
+	(req) => clubsService.createClubWithWizard(req.body as ClubWizardPayload),
+	201,
+);
 
-export async function mergeClubs(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const { sourceId, targetId } = req.body as { sourceId?: unknown; targetId?: unknown };
-		const result = await clubsService.mergeClubs(sourceId, targetId);
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-}
+export const removeClub = removedOr404((req) => clubsService.removeClubById(req.params.id, integrityChecker));
+
+export const mergeClubs = jsonHandler((req) => {
+	const { sourceId, targetId } = req.body as { sourceId?: unknown; targetId?: unknown };
+	return clubsService.mergeClubs(sourceId, targetId);
+});
 
 export default baseController;

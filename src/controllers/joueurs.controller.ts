@@ -2,233 +2,104 @@ import { createEntityController } from '../lib/controllerFactory';
 import { checkJoueurIntegrity } from '../lib/joueurIntegrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
-import { sendNotFound } from '../lib/responseHelpers';
+import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
 import joueursService from '../services/joueurs.service';
 import { AppError } from '../types';
-import type { NextFunction, Request, Response } from 'express';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = checkJoueurIntegrity;
 
 const baseController = createEntityController(joueursService, { integrityChecker });
 
-export async function getJoueursGrid(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const season = String(req.query.season ?? '').trim();
-		if (!/^\d{4}-\d{4}$/.test(season)) {
-			throw new AppError(400, 'Parametre season invalide (xxxx-yyyy attendu)');
-		}
+type TransactionPayload = {
+	date: string;
+	type: number | string;
+	statut?: number | string;
+	idClub?: string | null;
+	salaire?: number | string | null;
+	indemnites?: number | string | null;
+	deviseId?: number | string | null;
+	echeance?: string | null;
+};
+type HistoryPayload = { saison: string; poste: number | string };
+type JoueurWizardPayload = { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string };
 
-		const search = String(req.query.search ?? '').trim();
-		const posTypeRaw = req.query.posType;
-		const posType = posTypeRaw != null ? parseInt(String(posTypeRaw), 10) : undefined;
-		const result = await joueursService.getJoueursGridBySeason(season, search, posType, parseGridPagination(req.query));
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
+export const getJoueursGrid = jsonHandler((req) => {
+	const season = String(req.query.season ?? '').trim();
+	if (!/^\d{4}-\d{4}$/.test(season)) {
+		throw new AppError(400, 'Parametre season invalide (xxxx-yyyy attendu)');
 	}
-}
 
-export async function getJoueurSeasonRoster(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const season = String(req.params.saison ?? '').trim();
-		if (!/^\d{4}-\d{4}$/.test(season)) {
-			throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu)');
-		}
+	const search = String(req.query.search ?? '').trim();
+	const posTypeRaw = req.query.posType;
+	const posType = posTypeRaw != null ? parseInt(String(posTypeRaw), 10) : undefined;
+	return joueursService.getJoueursGridBySeason(season, search, posType, parseGridPagination(req.query));
+});
 
-		const data = await joueursService.getJoueurRosterForSeasonWizard(season);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
+export const getJoueurSeasonRoster = dataHandler((req) => {
+	const season = String(req.params.saison ?? '').trim();
+	if (!/^\d{4}-\d{4}$/.test(season)) {
+		throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu)');
 	}
-}
+	return joueursService.getJoueurRosterForSeasonWizard(season);
+});
 
-export async function getJoueurPostes(_req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await joueursService.getJoueurPostes();
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurPostes = dataHandler(() => joueursService.getJoueurPostes());
 
-export async function getJoueurById(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const item = await joueursService.getJoueurByIdWithVille(req.params.id);
-		if (!item) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(item);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurById = rowOr404((req) => joueursService.getJoueurByIdWithVille(req.params.id));
 
-export async function getJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await joueursService.getJoueurHistoryById(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurHistory = dataHandler((req) => joueursService.getJoueurHistoryById(req.params.id));
 
-export async function getJoueurTransactions(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await joueursService.getJoueurTransactionsById(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurTransactions = dataHandler((req) => joueursService.getJoueurTransactionsById(req.params.id));
 
-export async function getJoueurTransactionOptions(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await joueursService.getJoueurTransactionOptions(req.params.id);
-		res.status(200).json(data);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurTransactionOptions = jsonHandler((req) => joueursService.getJoueurTransactionOptions(req.params.id));
 
-export async function createJoueurTransaction(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await joueursService.createJoueurTransactionById(req.params.id, req.body as {
-			date: string;
-			type: number | string;
-			statut?: number | string;
-			idClub?: string | null;
-			salaire?: number | string | null;
-			indemnites?: number | string | null;
-			deviseId?: number | string | null;
-			echeance?: string | null;
-		});
-		res.status(201).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const createJoueurTransaction = jsonHandler(
+	(req) => joueursService.createJoueurTransactionById(req.params.id, req.body as TransactionPayload),
+	201,
+);
 
-export async function updateJoueurTransaction(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await joueursService.updateJoueurTransactionById(req.params.id, req.params.transactionId, req.body as {
-			date: string;
-			type: number | string;
-			statut?: number | string;
-			idClub?: string | null;
-			salaire?: number | string | null;
-			indemnites?: number | string | null;
-			deviseId?: number | string | null;
-			echeance?: string | null;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const updateJoueurTransaction = rowOr404(
+	(req) => joueursService.updateJoueurTransactionById(req.params.id, req.params.transactionId, req.body as TransactionPayload),
+);
 
-export async function deleteJoueurTransaction(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const removed = await joueursService.deleteJoueurTransactionById(req.params.id, req.params.transactionId);
-		if (!removed) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
+export const deleteJoueurTransaction = removedOr404(
+	(req) => joueursService.deleteJoueurTransactionById(req.params.id, req.params.transactionId),
+);
 
-export async function createJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await joueursService.createJoueurHistoryById(req.params.id, req.body as {
-			saison: string;
-			poste: number | string;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(201).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const createJoueurHistory = rowOr404(
+	(req) => joueursService.createJoueurHistoryById(req.params.id, req.body as HistoryPayload),
+	201,
+);
 
-export async function updateJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const row = await joueursService.updateJoueurHistoryById(req.params.id, req.params.historyId, req.body as {
-			saison: string;
-			poste: number | string;
-		});
-		if (!row) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(200).json(row);
-	} catch (error) {
-		next(error);
-	}
-}
+export const updateJoueurHistory = rowOr404(
+	(req) => joueursService.updateJoueurHistoryById(req.params.id, req.params.historyId, req.body as HistoryPayload),
+);
 
-export async function deleteJoueurHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const removed = await joueursService.deleteJoueurHistoryById(req.params.id, req.params.historyId);
-		if (!removed) {
-			sendNotFound(res);
-			return;
-		}
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
+export const deleteJoueurHistory = removedOr404(
+	(req) => joueursService.deleteJoueurHistoryById(req.params.id, req.params.historyId),
+);
 
-export async function getJoueurSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const { search, limit } = parseSuggestQuery(req);
-		const result = await joueursService.getJoueurSuggestions(search, limit);
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurSuggestions = jsonHandler((req) => {
+	const { search, limit } = parseSuggestQuery(req);
+	return joueursService.getJoueurSuggestions(search, limit);
+});
 
-export async function createJoueurWithWizard(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const created = await joueursService.createJoueurWithWizard(req.body as { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string });
-		res.status(201).json(created);
-	} catch (error) {
-		next(error);
-	}
-}
+export const createJoueurWithWizard = jsonHandler(
+	(req) => joueursService.createJoueurWithWizard(req.body as JoueurWizardPayload),
+	201,
+);
 
-export async function getJoueurSeasonsByPlayedMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await joueursService.getJoueurSeasonsByPlayedMatches(req.params.id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
+export const getJoueurSeasonsByPlayedMatches = dataHandler(
+	(req) => joueursService.getJoueurSeasonsByPlayedMatches(req.params.id),
+);
 
-export async function getJoueurMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const saison = String(req.params.saison ?? '').trim();
-		if (!/^\d{4}-\d{4}$/.test(saison)) {
-			throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu).');
-		}
-		const data = await joueursService.getJoueurMatchesForSeason(req.params.id, saison);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
+export const getJoueurMatches = dataHandler((req) => {
+	const saison = String(req.params.saison ?? '').trim();
+	if (!/^\d{4}-\d{4}$/.test(saison)) {
+		throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu).');
 	}
-}
+	return joueursService.getJoueurMatchesForSeason(req.params.id, saison);
+});
 
 export default baseController;

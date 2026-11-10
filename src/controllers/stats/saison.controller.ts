@@ -1,4 +1,5 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request } from 'express';
+import { dataHandler } from '../../lib/responseHelpers';
 import { AppError } from '../../types';
 import { getSaisonClassement, getSaisonsDisponibles, type SaisonClassementMetric } from '../../services/stats/saison/classements.service';
 import { getEquipeType } from '../../services/stats/saison/equipeType.service';
@@ -8,24 +9,19 @@ import { getSaisonButsEquipe, type ButsEquipeMetric } from '../../services/stats
 import { getSaisonSanctionsEquipe, type SanctionEquipeMetric } from '../../services/stats/saison/sanctionsEquipe.service';
 import { getSaisonTransferts, type TransfertEquipeMetric } from '../../services/stats/saison/transfertsEquipe.service';
 
-export async function getSaisonsStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSaisonsDisponibles();
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
+/** Required `saison` query parameter (trimmed), or AppError 400. */
+function requireSaison(req: Request): string {
+  const saison = String(req.query.saison ?? '').trim();
+  if (!saison) {
+    throw new AppError(400, 'Le parametre saison est requis.');
+  }
+  return saison;
 }
 
+export const getSaisonsStat = dataHandler(() => getSaisonsDisponibles());
+
 function classementHandler(metric: SaisonClassementMetric) {
-  return async function handler(req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const saison = String(req.query.saison ?? '').trim();
-      if (!saison) {
-        throw new AppError(400, 'Le parametre saison est requis.');
-      }
-      const data = await getSaisonClassement(metric, saison);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler((req) => getSaisonClassement(metric, requireSaison(req)));
 }
 
 export const getSaisonTempsStat = classementHandler('temps');
@@ -33,24 +29,10 @@ export const getSaisonButsStat = classementHandler('buts');
 export const getSaisonPassesStat = classementHandler('passes');
 export const getSaisonSanctionsStat = classementHandler('sanctions');
 
-export async function getSaisonEquipeTypeStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const saison = String(req.query.saison ?? '').trim();
-    if (!saison) {
-      throw new AppError(400, 'Le parametre saison est requis.');
-    }
-    const data = await getEquipeType(saison);
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getSaisonEquipeTypeStat = dataHandler((req) => getEquipeType(requireSaison(req)));
 
 function compositionHandler(metric: CompositionMetric) {
-  return async function handler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const data = await getSaisonComposition(metric);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler(() => getSaisonComposition(metric));
 }
 
 export const getSaisonNombreJoueursStat = compositionHandler('nombre-joueurs');
@@ -60,20 +42,10 @@ export const getSaisonAgeMoyenStat = compositionHandler('age-moyen');
 export const getSaisonNombreMatchesStat = compositionHandler('nombre-matches');
 export const getSaisonNombreRemplacementsStat = compositionHandler('nombre-remplacements');
 
-export async function getSaisonSchemaEvolutionStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getLignesEvolution();
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getSaisonSchemaEvolutionStat = dataHandler(() => getLignesEvolution());
 
 function butsEquipeHandler(metric: ButsEquipeMetric) {
-  return async function handler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const data = await getSaisonButsEquipe(metric);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler(() => getSaisonButsEquipe(metric));
 }
 
 export const getSaisonButsPourStat = butsEquipeHandler('buts-pour');
@@ -83,12 +55,7 @@ export const getSaisonButsContreMatchStat = butsEquipeHandler('buts-contre-match
 export const getSaisonButsMatchStat = butsEquipeHandler('buts-match');
 
 function sanctionsEquipeHandler(metric: SanctionEquipeMetric) {
-  return async function handler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const data = await getSaisonSanctionsEquipe(metric);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler(() => getSaisonSanctionsEquipe(metric));
 }
 
 export const getSaisonAvertissementsEquipeStat = sanctionsEquipeHandler('avertissements');
@@ -97,12 +64,7 @@ export const getSaisonAvertissementsMatchStat = sanctionsEquipeHandler('avertiss
 export const getSaisonExclusionsMatchStat = sanctionsEquipeHandler('exclusions-match');
 
 function transfertsEquipeHandler(metric: TransfertEquipeMetric) {
-  return async function handler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-    try {
-      const data = await getSaisonTransferts(metric);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler(() => getSaisonTransferts(metric));
 }
 
 export const getSaisonAchatsCumulesStat = transfertsEquipeHandler('achats-cumules');

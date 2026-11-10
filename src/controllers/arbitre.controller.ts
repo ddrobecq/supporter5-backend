@@ -1,31 +1,22 @@
 import { createEntityController } from '../lib/controllerFactory';
 import { checkArbitreIntegrity } from '../lib/arbitreIntegrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
+import { jsonHandler } from '../lib/responseHelpers';
 import arbitreService from '../services/arbitre.service';
-import type { NextFunction, Request, Response } from 'express';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = checkArbitreIntegrity;
 
 const baseController = createEntityController(arbitreService, { integrityChecker });
 
-export async function getArbitreSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const { search, limit } = parseSuggestQuery(req);
-		const result = await arbitreService.getArbitreSuggestions(search, limit);
-		res.status(200).json(result);
-	} catch (error) {
-		next(error);
-	}
-}
+export const getArbitreSuggestions = jsonHandler((req) => {
+	const { search, limit } = parseSuggestQuery(req);
+	return arbitreService.getArbitreSuggestions(search, limit);
+});
 
-export async function createArbitreWithWizard(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const created = await arbitreService.createArbitreWithWizard(req.body as { nom: string; prenom?: string; natioId: string });
-		res.status(201).json(created);
-	} catch (error) {
-		next(error);
-	}
-}
+export const createArbitreWithWizard = jsonHandler(
+	(req) => arbitreService.createArbitreWithWizard(req.body as { nom: string; prenom?: string; natioId: string }),
+	201,
+);
 
 export default baseController;

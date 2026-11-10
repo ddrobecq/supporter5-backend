@@ -1,230 +1,130 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { asyncHandler, dataHandler, jsonHandler } from '../lib/responseHelpers';
 import rencontresService from '../services/rencontres.service';
 import { AppError } from '../types';
-import type { Request, Response, NextFunction } from 'express';
+import type { Request } from 'express';
 
 const baseController = createEntityController(rencontresService);
 
-export async function getCalendar(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const date = String(req.query.date ?? '').trim();
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-			throw new AppError(400, 'Paramètre date invalide (YYYY-MM-DD attendu)');
-		}
-
-		const data = await rencontresService.getCalendarByDate(date);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
+/** Trimmed `:id` route parameter, or AppError 400 when empty. */
+function requireRencontreId(req: Request): string {
+	const id = String(req.params.id ?? '').trim();
+	if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
+	return id;
 }
 
-export async function getOnThisDay(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const data = await rencontresService.getOnThisDayMatch();
-		res.status(200).json(data ?? null);
-	} catch (error) {
-		next(error);
+export const getCalendar = dataHandler((req) => {
+	const date = String(req.query.date ?? '').trim();
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+		throw new AppError(400, 'Paramètre date invalide (YYYY-MM-DD attendu)');
 	}
+	return rencontresService.getCalendarByDate(date);
+});
+
+export const getOnThisDay = jsonHandler(async () => (await rencontresService.getOnThisDayMatch()) ?? null);
+
+export const getRencontreDetail = jsonHandler(async (req) => {
+	const data = await rencontresService.getRencontreDetailById(requireRencontreId(req));
+	if (!data) {
+		throw new AppError(404, 'Rencontre introuvable.');
+	}
+	return data;
+});
+
+export const getRencontreHighlights = jsonHandler(async (req) => {
+	const data = await rencontresService.getRencontreHighlightsById(requireRencontreId(req));
+	if (!data) {
+		throw new AppError(404, 'Rencontre introuvable.');
+	}
+	return data;
+});
+
+export const getTourMatches = dataHandler((req) => rencontresService.getTourMatchesForRencontre(requireRencontreId(req)));
+
+export const getComposition = jsonHandler(
+	async (req) => (await rencontresService.getCompositionForRencontre(requireRencontreId(req))) ?? {},
+);
+
+export const saveComposition = jsonHandler(async (req) => {
+	const id = requireRencontreId(req);
+	return (await rencontresService.upsertCompositionForRencontre(id, req.body as Record<string, unknown>)) ?? {};
+});
+
+export const setArbitre = asyncHandler(async (req, res) => {
+	const id = requireRencontreId(req);
+	const idarbitre = req.body?.IDARBITRE === '' ? null : (String(req.body?.IDARBITRE ?? '').trim() || null);
+	await rencontresService.upsertArbitreForRencontre(id, idarbitre);
+	res.status(204).send();
+});
+
+export const setMatchMeta = asyncHandler(async (req, res) => {
+	const id = requireRencontreId(req);
+
+	await rencontresService.upsertMatchMetaForRencontre(id, {
+		IDARBITRE: req.body?.IDARBITRE === '' ? null : req.body?.IDARBITRE,
+		TECLEUNIK: req.body?.TECLEUNIK === '' ? null : req.body?.TECLEUNIK,
+		NBSPECT: req.body?.NBSPECT,
+		LIEU: req.body?.LIEU === '' ? null : req.body?.LIEU,
+		EXTRATIME: req.body?.EXTRATIME,
+		PENALTY: req.body?.PENALTY,
+	});
+	res.status(204).send();
+});
+
+export const getSquad = dataHandler((req) => rencontresService.getSquadForRencontre(requireRencontreId(req)));
+
+export const createWithImpact = jsonHandler(
+	(req) => rencontresService.createWithImpact(req.body as Record<string, unknown>),
+	201,
+);
+
+export const updateWithImpact = jsonHandler(async (req) => {
+	const item = await rencontresService.updateWithImpact(req.params.id, req.body as Record<string, unknown>);
+	if (!item) {
+		throw new AppError(404, 'Rencontre introuvable.');
+	}
+	return item;
+});
+
+export const removeWithImpact = asyncHandler(async (req, res) => {
+	const deleted = await rencontresService.removeWithImpact(req.params.id);
+	if (!deleted) {
+		throw new AppError(404, 'Rencontre introuvable.');
+	}
+	res.status(204).send();
+});
+
+export const createEvent = jsonHandler(async (req) => {
+	const id = requireRencontreId(req);
+	await rencontresService.createEventForRencontre(id, req.body as never);
+	return rencontresService.getRencontreHighlightsById(id);
+}, 201);
+
+/** Route ids of an event, or AppError 400 'Identifiant invalide.' when one of them is empty. */
+function requireEventIds(req: Request): { rencontreId: string; evcleunik: string } {
+	const rencontreId = String(req.params.id ?? '').trim();
+	const evcleunik = String(req.params.evid ?? '').trim();
+	if (!rencontreId || !evcleunik) throw new AppError(400, 'Identifiant invalide.');
+	return { rencontreId, evcleunik };
 }
 
-export async function getRencontreDetail(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) {
-			throw new AppError(400, 'Identifiant de rencontre invalide.');
-		}
+export const updateEvent = jsonHandler(async (req) => {
+	const { rencontreId, evcleunik } = requireEventIds(req);
+	await rencontresService.updateEventForRencontre(evcleunik, req.body as never);
+	return rencontresService.getRencontreHighlightsById(rencontreId);
+});
 
-		const data = await rencontresService.getRencontreDetailById(id);
-		if (!data) {
-			throw new AppError(404, 'Rencontre introuvable.');
-		}
+export const deleteEvent = jsonHandler(async (req) => {
+	const { rencontreId, evcleunik } = requireEventIds(req);
+	await rencontresService.deleteEventForRencontre(evcleunik);
+	return rencontresService.getRencontreHighlightsById(rencontreId);
+});
 
-		res.status(200).json(data);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function getRencontreHighlights(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) {
-			throw new AppError(400, 'Identifiant de rencontre invalide.');
-		}
-
-		const data = await rencontresService.getRencontreHighlightsById(id);
-		if (!data) {
-			throw new AppError(404, 'Rencontre introuvable.');
-		}
-
-		res.status(200).json(data);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function getTourMatches(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) {
-			throw new AppError(400, 'Identifiant de rencontre invalide.');
-		}
-
-		const data = await rencontresService.getTourMatchesForRencontre(id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function getComposition(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-		const data = await rencontresService.getCompositionForRencontre(id);
-		res.status(200).json(data ?? {});
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function saveComposition(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-		const data = await rencontresService.upsertCompositionForRencontre(id, req.body as Record<string, unknown>);
-		res.status(200).json(data ?? {});
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function setArbitre(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-		const idarbitre = req.body?.IDARBITRE === '' ? null : (String(req.body?.IDARBITRE ?? '').trim() || null);
-		await rencontresService.upsertArbitreForRencontre(id, idarbitre);
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function setMatchMeta(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-
-		await rencontresService.upsertMatchMetaForRencontre(id, {
-			IDARBITRE: req.body?.IDARBITRE === '' ? null : req.body?.IDARBITRE,
-			TECLEUNIK: req.body?.TECLEUNIK === '' ? null : req.body?.TECLEUNIK,
-			NBSPECT: req.body?.NBSPECT,
-			LIEU: req.body?.LIEU === '' ? null : req.body?.LIEU,
-			EXTRATIME: req.body?.EXTRATIME,
-			PENALTY: req.body?.PENALTY,
-		});
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function getSquad(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-		const data = await rencontresService.getSquadForRencontre(id);
-		res.status(200).json({ data });
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function createWithImpact(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const item = await rencontresService.createWithImpact(req.body as Record<string, unknown>);
-		res.status(201).json(item);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function updateWithImpact(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const item = await rencontresService.updateWithImpact(req.params.id, req.body as Record<string, unknown>);
-		if (!item) {
-			throw new AppError(404, 'Rencontre introuvable.');
-		}
-
-		res.status(200).json(item);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function removeWithImpact(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const deleted = await rencontresService.removeWithImpact(req.params.id);
-		if (!deleted) {
-			throw new AppError(404, 'Rencontre introuvable.');
-		}
-
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function createEvent(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-		await rencontresService.createEventForRencontre(id, req.body as never);
-		const highlights = await rencontresService.getRencontreHighlightsById(id);
-		res.status(201).json(highlights);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function updateEvent(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const rencontreId = String(req.params.id ?? '').trim();
-		const evcleunik = String(req.params.evid ?? '').trim();
-		if (!rencontreId || !evcleunik) throw new AppError(400, 'Identifiant invalide.');
-		await rencontresService.updateEventForRencontre(evcleunik, req.body as never);
-		const highlights = await rencontresService.getRencontreHighlightsById(rencontreId);
-		res.status(200).json(highlights);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function deleteEvent(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const rencontreId = String(req.params.id ?? '').trim();
-		const evcleunik = String(req.params.evid ?? '').trim();
-		if (!rencontreId || !evcleunik) throw new AppError(400, 'Identifiant invalide.');
-		await rencontresService.deleteEventForRencontre(evcleunik);
-		const highlights = await rencontresService.getRencontreHighlightsById(rencontreId);
-		res.status(200).json(highlights);
-	} catch (error) {
-		next(error);
-	}
-}
-
-export async function recomputeStats(req: Request, res: Response, next: NextFunction): Promise<void> {
-	try {
-		const id = String(req.params.id ?? '').trim();
-		if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-		rencontresService.recomputeStatsForRencontreId(id);
-		res.status(204).send();
-	} catch (error) {
-		next(error);
-	}
-}
+export const recomputeStats = asyncHandler(async (req, res) => {
+	const id = requireRencontreId(req);
+	rencontresService.recomputeStatsForRencontreId(id);
+	res.status(204).send();
+});
 
 export default {
 	...baseController,

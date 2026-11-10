@@ -1,6 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
+import { dataHandler, jsonHandler } from '../lib/responseHelpers';
 import { getSqliteDatabaseDownloadInfo, getSupportedClubContext, scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
 import { listThemes, updateTheme } from '../services/theme.service';
 
@@ -16,17 +17,10 @@ function readBackendVersion(): string {
   }
 }
 
-export async function uploadDatabaseHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const result = await uploadSqliteDatabase(req.file as Express.Multer.File);
-    res.status(200).json({
-      message: 'Base SQLite importee sur le serveur. Redemarrez le service pour l utiliser immediatement.',
-      ...result,
-    });
-  } catch (error) {
-    next(error);
-  }
-}
+export const uploadDatabaseHandler = jsonHandler(async (req) => ({
+  message: 'Base SQLite importee sur le serveur. Redemarrez le service pour l utiliser immediatement.',
+  ...(await uploadSqliteDatabase(req.file as Express.Multer.File)),
+}));
 
 export async function downloadDatabaseHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
@@ -43,50 +37,27 @@ export async function downloadDatabaseHandler(_req: Request, res: Response, next
   }
 }
 
-export async function restartBackendHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const { scheduledInMs, mode } = scheduleBackendRestart();
-    res.status(202).json({
-      message: mode === 'respawn'
-        ? 'Redemarrage du backend programme (relance automatique locale).'
-        : 'Redemarrage du backend programme (relance par le superviseur).',
-      scheduledInMs,
-      mode,
-    });
-  } catch (error) {
-    next(error);
-  }
-}
+export const restartBackendHandler = jsonHandler(async () => {
+  const { scheduledInMs, mode } = scheduleBackendRestart();
+  return {
+    message: mode === 'respawn'
+      ? 'Redemarrage du backend programme (relance automatique locale).'
+      : 'Redemarrage du backend programme (relance par le superviseur).',
+    scheduledInMs,
+    mode,
+  };
+}, 202);
 
-export async function versionHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    res.status(200).json({
-      version: readBackendVersion(),
-    });
-  } catch (error) {
-    next(error);
-  }
-}
+export const versionHandler = jsonHandler(async () => ({ version: readBackendVersion() }));
 
-export async function contextHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const context = await getSupportedClubContext();
-    res.status(200).json(context);
-  } catch (error) {
-    next(error);
-  }
-}
+export const contextHandler = jsonHandler(() => getSupportedClubContext());
 
-export async function themesHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try { res.status(200).json({ data: await listThemes() }); } catch (error) { next(error); }
-}
+export const themesHandler = dataHandler(() => listThemes());
 
-export async function updateThemeHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const body = req.body as { backgroundColor?: string; textColor?: string };
-    res.status(200).json({ data: await updateTheme(String(req.params.code ?? ''), String(body.backgroundColor ?? ''), String(body.textColor ?? '')) });
-  } catch (error) { next(error); }
-}
+export const updateThemeHandler = dataHandler((req) => {
+  const body = req.body as { backgroundColor?: string; textColor?: string };
+  return updateTheme(String(req.params.code ?? ''), String(body.backgroundColor ?? ''), String(body.textColor ?? ''));
+});
 
 export default {
   uploadDatabaseHandler,

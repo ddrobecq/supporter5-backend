@@ -1,6 +1,5 @@
-import { Request, Response, NextFunction } from 'express';
 import { EntityService } from './baseService';
-import { sendNotFound } from './responseHelpers';
+import { jsonHandler, removedOr404, rowOr404 } from './responseHelpers';
 import { runInTransaction } from '../config/database';
 import { assertCanDelete, describeConstraints, type IntegrityChecker } from './fkIntegrity';
 import { AppError, QueryParams, type IntegrityCheckResult } from '../types';
@@ -32,72 +31,40 @@ function assertIds(ids: unknown): asserts ids is (string | number)[] {
 export function createEntityController(service: EntityService, options: EntityControllerOptions = {}) {
   const { integrityChecker } = options;
   return {
-    async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        res.json(await service.getAll(req.query as QueryParams));
-      } catch (err) { next(err); }
-    },
+    getAll: jsonHandler((req) => service.getAll(req.query as QueryParams)),
 
-    async getById(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const item = await service.getById(req.params.id);
-        if (!item) { sendNotFound(res); return; }
-        res.json(item);
-      } catch (err) { next(err); }
-    },
+    getById: rowOr404((req) => service.getById(req.params.id)),
 
-    async create(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const item = await service.create(req.body as Record<string, unknown>);
-        res.status(201).json(item);
-      } catch (err) { next(err); }
-    },
+    create: jsonHandler((req) => service.create(req.body as Record<string, unknown>), 201),
 
-    async update(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const item = await service.update(req.params.id, req.body as Record<string, unknown>);
-        if (!item) { sendNotFound(res); return; }
-        res.json(item);
-      } catch (err) { next(err); }
-    },
+    update: rowOr404((req) => service.update(req.params.id, req.body as Record<string, unknown>)),
 
-    async bulkUpdate(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const { ids, data } = req.body as { ids: unknown; data: Record<string, unknown> };
-        assertIds(ids);
-        const changes = await service.bulkUpdate(ids, data);
-        res.json({ changes });
-      } catch (err) { next(err); }
-    },
+    bulkUpdate: jsonHandler(async (req) => {
+      const { ids, data } = req.body as { ids: unknown; data: Record<string, unknown> };
+      assertIds(ids);
+      return { changes: await service.bulkUpdate(ids, data) };
+    }),
 
-    async remove(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const id = req.params.id;
-        const removed = integrityChecker
-          ? await runInTransaction(async () => {
-            await assertCanDelete(id, integrityChecker);
-            return service.remove(id);
-          })
-          : await service.remove(id);
-        if (!removed) {
-          sendNotFound(res); return;
-        }
-        res.status(204).send();
-      } catch (err) { next(err); }
-    },
+    remove: removedOr404((req) => {
+      const id = req.params.id;
+      return integrityChecker
+        ? runInTransaction(async () => {
+          await assertCanDelete(id, integrityChecker);
+          return service.remove(id);
+        })
+        : service.remove(id);
+    }),
 
-    async bulkDelete(req: Request, res: Response, next: NextFunction): Promise<void> {
-      try {
-        const { ids } = req.body as { ids: unknown };
-        assertIds(ids);
-        const changes = integrityChecker
-          ? await runInTransaction(async () => {
-            await assertAllCanDelete(ids, integrityChecker);
-            return service.bulkDelete(ids);
-          })
-          : await service.bulkDelete(ids);
-        res.json({ changes });
-      } catch (err) { next(err); }
-    },
+    bulkDelete: jsonHandler(async (req) => {
+      const { ids } = req.body as { ids: unknown };
+      assertIds(ids);
+      const changes = integrityChecker
+        ? await runInTransaction(async () => {
+          await assertAllCanDelete(ids, integrityChecker);
+          return service.bulkDelete(ids);
+        })
+        : await service.bulkDelete(ids);
+      return { changes };
+    }),
   };
 }

@@ -1,131 +1,44 @@
-import type { NextFunction, Request, Response } from 'express';
+import type { Request } from 'express';
 import { parseScopeParam } from '../../lib/matchScopeFilter';
+import { dataHandler } from '../../lib/responseHelpers';
 import { getButeurs, getButeursParMatch, getButeursParSaison, getButsMultiplesParJoueur, getDernierMatch, getEfficaciteButeurs, getExclusionsRapides, getMeilleursGardiens, getNombreAnneesAuClub, getParSaison, getPerformances, getPhysique, getPlusSelectionnes, getPremierMatch, getSanctions, getSanctionsParSaison, getSeriesButeurs, getSeriesInviolabilite, getTransferts, type PhysiqueMetric, type TransfertMetric } from '../../services/stats/joueur/apparitions.service';
 import { getEquipeType } from '../../services/stats/saison/equipeType.service';
 
-export async function getApparitionsPlusSelectionnes(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getPlusSelectionnes();
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+const scopeOf = (req: Request) => parseScopeParam(req.query.scope);
 
-export async function getApparitionsParSaison(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getParSaison();
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getApparitionsPlusSelectionnes = dataHandler(() => getPlusSelectionnes());
+
+export const getApparitionsParSaison = dataHandler(() => getParSaison());
 
 /** Equipe type historique: memes calculs que Saison/Performance/Equipe type mais toutes saisons confondues. */
-export async function getApparitionsEquipeType(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getEquipeType();
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getApparitionsEquipeType = dataHandler(() => getEquipeType());
 
-export async function getPassesStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getButeurs('passes');
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getPassesStat = dataHandler(() => getButeurs('passes'));
 
-export async function getPassesParSaisonStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getButeursParSaison('passes');
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getPassesParSaisonStat = dataHandler(() => getButeursParSaison('passes'));
 
-export async function getAvertissementsStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSanctions('avertissements');
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getAvertissementsStat = dataHandler(() => getSanctions('avertissements'));
 
-export async function getAvertissementsParSaisonStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSanctionsParSaison('avertissements');
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getAvertissementsParSaisonStat = dataHandler(() => getSanctionsParSaison('avertissements'));
 
-export async function getExclusionsStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSanctions('exclusions');
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getExclusionsStat = dataHandler(() => getSanctions('exclusions'));
 
-export async function getExclusionsParSaisonStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSanctionsParSaison('exclusions');
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getExclusionsParSaisonStat = dataHandler(() => getSanctionsParSaison('exclusions'));
 
-export async function getExclusionsRapidesStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getExclusionsRapides(parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getExclusionsRapidesStat = dataHandler((req) => getExclusionsRapides(scopeOf(req)));
 
-export async function getMeilleursGardiensStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getMeilleursGardiens(parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getMeilleursGardiensStat = dataHandler((req) => getMeilleursGardiens(scopeOf(req)));
 
-export async function getSeriesInviolabiliteStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSeriesInviolabilite(parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getSeriesInviolabiliteStat = dataHandler((req) => getSeriesInviolabilite(scopeOf(req)));
 
-export async function getVictoiresStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getPerformances('victoires', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getVictoiresStat = dataHandler((req) => getPerformances('victoires', scopeOf(req)));
 
-export async function getNulsStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getPerformances('nuls', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getNulsStat = dataHandler((req) => getPerformances('nuls', scopeOf(req)));
 
-export async function getDefaitesStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getPerformances('defaites', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) { next(error); }
-}
+export const getDefaitesStat = dataHandler((req) => getPerformances('defaites', scopeOf(req)));
 
 function transfertHandler(metric: TransfertMetric) {
-  return async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const data = await getTransferts(metric);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler(() => getTransferts(metric));
 }
 
 export const getAchatsStat = transfertHandler('achats');
@@ -134,61 +47,23 @@ export const getPlusValuesStat = transfertHandler('plus-values');
 export const getMoinsValuesStat = transfertHandler('moins-values');
 
 function physiqueHandler(metric: PhysiqueMetric) {
-  return async (_req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const data = await getPhysique(metric);
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler(() => getPhysique(metric));
 }
 
 export const getGrandsStat = physiqueHandler('grands');
 export const getPetitsStat = physiqueHandler('petits');
 export const getGabaritsStat = physiqueHandler('gabarits');
 
-export async function getButeursStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getButeurs();
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getButeursStat = dataHandler(() => getButeurs());
 
-export async function getButeursParSaisonStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getButeursParSaison();
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getButeursParSaisonStat = dataHandler(() => getButeursParSaison());
 
-export async function getButeursParMatchStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getButeursParMatch('buts', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getButeursParMatchStat = dataHandler((req) => getButeursParMatch('buts', scopeOf(req)));
 
-export async function getPassesParMatchStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getButeursParMatch('passes', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getPassesParMatchStat = dataHandler((req) => getButeursParMatch('passes', scopeOf(req)));
 
 function butsMultiplesHandler(metric: 'buts' | 'passes', minButs: number) {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    try {
-      const data = await getButsMultiplesParJoueur(metric, minButs, parseScopeParam(req.query.scope));
-      res.status(200).json({ data });
-    } catch (error) { next(error); }
-  };
+  return dataHandler((req) => getButsMultiplesParJoueur(metric, minButs, scopeOf(req)));
 }
 
 export const getDoublesStat = butsMultiplesHandler('buts', 2);
@@ -197,66 +72,19 @@ export const getQuadruplesStat = butsMultiplesHandler('buts', 4);
 export const getPassesDoublesStat = butsMultiplesHandler('passes', 2);
 export const getPassesTriplesStat = butsMultiplesHandler('passes', 3);
 
-export async function getEfficaciteButeursStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getEfficaciteButeurs();
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getEfficaciteButeursStat = dataHandler(() => getEfficaciteButeurs());
 
-export async function getEfficacitePassesStat(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getEfficaciteButeurs('passes');
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getEfficacitePassesStat = dataHandler(() => getEfficaciteButeurs('passes'));
 
-export async function getSeriesButeursStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSeriesButeurs('buts', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getSeriesButeursStat = dataHandler((req) => getSeriesButeurs('buts', scopeOf(req)));
 
-export async function getSeriesPassesStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getSeriesButeurs('passes', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getSeriesPassesStat = dataHandler((req) => getSeriesButeurs('passes', scopeOf(req)));
 
-export async function getNombreAnneesAuClubStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const playerOnly = String(req.query.playerOnly ?? '').toLowerCase() === 'true';
-    const data = await getNombreAnneesAuClub(playerOnly);
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getNombreAnneesAuClubStat = dataHandler((req) => {
+  const playerOnly = String(req.query.playerOnly ?? '').toLowerCase() === 'true';
+  return getNombreAnneesAuClub(playerOnly);
+});
 
-export async function getPremierMatchStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getPremierMatch('ASC', parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getPremierMatchStat = dataHandler((req) => getPremierMatch('ASC', scopeOf(req)));
 
-export async function getDernierMatchStat(req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const data = await getDernierMatch(parseScopeParam(req.query.scope));
-    res.status(200).json({ data });
-  } catch (error) {
-    next(error);
-  }
-}
+export const getDernierMatchStat = dataHandler((req) => getDernierMatch(scopeOf(req)));
