@@ -2011,7 +2011,7 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
 
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(insertedRow.TUCLEUNIK);
-    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(insertedId));
+    recomputeSupportedClubPlayerStatsForSeasons([supportedClubStatsSeason(insertedRow)]);
 
     return insertedId;
   });
@@ -2041,6 +2041,8 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     if (!beforeRow) {
       return false;
     }
+    // Saison resolue avant l'UPDATE : un changement de tour peut changer la saison de stats.
+    const beforeStatsSeason = supportedClubStatsSeason(beforeRow);
 
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
     db.prepare(`UPDATE "RENCO" SET ${sets} WHERE "RECLEUNIK" = ?`).run(...Object.values(normalizedBody) as [], rencontreId);
@@ -2059,8 +2061,7 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     });
 
     propagateProgrammedParticipantsAndMatches();
-    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(beforeRow.RECLEUNIK));
-    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(afterRow.RECLEUNIK));
+    recomputeSupportedClubPlayerStatsForSeasons([beforeStatsSeason, supportedClubStatsSeason(afterRow)]);
 
     return true;
   });
@@ -2084,7 +2085,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
       return false;
     }
 
-    const statsSeason = resolveStatsSeasonForRencontre(row.RECLEUNIK);
+    const statsSeason = supportedClubStatsSeason(row);
 
     db.prepare(
       'DELETE FROM "EVENT" WHERE "MACLEUNIK" IN (SELECT "MACLEUNIK" FROM "MATCH" WHERE "RECLEUNIK" = ?)',
@@ -2103,7 +2104,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     );
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
-    recomputeSupportedClubPlayerStatsForSeason(statsSeason);
+    recomputeSupportedClubPlayerStatsForSeasons([statsSeason]);
     return true;
   });
 
@@ -2877,6 +2878,47 @@ function resolveStatsSeasonForRencontre(recleunik: number): string {
   return toText(row?.SAISON);
 }
 
+/**
+ * Saison de stats a recalculer pour une rencontre, ou '' si le club supporte n'y joue pas : meme critere
+ * que la requete de recalcul (DOMICILE/EXTERIEUR = club supporte), donc ignorer ces rencontres ne change rien.
+ * A evaluer sur l'etat AVANT et APRES une ecriture.
+ */
+function supportedClubStatsSeason(row: { RECLEUNIK: number; DOMICILE: string; EXTERIEUR: string } | undefined): string {
+  if (!row) return '';
+  const supportedClubId = getSupportedClubId();
+  if (row.DOMICILE !== supportedClubId && row.EXTERIEUR !== supportedClubId) return '';
+  return resolveStatsSeasonForRencontre(row.RECLEUNIK);
+}
+
+function supportedClubStatsSeasonForRencontreId(recleunik: unknown): string {
+  const id = toInt(recleunik);
+  if (!Number.isInteger(id) || id <= 0) return '';
+  const row = db.prepare(`SELECT "DOMICILE", "EXTERIEUR" FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`)
+    .get(id) as Record<string, unknown> | undefined;
+  if (!row) return '';
+  return supportedClubStatsSeason({ RECLEUNIK: id, DOMICILE: toText(row.DOMICILE), EXTERIEUR: toText(row.EXTERIEUR) });
+}
+
+/** Recalcule une seule fois chaque saison non vide (dedoublonnage avant/apres, lots de matchs). */
+function recomputeSupportedClubPlayerStatsForSeasons(seasons: Iterable<string>): void {
+  new Set(Array.from(seasons).filter(Boolean)).forEach((season) => recomputeSupportedClubPlayerStatsForSeason(season));
+}
+
+/** Pour les ecritures sur MATCH : recalcule les saisons des rencontres donnees impliquant le club supporte. */
+export function recomputeSupportedClubStatsForRencontreIds(recleuniks: Iterable<unknown>): void {
+  const ids = new Set(Array.from(recleuniks).map((value) => toInt(value)).filter((id) => Number.isInteger(id) && id > 0));
+  recomputeSupportedClubPlayerStatsForSeasons(Array.from(ids, (id) => supportedClubStatsSeasonForRencontreId(id)));
+}
+
+/** RECLEUNIK des MATCH donnes (les MACLEUNIK inconnus sont ignores). */
+export function rencontreIdsForMatchIds(macleuniks: Iterable<unknown>): number[] {
+  const ids = Array.from(new Set(Array.from(macleuniks).map((value) => toInt(value)).filter((id) => Number.isInteger(id) && id > 0)));
+  if (ids.length === 0) return [];
+  const rows = db.prepare(`SELECT DISTINCT "RECLEUNIK" FROM "MATCH" WHERE "MACLEUNIK" IN (${ids.map(() => '?').join(', ')})`)
+    .all(...ids) as Array<Record<string, unknown>>;
+  return rows.map((row) => toInt(row.RECLEUNIK)).filter((id) => id > 0);
+}
+
 /** Remise a zero puis reecriture des totaux de la saison : tout ou rien (savepoint si deja en transaction). */
 function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
   db.transaction(writeSupportedClubPlayerStatsForSeason)(season);
@@ -3188,24 +3230,13 @@ function ensureMatchRowForRencontre(recleunik: number): { macleunik: number } {
 }
 
 /**
- * Point d'entree partage: a appeler apres TOUT enregistrement touchant la table MATCH
- * (formulaire rencontre, CRUD generique /api/admin/matchs, imports...), quel que soit le champ modifie -
- * la duree effective du match (donc le temps de jeu des joueurs) depend potentiellement de n'importe
- * quelle combinaison EXTRATIME/MADUREE/TOURDEF.
+ * Recalcul explicite (route /recompute-stats, bouton "Enregistrer" de la fiche match) : toujours execute,
+ * sans garde sur le club supporte. Les ecritures automatiques passent par recomputeSupportedClubStatsForRencontreIds.
  */
 export function recomputeStatsForRencontreId(recleunik: string | number | null | undefined): void {
   const id = toInt(recleunik);
   if (!Number.isInteger(id) || id <= 0) return;
   recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(id));
-}
-
-/** Variante quand seul le MACLEUNIK est connu (CRUD generique sur la table MATCH). */
-export function recomputeStatsForMatchId(macleunik: string | number | null | undefined): void {
-  const maId = toInt(macleunik);
-  if (!Number.isInteger(maId) || maId <= 0) return;
-  const row = db.prepare(`SELECT "RECLEUNIK" FROM "MATCH" WHERE "MACLEUNIK" = ? LIMIT 1`).get(maId) as Record<string, unknown> | undefined;
-  if (row?.RECLEUNIK == null) return;
-  recomputeStatsForRencontreId(row.RECLEUNIK as number);
 }
 
 export async function upsertArbitreForRencontre(rencontreId: string | number, idarbitre: string | null): Promise<void> {
@@ -3218,7 +3249,7 @@ export async function upsertArbitreForRencontre(rencontreId: string | number, id
     const { macleunik } = ensureMatchRowForRencontre(recleunik);
     db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
       .run(normalizedArbitre, macleunik);
-    recomputeStatsForRencontreId(recleunik);
+    // Pas de recalcul des stats joueurs : il ne lit ni MATCH.IDARBITRE ni aucune donnee arbitre.
   });
 }
 
@@ -3292,7 +3323,7 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
        WHERE "MACLEUNIK" = ?`,
     ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, normalizedExtratime, normalizedPenalty, macleunik);
 
-    recomputeStatsForRencontreId(recleunik);
+    recomputeSupportedClubStatsForRencontreIds([recleunik]);
   });
 }
 
@@ -3353,7 +3384,7 @@ export async function upsertCompositionForRencontre(
     }
 
     db.prepare(`UPDATE "MATCH" SET "MACOMPOADVERSAIRE" = ? WHERE "MACLEUNIK" = ?`).run(normalizedOpponentComposition, macleunik);
-    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
+    recomputeSupportedClubStatsForRencontreIds([recleunik]);
   });
 
   return getCompositionForRencontre(id);
@@ -3574,7 +3605,8 @@ export default {
   upsertArbitreForRencontre,
   upsertMatchMetaForRencontre,
   recomputeStatsForRencontreId,
-  recomputeStatsForMatchId,
+  recomputeSupportedClubStatsForRencontreIds,
+  rencontreIdsForMatchIds,
   recomputeTourStandings,
   getSquadForRencontre,
   createEventForRencontre,
