@@ -1,4 +1,4 @@
-import db, { dbAll, dbGet, dbRun } from '../config/database';
+import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
 import { AppError } from '../types';
 import { createEntityService } from '../lib/baseService';
 
@@ -363,17 +363,20 @@ async function removeTourWithResequence(tourId: string | number): Promise<boolea
   }
 
   const competitionId = Number(selectedRow.COCLEUNIK);
-  const removed = (await dbRun('DELETE FROM "TOUR" WHERE "TUCLEUNIK" = ?', [normalizedTourId])).changes > 0;
-  if (!removed) {
-    return false;
-  }
+  // Deletion and resequencing of the remaining tours: all or nothing.
+  return runInTransaction(async () => {
+    const removed = (await dbRun('DELETE FROM "TOUR" WHERE "TUCLEUNIK" = ?', [normalizedTourId])).changes > 0;
+    if (!removed) {
+      return false;
+    }
 
-  const remaining = await getToursByCompetition(competitionId);
-  await resequenceCompetitionTours(
-    competitionId,
-    remaining.map((row) => Number(row.TUCLEUNIK)),
-  );
-  return true;
+    const remaining = await getToursByCompetition(competitionId);
+    await resequenceCompetitionTours(
+      competitionId,
+      remaining.map((row) => Number(row.TUCLEUNIK)),
+    );
+    return true;
+  });
 }
 
 async function getTourParticipants(tourId: string | number): Promise<TourParticipantRow[]> {

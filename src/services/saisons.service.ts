@@ -1,4 +1,4 @@
-import db, { dbGet } from '../config/database';
+import db, { dbGet, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
@@ -70,8 +70,9 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
     joueurRows.push({ idJoueur, poste });
   }
 
-  // La saison et son effectif de depart doivent etre crees ensemble: tout ou rien.
-  const transaction = db.transaction(() => {
+  // La saison, son effectif de depart et ses competitions sont crees ensemble: tout ou rien
+  // (clonePreviousCompetition et son db.transaction deviennent un savepoint de cette transaction).
+  const competitionsCreated = await runInTransaction(async () => {
     db.prepare('INSERT INTO SAISON (SAISON, SA_DEBUT, SA_FIN) VALUES (?, ?, ?)').run(saison, saDebut, saFin);
 
     const insertJoueur = db.prepare(
@@ -83,26 +84,26 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
     for (const row of joueurRows) {
       insertJoueur.run(row.idJoueur, saison, row.poste);
     }
+
+    const competitionEntries = Array.isArray(payload.competitions) ? payload.competitions : [];
+    const seenCompetitions = new Set<number>();
+    let createdCount = 0;
+    for (const entry of competitionEntries) {
+      const previousCompetitionId = Number(entry?.competitionId);
+      if (!Number.isInteger(previousCompetitionId) || previousCompetitionId <= 0 || seenCompetitions.has(previousCompetitionId)) {
+        continue;
+      }
+      seenCompetitions.add(previousCompetitionId);
+
+      const created = entry?.idem
+        ? await clonePreviousCompetition(previousCompetitionId, { saison })
+        : await createCompetitionFromPrevious(previousCompetitionId, { saison });
+      if (created) {
+        createdCount += 1;
+      }
+    }
+    return createdCount;
   });
-  transaction();
-
-  const competitionEntries = Array.isArray(payload.competitions) ? payload.competitions : [];
-  const seenCompetitions = new Set<number>();
-  let competitionsCreated = 0;
-  for (const entry of competitionEntries) {
-    const previousCompetitionId = Number(entry?.competitionId);
-    if (!Number.isInteger(previousCompetitionId) || previousCompetitionId <= 0 || seenCompetitions.has(previousCompetitionId)) {
-      continue;
-    }
-    seenCompetitions.add(previousCompetitionId);
-
-    const created = entry?.idem
-      ? await clonePreviousCompetition(previousCompetitionId, { saison })
-      : await createCompetitionFromPrevious(previousCompetitionId, { saison });
-    if (created) {
-      competitionsCreated += 1;
-    }
-  }
 
   const createdSaison = await dbGet<Record<string, unknown>>(
     'SELECT SAISON, SA_DEBUT, SA_FIN FROM SAISON WHERE SAISON = ?',

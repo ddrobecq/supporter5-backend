@@ -1,4 +1,4 @@
-import db, { dbAll } from '../config/database';
+import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
@@ -1926,8 +1926,10 @@ function recomputeAllGroupsForTour(tourId: number): void {
 
 /** Recalcule les stats/classements de tous les groupes d'un tour, puis resout les participants programmes qui en dependent. */
 export function recomputeTourStandings(tourId: number): void {
-  recomputeAllGroupsForTour(tourId);
-  propagateProgrammedParticipantsAndMatches();
+  db.transaction(() => {
+    recomputeAllGroupsForTour(tourId);
+    propagateProgrammedParticipantsAndMatches();
+  })();
 }
 
 function collectImpactedGroups(row: RencontresRow): string[] {
@@ -2875,7 +2877,12 @@ function resolveStatsSeasonForRencontre(recleunik: number): string {
   return toText(row?.SAISON);
 }
 
+/** Remise a zero puis reecriture des totaux de la saison : tout ou rien (savepoint si deja en transaction). */
 function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
+  db.transaction(writeSupportedClubPlayerStatsForSeason)(season);
+}
+
+function writeSupportedClubPlayerStatsForSeason(season: string): void {
   const normalizedSeason = toText(season);
   if (!normalizedSeason) return;
 
@@ -3207,10 +3214,12 @@ export async function upsertArbitreForRencontre(rencontreId: string | number, id
 
   const normalizedArbitre = idarbitre ? String(idarbitre).trim() || null : null;
 
-  const { macleunik } = ensureMatchRowForRencontre(recleunik);
-  db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
-    .run(normalizedArbitre, macleunik);
-  recomputeStatsForRencontreId(recleunik);
+  await runInTransaction(() => {
+    const { macleunik } = ensureMatchRowForRencontre(recleunik);
+    db.prepare(`UPDATE "MATCH" SET "IDARBITRE" = ? WHERE "MACLEUNIK" = ?`)
+      .run(normalizedArbitre, macleunik);
+    recomputeStatsForRencontreId(recleunik);
+  });
 }
 
 export interface RencontreMatchMetaPayload {
@@ -3267,22 +3276,24 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
   const recleunik = toInt(rencontreId);
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
 
-  const { macleunik } = ensureMatchRowForRencontre(recleunik);
-  const normalizedArbitre = payload.IDARBITRE == null ? null : (String(payload.IDARBITRE).trim() || null);
-  const normalizedTerrain = payload.TECLEUNIK == null ? null : (String(payload.TECLEUNIK).trim() || null);
-  const rawNbSpect = toInt(payload.NBSPECT, 0);
-  const normalizedNbSpect = rawNbSpect === -1 ? -1 : Math.max(0, rawNbSpect);
-  const normalizedLieu = resolveMatchLieuFromTerrain(recleunik, normalizedTerrain);
-  const normalizedExtratime = payload.EXTRATIME ? 1 : 0;
-  const normalizedPenalty = payload.PENALTY ? 1 : 0;
+  await runInTransaction(() => {
+    const { macleunik } = ensureMatchRowForRencontre(recleunik);
+    const normalizedArbitre = payload.IDARBITRE == null ? null : (String(payload.IDARBITRE).trim() || null);
+    const normalizedTerrain = payload.TECLEUNIK == null ? null : (String(payload.TECLEUNIK).trim() || null);
+    const rawNbSpect = toInt(payload.NBSPECT, 0);
+    const normalizedNbSpect = rawNbSpect === -1 ? -1 : Math.max(0, rawNbSpect);
+    const normalizedLieu = resolveMatchLieuFromTerrain(recleunik, normalizedTerrain);
+    const normalizedExtratime = payload.EXTRATIME ? 1 : 0;
+    const normalizedPenalty = payload.PENALTY ? 1 : 0;
 
-  db.prepare(
-    `UPDATE "MATCH"
-     SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?, "LIEU" = ?, "EXTRATIME" = ?, "PENALTY" = ?
-     WHERE "MACLEUNIK" = ?`,
-  ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, normalizedExtratime, normalizedPenalty, macleunik);
+    db.prepare(
+      `UPDATE "MATCH"
+       SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?, "LIEU" = ?, "EXTRATIME" = ?, "PENALTY" = ?
+       WHERE "MACLEUNIK" = ?`,
+    ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, normalizedExtratime, normalizedPenalty, macleunik);
 
-  recomputeStatsForRencontreId(recleunik);
+    recomputeStatsForRencontreId(recleunik);
+  });
 }
 
 export async function getCompositionForRencontre(id: string | number): Promise<CompositionRow | null> {
@@ -3320,8 +3331,6 @@ export async function upsertCompositionForRencontre(
   const opponentComposition = opponentCompositionRaw == null ? null : String(opponentCompositionRaw);
   const normalizedOpponentComposition = opponentComposition && opponentComposition.trim() ? opponentComposition : null;
 
-  const existing = db.prepare('SELECT * FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
-
   const fieldsToSave: string[] = [];
   const values: unknown[] = [];
   for (const field of COMPO_FIELDS) {
@@ -3330,17 +3339,22 @@ export async function upsertCompositionForRencontre(
     values.push(val === '' || val == null ? null : toText(val));
   }
 
-  if (existing) {
-    const sets = fieldsToSave.map((f) => `"${f}" = ?`).join(', ');
-    db.prepare(`UPDATE "EQUIPE" SET ${sets} WHERE "MACLEUNIK" = ?`).run(...values, macleunik);
-  } else {
-    const cols = ['MACLEUNIK', ...fieldsToSave].map((f) => `"${f}"`).join(', ');
-    const marks = ['?', ...fieldsToSave.map(() => '?')].join(', ');
-    db.prepare(`INSERT INTO "EQUIPE" (${cols}) VALUES (${marks})`).run(macleunik, ...values);
-  }
+  // EQUIPE, MATCH.MACOMPOADVERSAIRE et les stats de la saison sont enregistres ensemble : tout ou rien.
+  await runInTransaction(() => {
+    const existing = db.prepare('SELECT * FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
 
-  db.prepare(`UPDATE "MATCH" SET "MACOMPOADVERSAIRE" = ? WHERE "MACLEUNIK" = ?`).run(normalizedOpponentComposition, macleunik);
-  recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
+    if (existing) {
+      const sets = fieldsToSave.map((f) => `"${f}" = ?`).join(', ');
+      db.prepare(`UPDATE "EQUIPE" SET ${sets} WHERE "MACLEUNIK" = ?`).run(...values, macleunik);
+    } else {
+      const cols = ['MACLEUNIK', ...fieldsToSave].map((f) => `"${f}"`).join(', ');
+      const marks = ['?', ...fieldsToSave.map(() => '?')].join(', ');
+      db.prepare(`INSERT INTO "EQUIPE" (${cols}) VALUES (${marks})`).run(macleunik, ...values);
+    }
+
+    db.prepare(`UPDATE "MATCH" SET "MACOMPOADVERSAIRE" = ? WHERE "MACLEUNIK" = ?`).run(normalizedOpponentComposition, macleunik);
+    recomputeSupportedClubPlayerStatsForSeason(resolveStatsSeasonForRencontre(recleunik));
+  });
 
   return getCompositionForRencontre(id);
 }

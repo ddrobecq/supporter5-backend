@@ -179,4 +179,42 @@ export async function dbRun(
   };
 }
 
+let transactionDepth = 0;
+let savepointCounter = 0;
+
+function rollbackWithoutMasking(savepoint: string | null): void {
+  try {
+    if (savepoint) {
+      db.exec(`ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+    } else if (db.inTransaction) {
+      db.exec('ROLLBACK');
+    }
+  } catch (rollbackError) {
+    // The original error is the one rethrown to the caller; the rollback failure is only logged.
+    console.error('[db] rollback failed:', rollbackError);
+  }
+}
+
+/**
+ * Runs `fn` atomically: BEGIN IMMEDIATE / COMMIT / ROLLBACK at top level, SAVEPOINT when nested
+ * (including inside a better-sqlite3 db.transaction, which itself nests as a savepoint inside this one).
+ * Safe only if `fn` performs no real asynchronous I/O (fetch, fs/promises, timers): the awaits on
+ * dbAll/dbGet/dbRun only yield to microtasks, so no other request can run on the shared connection meanwhile.
+ */
+export async function runInTransaction<T>(fn: () => Promise<T> | T): Promise<T> {
+  const savepoint = transactionDepth > 0 || db.inTransaction ? `run_in_tx_${++savepointCounter}` : null;
+  db.exec(savepoint ? `SAVEPOINT ${savepoint}` : 'BEGIN IMMEDIATE');
+  transactionDepth += 1;
+  try {
+    const result = await fn();
+    db.exec(savepoint ? `RELEASE ${savepoint}` : 'COMMIT');
+    return result;
+  } catch (error) {
+    rollbackWithoutMasking(savepoint);
+    throw error;
+  } finally {
+    transactionDepth -= 1;
+  }
+}
+
 export default db;

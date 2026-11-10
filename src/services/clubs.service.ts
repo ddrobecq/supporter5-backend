@@ -1,7 +1,7 @@
 import { createEntityService } from '../lib/baseService';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
-import db, { dbAll, dbGet, dbRun } from '../config/database';
+import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { normalizeDayDate } from '../lib/dates';
@@ -755,11 +755,13 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
 }
 
 export async function removeClubById(id: string): Promise<boolean> {
-  // CLUB_NOM and CLUB_TERRAIN are owned by CLUB and can be cleaned up on delete.
-  await dbRun('DELETE FROM CLUB_NOM WHERE IDCLUB = ?', [id]);
-  await dbRun('DELETE FROM CLUB_TERRAIN WHERE IDCLUB = ?', [id]);
-  const result = await dbRun('DELETE FROM CLUB WHERE IDCLUB = ?', [id]);
-  return result.changes > 0;
+  // CLUB_NOM and CLUB_TERRAIN are owned by CLUB and can be cleaned up on delete (all or nothing).
+  return runInTransaction(async () => {
+    await dbRun('DELETE FROM CLUB_NOM WHERE IDCLUB = ?', [id]);
+    await dbRun('DELETE FROM CLUB_TERRAIN WHERE IDCLUB = ?', [id]);
+    const result = await dbRun('DELETE FROM CLUB WHERE IDCLUB = ?', [id]);
+    return result.changes > 0;
+  });
 }
 
 export interface ClubMergeResult {
@@ -906,20 +908,25 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
     throw new AppError(400, 'Le pays selectionne est introuvable.');
   }
 
-  const idClub = await resolveNextClubId();
   const idVille = await resolveExplicitVilleId(payload.villeId);
 
-  await dbRun(
-    `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [idClub, name.slice(0, 100), natioId, -1, -1, idVille, toSelectionFlag(isSelection)],
-  );
+  // CLUB and its first CLUB_NOM row are created together: all or nothing.
+  const idClub = await runInTransaction(async () => {
+    const nextIdClub = await resolveNextClubId();
 
-  await dbRun(
-    `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
-     VALUES (?, ?, ?, ?)`,
-    [name.slice(0, 200), idClub, creationDate, 1],
-  );
+    await dbRun(
+      `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [nextIdClub, name.slice(0, 100), natioId, -1, -1, idVille, toSelectionFlag(isSelection)],
+    );
+
+    await dbRun(
+      `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
+       VALUES (?, ?, ?, ?)`,
+      [name.slice(0, 200), nextIdClub, creationDate, 1],
+    );
+    return nextIdClub;
+  });
 
   const created = await getClubGridById(idClub);
   if (!created) {
