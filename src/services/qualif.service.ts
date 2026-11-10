@@ -1,14 +1,10 @@
-import { createEntityService, createFieldSanitizer } from '../lib/baseService';
+import { createEntityService } from '../lib/baseService';
 import { AppError } from '../types';
 
-// CLASS_ID (pk) est deliberement absente de cette liste: elle est donc toujours filtree.
-const sanitizeFields = createFieldSanitizer(
-  ['CLASS_MinRang', 'CLASS_MaxRang', 'CLASS_Couleur', 'CLASS_Libelle', 'CLASS_Type', 'TUCLEUNIK', 'CLASS_Abrege'],
-  'CLASS_ID',
-);
-
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
-  const clean = sanitizeFields(body, true);
+  // CLASS_ID (pk) est toujours filtree, y compris en creation.
+  const clean = { ...body };
+  delete clean.CLASS_ID;
 
   if (typeof clean.CLASS_Libelle === 'string') {
     clean.CLASS_Libelle = clean.CLASS_Libelle.trim();
@@ -85,7 +81,7 @@ function validatePayload(body: Record<string, unknown>, isCreate: boolean): Reco
   return clean;
 }
 
-const baseService = createEntityService({
+export default createEntityService({
   table: 'Qualif',
   pk: 'CLASS_ID',
   selectCols: [
@@ -101,23 +97,5 @@ const baseService = createEntityService({
   allowedSortCols: ['CLASS_ID', 'CLASS_MinRang', 'CLASS_MaxRang', 'CLASS_Type', 'TUCLEUNIK'],
   searchCols: ['CLASS_Libelle', 'CLASS_Abrege'],
   filterCols: ['TUCLEUNIK', 'CLASS_Type'],
+  prepareWrite: (body, mode) => validatePayload(body, mode === 'create'),
 });
-
-async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = validatePayload(body, true);
-  return baseService.create(clean);
-}
-
-async function update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = validatePayload(body, false);
-  if (!Object.keys(clean).length) {
-    throw new AppError(400, 'No fields provided');
-  }
-  return baseService.update(id, clean);
-}
-
-export default {
-  ...baseService,
-  create,
-  update,
-};

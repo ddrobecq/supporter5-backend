@@ -1,49 +1,11 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService } from '../lib/baseService';
-import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
-import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
+import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
-import { AppError, type PaginatedResult, type QueryParams } from '../types';
+import { AppError } from '../types';
 
-/** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
-const baseService = createEntityService({
-  table:           'JOUEURRG',
-  pk:              'IDJOUEUR',
-  selectCols: [
-    'IDJOUEUR',
-    'NOM',
-    'PRENOM',
-    'NAISSANCE',
-    'IDNATIO',
-    'POSTE',
-    'BUT',
-    'PASSE',
-    'JAUNE',
-    'ROUGE',
-    'REMP',
-    'TITULAIRE',
-    'SURNOM',
-    'COMMENT',
-    'ENTRAINE',
-    'IDVILLE',
-    'APPARITION',
-    'HAUTEUR',
-    'POIDS',
-    'DECES',
-    'VILLE_DECES',
-  ],
-  allowedSortCols: ['IDJOUEUR', 'NOM', 'PRENOM', 'NAISSANCE', 'POSTE', 'BUT', 'TITULAIRE'],
-  searchCols:      ['NOM', 'PRENOM', 'SURNOM'],
-  filterCols:      ['POSTE', 'IDNATIO'],
-});
-
-const JOUEURRG_TABLE = 'JOUEURRG';
-const JOUEURRG_PK = 'IDJOUEUR';
-const JOUEURRG_ALLOWED_SORT_COLS = ['IDJOUEUR', 'NOM', 'PRENOM', 'NAISSANCE', 'POSTE', 'BUT', 'TITULAIRE'] as const;
-const JOUEURRG_SEARCH_COLS = ['NOM', 'PRENOM', 'SURNOM'] as const;
-const JOUEURRG_FILTER_COLS = ['POSTE', 'IDNATIO'] as const;
 // Deliberately excludes PHOTO BLOB: image payloads are served via /api/images only.
 const JOUEURRG_SELECT_COLS = [
   'IDJOUEUR',
@@ -68,7 +30,17 @@ const JOUEURRG_SELECT_COLS = [
   'HAUTEUR',
   'POIDS',
 ] as const;
-const JOUEURRG_SELECT_SQL = JOUEURRG_SELECT_COLS.map((col) => `"${col}"`).join(', ');
+
+/** JOUEURRG = registre général des joueurs (nom, prénom, date de naissance…) */
+const baseService = createEntityService({
+  table:           'JOUEURRG',
+  pk:              'IDJOUEUR',
+  selectCols:      JOUEURRG_SELECT_COLS,
+  allowedSortCols: ['IDJOUEUR', 'NOM', 'PRENOM', 'NAISSANCE', 'POSTE', 'BUT', 'TITULAIRE'],
+  searchCols:      ['NOM', 'PRENOM', 'SURNOM'],
+  filterCols:      ['POSTE', 'IDNATIO'],
+});
+
 const JOUEURRG_SELECT_SQL_WITH_ALIAS = JOUEURRG_SELECT_COLS.map((col) => `jr."${col}"`).join(', ');
 
 export interface JoueurGridRow {
@@ -195,87 +167,6 @@ export interface JoueurSuggestionRow {
   PRENOM: string;
   IDNATIO: string;
   SCORE: number;
-}
-
-async function getJoueurRgAll(params: QueryParams): Promise<PaginatedResult> {
-  const page = Math.max(1, Number(params.page) || 1);
-  const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
-  const offset = (page - 1) * limit;
-  const sort = sanitizeSort(params.sort, JOUEURRG_ALLOWED_SORT_COLS, JOUEURRG_PK);
-  const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-  const { where, bindings } = buildWhere(params, JOUEURRG_SEARCH_COLS, JOUEURRG_FILTER_COLS);
-
-  const row = await dbGet<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM "${JOUEURRG_TABLE}" ${where}`,
-    bindings,
-  );
-  const total = row?.total ?? 0;
-
-  const data = await dbAll(
-    `SELECT ${JOUEURRG_SELECT_SQL}
-     FROM "${JOUEURRG_TABLE}" ${where}
-     ORDER BY "${sort}" ${order}
-     LIMIT ? OFFSET ?`,
-    [...bindings, limit, offset],
-  );
-
-  return {
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
-
-async function getJoueurRgById(id: string | number): Promise<Record<string, unknown> | undefined> {
-  return dbGet<Record<string, unknown>>(
-    `SELECT ${JOUEURRG_SELECT_SQL}
-     FROM "${JOUEURRG_TABLE}"
-     WHERE "${JOUEURRG_PK}" = ?`,
-    [id],
-  );
-}
-
-async function createJoueurRg(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = normalizeDayDateFields(JOUEURRG_TABLE, baseService.pickWritableFields(rawBody, { allowPk: true }));
-  const keys = Object.keys(body);
-  if (!keys.length) {
-    throw new AppError(400, 'No fields provided');
-  }
-
-  const cols = keys.map((key) => `"${key}"`).join(', ');
-  const marks = keys.map(() => '?').join(', ');
-  const result = await dbRun(
-    `INSERT INTO "${JOUEURRG_TABLE}" (${cols}) VALUES (${marks})`,
-    Object.values(body),
-  );
-
-  const explicitPkValue = body[JOUEURRG_PK];
-  if (typeof explicitPkValue === 'string' || typeof explicitPkValue === 'number') {
-    return getJoueurRgById(explicitPkValue);
-  }
-  if (typeof result.lastInsertRowid === 'string' || typeof result.lastInsertRowid === 'number') {
-    return getJoueurRgById(result.lastInsertRowid);
-  }
-
-  return undefined;
-}
-
-async function updateJoueurRg(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = normalizeDayDateFields(JOUEURRG_TABLE, baseService.pickWritableFields(rawBody, { allowPk: false }));
-  const keys = Object.keys(body);
-  if (!keys.length) {
-    throw new AppError(400, 'No fields provided');
-  }
-
-  const sets = keys.map((key) => `"${key}" = ?`).join(', ');
-  await dbRun(
-    `UPDATE "${JOUEURRG_TABLE}" SET ${sets} WHERE "${JOUEURRG_PK}" = ?`,
-    [...Object.values(body), id],
-  );
-
-  return getJoueurRgById(id);
 }
 
 function computeApproxScore(query: string, nom: string, prenom: string, surnom: string): number {
@@ -1256,10 +1147,6 @@ export async function getJoueurMatchesForSeason(
 
 export default {
   ...baseService,
-  getAll: getJoueurRgAll,
-  getById: getJoueurRgById,
-  create: createJoueurRg,
-  update: updateJoueurRg,
   getJoueursGridBySeason,
   getJoueurRosterForSeasonWizard,
   getJoueurPostes,

@@ -1,8 +1,30 @@
 import { createEntityService } from '../lib/baseService';
 import { dbGet, dbAll } from '../config/database';
-import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
-import { AppError, type PaginatedResult, type QueryParams } from '../types';
+import { AppError } from '../types';
+
+/** Generates IDARBITRE (MAX + 1, 4 digits) when missing, then checks the required fields. */
+async function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'): Promise<Record<string, unknown>> {
+  if (mode === 'update') return body;
+
+  const clean = { ...body };
+  const idarbitreValue = clean.IDARBITRE;
+  if (!idarbitreValue || (typeof idarbitreValue === 'string' && idarbitreValue.trim() === '')) {
+    const result = await dbGet<{ maxId: number | null }>(
+      'SELECT COALESCE(MAX(CAST(IDARBITRE AS INTEGER)), 0) as maxId FROM ARBITRE',
+    );
+    const nextId = Math.max(0, Number(result?.maxId ?? 0)) + 1;
+    clean.IDARBITRE = String(nextId).padStart(4, '0');
+  }
+
+  if (!clean.NOM || (typeof clean.NOM === 'string' && !clean.NOM.trim())) {
+    throw new AppError(400, 'NOM est requis');
+  }
+  if (!clean.IDNATIO || (typeof clean.IDNATIO === 'string' && !clean.IDNATIO.trim())) {
+    throw new AppError(400, 'IDNATIO (Nationalité) est requis');
+  }
+  return clean;
+}
 
 const baseService = createEntityService({
   table: 'ARBITRE',
@@ -12,19 +34,10 @@ const baseService = createEntityService({
   searchCols: ['IDARBITRE', 'NOM', 'PRENOM'],
   filterCols: ['IDNATIO'],
   searchStrategy: 'backend-memory',
-  // Same ARB_PHOTO placeholder as the read endpoints, so create/update responses keep their shape.
+  // ARB_PHOTO BLOB excluded from payloads (served via /api/images); placeholder keeps the form contract.
   extraSelectCols: ['NULL AS "ARB_PHOTO"'],
+  prepareWrite,
 });
-
-const ARBITRE_TABLE = 'ARBITRE';
-const ARBITRE_PK = 'IDARBITRE';
-const ARBITRE_ALLOWED_SORT_COLS = ['IDARBITRE', 'NOM', 'PRENOM', 'IDNATIO'] as const;
-const ARBITRE_SEARCH_COLS = ['IDARBITRE', 'NOM', 'PRENOM'] as const;
-const ARBITRE_FILTER_COLS = ['IDNATIO'] as const;
-// Deliberately excludes ARB_PHOTO BLOB from payloads; image bytes are served via /api/images.
-const ARBITRE_SELECT_COLS = ['IDARBITRE', 'NOM', 'PRENOM', 'IDNATIO'] as const;
-const ARBITRE_SELECT_SQL = ARBITRE_SELECT_COLS.map((col) => `"${col}"`).join(', ');
-const ARBITRE_SELECT_WITH_PHOTO_PLACEHOLDER_SQL = `${ARBITRE_SELECT_SQL}, NULL AS "ARB_PHOTO"`;
 
 export interface ArbitreSuggestionRow {
   IDARBITRE: string;
@@ -36,57 +49,6 @@ export interface ArbitreSuggestionRow {
 
 export interface ArbitreSuggestionsResponse {
   data: ArbitreSuggestionRow[];
-}
-
-function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly string[], search: string): boolean {
-  if (!search) {
-    return true;
-  }
-
-  return searchCols.some((col) => {
-    const value = row[col];
-    return normalizeSearchText(String(value ?? '')).includes(search);
-  });
-}
-
-async function getArbitreAll(params: QueryParams): Promise<PaginatedResult> {
-  const page = Math.max(1, Number(params.page) || 1);
-  const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
-  const offset = (page - 1) * limit;
-  const sort = sanitizeSort(params.sort, ARBITRE_ALLOWED_SORT_COLS, ARBITRE_PK);
-  const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-  const searchValue = typeof params.search === 'string' ? normalizeSearchText(params.search) : '';
-
-  const { where, bindings } = buildWhere({ ...params, search: undefined }, ARBITRE_SEARCH_COLS, ARBITRE_FILTER_COLS);
-  const allRows = await dbAll<Record<string, unknown>>(
-    `SELECT ${ARBITRE_SELECT_WITH_PHOTO_PLACEHOLDER_SQL}
-     FROM "${ARBITRE_TABLE}" ${where}
-     ORDER BY "${sort}" ${order}`,
-    bindings,
-  );
-
-  const filteredRows = searchValue
-    ? allRows.filter((row) => rowMatchesSearch(row, ARBITRE_SEARCH_COLS, searchValue))
-    : allRows;
-  const total = filteredRows.length;
-  const data = filteredRows.slice(offset, offset + limit);
-
-  return {
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
-
-async function getArbitreById(id: string | number): Promise<Record<string, unknown> | undefined> {
-  return dbGet<Record<string, unknown>>(
-    `SELECT ${ARBITRE_SELECT_WITH_PHOTO_PLACEHOLDER_SQL}
-     FROM "${ARBITRE_TABLE}"
-     WHERE "${ARBITRE_PK}" = ?`,
-    [id],
-  );
 }
 
 function computeApproxScore(query: string, nom: string, prenom: string): number {
@@ -145,45 +107,15 @@ export async function createArbitreWithWizard(payload: { nom: string; prenom?: s
   if (!nom) throw new AppError(400, 'Nom requis.');
   if (!natioId) throw new AppError(400, 'Nationalite requise.');
 
-  return create({
+  return baseService.create({
     NOM: nom,
     PRENOM: prenom,
     IDNATIO: natioId,
   });
 }
 
-// Override create pour générer IDARBITRE automatiquement
-// The body is first reduced to the real ARBITRE columns, then written by the generic create.
-async function create(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const body = baseService.pickWritableFields(rawBody, { allowPk: true });
-  const idarbitreValue = body.IDARBITRE;
-
-  // Si IDARBITRE est vide, null, ou une string vide, générer automatiquement
-  if (!idarbitreValue || (typeof idarbitreValue === 'string' && idarbitreValue.trim() === '')) {
-    // Trouver le prochain ID disponible (MAX + 1, formaté en 4 chiffres)
-    const result = await dbGet<{ maxId: number | null }>(
-      'SELECT COALESCE(MAX(CAST(IDARBITRE AS INTEGER)), 0) as maxId FROM ARBITRE',
-    );
-    const nextId = Math.max(0, Number(result?.maxId ?? 0)) + 1;
-    body.IDARBITRE = String(nextId).padStart(4, '0');
-  }
-
-  // Valider que les champs requis sont présents
-  if (!body.NOM || (typeof body.NOM === 'string' && !body.NOM.trim())) {
-    throw new AppError(400, 'NOM est requis');
-  }
-  if (!body.IDNATIO || (typeof body.IDNATIO === 'string' && !body.IDNATIO.trim())) {
-    throw new AppError(400, 'IDNATIO (Nationalité) est requis');
-  }
-
-  return baseService.create(body);
-}
-
 export default {
   ...baseService,
-  getAll: getArbitreAll,
-  getById: getArbitreById,
-  create: create,
   getArbitreSuggestions,
   createArbitreWithWizard,
 };

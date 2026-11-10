@@ -1,20 +1,5 @@
-import { createEntityService, createFieldSanitizer } from '../lib/baseService';
+import { createEntityService } from '../lib/baseService';
 import { AppError } from '../types';
-
-const sanitizeFields = createFieldSanitizer(['IDCIRC', 'CIRC', 'TYPE_TOUR'], 'IDCIRC');
-
-function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-  const clean = sanitizeFields(body, includePk);
-
-  if (typeof clean.IDCIRC === 'string') {
-    clean.IDCIRC = clean.IDCIRC.trim().toUpperCase();
-  }
-  if (typeof clean.CIRC === 'string') {
-    clean.CIRC = clean.CIRC.trim();
-  }
-
-  return clean;
-}
 
 function normalizeTypeTour(value: unknown): number {
   const numeric = Number(value);
@@ -24,16 +9,22 @@ function normalizeTypeTour(value: unknown): number {
   return 1;
 }
 
-const baseService = createEntityService({
-  table: 'CIRC',
-  pk: 'IDCIRC',
-  selectCols: ['IDCIRC', 'CIRC', 'TYPE_TOUR'],
-  allowedSortCols: ['IDCIRC', 'CIRC', 'TYPE_TOUR'],
-  searchCols: ['IDCIRC', 'CIRC'],
-});
+function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'): Record<string, unknown> {
+  const clean = { ...body };
 
-async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = sanitize(body, true);
+  if (typeof clean.IDCIRC === 'string') {
+    clean.IDCIRC = clean.IDCIRC.trim().toUpperCase();
+  }
+  if (typeof clean.CIRC === 'string') {
+    clean.CIRC = clean.CIRC.trim();
+  }
+
+  if (mode === 'update') {
+    if (clean.TYPE_TOUR !== undefined) {
+      clean.TYPE_TOUR = normalizeTypeTour(clean.TYPE_TOUR);
+    }
+    return clean;
+  }
 
   if (!clean.IDCIRC || (typeof clean.IDCIRC === 'string' && !clean.IDCIRC.trim())) {
     throw new AppError(400, 'IDCIRC est requis');
@@ -49,24 +40,14 @@ async function create(body: Record<string, unknown>): Promise<Record<string, unk
   }
 
   clean.TYPE_TOUR = normalizeTypeTour(clean.TYPE_TOUR);
-
-  return baseService.create(clean);
+  return clean;
 }
 
-async function update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = sanitize(body, false);
-  if (clean.IDCIRC !== undefined) {
-    delete clean.IDCIRC;
-  }
-  if (clean.TYPE_TOUR !== undefined) {
-    clean.TYPE_TOUR = normalizeTypeTour(clean.TYPE_TOUR);
-  }
-  if (!Object.keys(clean).length) throw new AppError(400, 'No fields provided');
-  return baseService.update(id, clean);
-}
-
-export default {
-  ...baseService,
-  create,
-  update,
-};
+export default createEntityService({
+  table: 'CIRC',
+  pk: 'IDCIRC',
+  selectCols: ['IDCIRC', 'CIRC', 'TYPE_TOUR'],
+  allowedSortCols: ['IDCIRC', 'CIRC', 'TYPE_TOUR'],
+  searchCols: ['IDCIRC', 'CIRC'],
+  prepareWrite,
+});

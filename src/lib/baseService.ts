@@ -44,6 +44,23 @@ export interface EntityConfig {
   joinClause?: string;
   /** Expressions SELECT brutes supplémentaires (colonnes calculées/jointes), en lecture seule */
   extraSelectCols?: readonly string[];
+  /**
+   * Colonnes de selectCols exposées sous un autre nom (ex: { COCOMMENT: 'CO_COMMENT' }).
+   * En create/update, l'alias est accepté et reporté sur la colonne si celle-ci n'est pas fournie.
+   */
+  selectAliases?: Readonly<Record<string, string>>;
+  /** Colonnes de selectCols renvoyées NULL à leur place (BLOB servis par /api/images, cf. ADR). */
+  nullSelectCols?: readonly string[];
+  /**
+   * Normalisation / validation métier d'un body create/update, appliquée après la whitelist de colonnes
+   * (pickWritableFields) et avant le contrôle "No fields provided". Peut lever une AppError 400.
+   * Non appliquée à bulkUpdate.
+   */
+  prepareWrite?: (
+    body: Record<string, unknown>,
+    mode: 'create' | 'update',
+    id?: string | number,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>;
 }
 
 export interface PickWritableOptions {
@@ -110,13 +127,46 @@ export function createEntityService(config: EntityConfig) {
     tableAlias,
     joinClause,
     extraSelectCols = [],
+    selectAliases = {},
+    nullSelectCols = [],
+    prepareWrite,
   } = config;
   // colPrefix/tableSql restent vides/identiques a l'ancien comportement quand aucun join n'est configure.
   const colPrefix = tableAlias ? `${tableAlias}.` : '';
-  const selectClause = [...selectCols.map((col) => `${colPrefix}"${col}"`), ...extraSelectCols].join(', ');
+  const selectExpression = (col: string): string => {
+    if (nullSelectCols.includes(col)) return `NULL AS "${col}"`;
+    const alias = selectAliases[col];
+    return alias ? `${colPrefix}"${col}" AS "${alias}"` : `${colPrefix}"${col}"`;
+  };
+  const selectClause = [...selectCols.map(selectExpression), ...extraSelectCols].join(', ');
   const tableSql = `"${table}"${tableAlias ? ` ${tableAlias}` : ''}${joinClause ? ` ${joinClause}` : ''}`;
   const pkRef = `${colPrefix}"${pk}"`;
   const pickWritableFields = createWritableFieldPicker(table, pk);
+
+  /** Copies each write alias onto its column when the column itself is absent; alias keys are dropped. */
+  function applyWriteAliases(rawBody: Record<string, unknown>): Record<string, unknown> {
+    const aliases = Object.entries(selectAliases);
+    if (!aliases.length) return rawBody;
+    const source = { ...rawBody };
+    for (const [col, alias] of aliases) {
+      if (source[alias] !== undefined && source[col] === undefined) source[col] = source[alias];
+      delete source[alias];
+    }
+    return source;
+  }
+
+  /** Whitelist (aliases, real columns, PK only on create), business hook, day dates, then non-empty check. */
+  async function prepareWriteBody(
+    rawBody: Record<string, unknown>,
+    mode: 'create' | 'update',
+    id?: string | number,
+  ): Promise<Record<string, unknown>> {
+    const picked = pickWritableFields(applyWriteAliases(rawBody), { allowPk: mode === 'create' });
+    const prepared = prepareWrite ? await prepareWrite(picked, mode, id) : picked;
+    const body = normalizeDayDateFields(table, prepared);
+    if (!Object.keys(body).length) throw new AppError(400, 'No fields provided');
+    return body;
+  }
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
     const page   = Math.max(1, Number(params.page)  || 1);
@@ -152,9 +202,8 @@ export function createEntityService(config: EntityConfig) {
   }
 
   async function create(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-    const body = normalizeDayDateFields(table, pickWritableFields(rawBody, { allowPk: true }));
+    const body = await prepareWriteBody(rawBody, 'create');
     const keys = Object.keys(body);
-    if (!keys.length) throw new AppError(400, 'No fields provided');
     const cols   = keys.map((c) => `"${c}"`).join(', ');
     const marks  = keys.map(() => '?').join(', ');
     const result = await dbRun(`INSERT INTO "${table}" (${cols}) VALUES (${marks})`, Object.values(body));
@@ -170,9 +219,8 @@ export function createEntityService(config: EntityConfig) {
   }
 
   async function update(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-    const body = normalizeDayDateFields(table, pickWritableFields(rawBody, { allowPk: false }));
+    const body = await prepareWriteBody(rawBody, 'update', id);
     const keys = Object.keys(body);
-    if (!keys.length) throw new AppError(400, 'No fields provided');
     const sets = keys.map((c) => `"${c}" = ?`).join(', ');
     await dbRun(`UPDATE "${table}" SET ${sets} WHERE "${pk}" = ?`, [...Object.values(body), id]);
     return getById(id);
@@ -206,16 +254,3 @@ export function createEntityService(config: EntityConfig) {
 }
 
 export type EntityService = ReturnType<typeof createEntityService>;
-
-/**
- * Factory pour la fonction `sanitize(body, includePk)` dupliquee dans plusieurs services
- * (filtre un body vers une whitelist de colonnes, en excluant la PK sauf si includePk).
- */
-export function createFieldSanitizer(writableCols: Iterable<string>, pk: string) {
-  const cols = new Set(writableCols);
-  return function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-    return Object.fromEntries(
-      Object.entries(body).filter(([key]) => cols.has(key) && (includePk || key !== pk)),
-    );
-  };
-}

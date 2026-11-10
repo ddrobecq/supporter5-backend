@@ -1,10 +1,8 @@
-import { createEntityService, createFieldSanitizer } from '../lib/baseService';
+import { createEntityService } from '../lib/baseService';
 import { AppError } from '../types';
 
-const sanitizeFields = createFieldSanitizer(['RSSID', 'RSSURL', 'RSSDescription'], 'RSSID');
-
-function sanitize(body: Record<string, unknown>, includePk: boolean): Record<string, unknown> {
-  const clean = sanitizeFields(body, includePk);
+function sanitize(body: Record<string, unknown>): Record<string, unknown> {
+  const clean = { ...body };
 
   if (clean.RSSID !== undefined && clean.RSSID !== null) {
     const rawId = String(clean.RSSID).trim();
@@ -43,44 +41,27 @@ function normalizeUrl(value: unknown): string {
   }
 }
 
-const baseService = createEntityService({
+function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'): Record<string, unknown> {
+  const clean = sanitize(body);
+  if (mode === 'create') {
+    if (!clean.RSSURL) {
+      throw new AppError(400, 'RSSURL est requis');
+    }
+    clean.RSSURL = normalizeUrl(clean.RSSURL);
+    return clean;
+  }
+
+  if (clean.RSSURL !== undefined) {
+    clean.RSSURL = normalizeUrl(clean.RSSURL);
+  }
+  return clean;
+}
+
+export default createEntityService({
   table: 'RSS',
   pk: 'RSSID',
   selectCols: ['RSSID', 'RSSURL', 'RSSDescription'],
   allowedSortCols: ['RSSID', 'RSSURL', 'RSSDescription'],
   searchCols: ['RSSID', 'RSSURL', 'RSSDescription'],
+  prepareWrite,
 });
-
-async function create(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = sanitize(body, true);
-  if (clean.RSSID !== undefined && clean.RSSID !== null && String(clean.RSSID).trim() === '') {
-    delete clean.RSSID;
-  }
-  if (!clean.RSSURL) {
-    throw new AppError(400, 'RSSURL est requis');
-  }
-
-  clean.RSSURL = normalizeUrl(clean.RSSURL);
-
-  return baseService.create(clean);
-}
-
-async function update(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const clean = sanitize(body, false);
-  if (clean.RSSURL !== undefined) {
-    clean.RSSURL = normalizeUrl(clean.RSSURL);
-  }
-  if (clean.RSSDescription !== undefined && typeof clean.RSSDescription === 'string' && !clean.RSSDescription.trim()) {
-    clean.RSSDescription = '';
-  }
-  if (!Object.keys(clean).length) {
-    throw new AppError(400, 'No fields provided');
-  }
-  return baseService.update(id, clean);
-}
-
-export default {
-  ...baseService,
-  create,
-  update,
-};

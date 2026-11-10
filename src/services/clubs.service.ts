@@ -4,10 +4,9 @@ import { buildCircCompletResolver } from '../lib/circComplet';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
-import { buildWhere, sanitizeSort } from '../lib/queryBuilder';
 import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
-import { AppError, type PaginatedResult, type QueryParams } from '../types';
+import { AppError } from '../types';
 
 /** CLUB_NOM = historique des noms de clubs */
 export interface ClubGridRow {
@@ -941,59 +940,11 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
 const baseService = createEntityService({
   table:           'CLUB_NOM',
   pk:              'IDCLUB_NOM',
-  selectCols:      ['IDCLUB_NOM', 'CN_NOM', 'IDCLUB', 'DATE', 'CN_ACTION'],
+  selectCols:      ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE', 'CN_ACTION'],
   allowedSortCols: ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE'],
   searchCols:      ['CN_NOM'],
   filterCols:      ['IDCLUB'],
 });
-
-const CLUB_NOM_TABLE = 'CLUB_NOM';
-const CLUB_NOM_PK = 'IDCLUB_NOM';
-const CLUB_NOM_ALLOWED_SORT_COLS = ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE'] as const;
-const CLUB_NOM_SEARCH_COLS = ['CN_NOM'] as const;
-const CLUB_NOM_FILTER_COLS = ['IDCLUB'] as const;
-const CLUB_NOM_SELECT_COLUMNS = ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE', 'CN_ACTION'] as const;
-const CLUB_NOM_SELECT_SQL = CLUB_NOM_SELECT_COLUMNS.map((col) => `"${col}"`).join(', ');
-
-async function getClubNomAll(params: QueryParams): Promise<PaginatedResult> {
-  const page = Math.max(1, Number(params.page) || 1);
-  const limit = Math.min(200, Math.max(1, Number(params.limit) || 20));
-  const offset = (page - 1) * limit;
-  const sort = sanitizeSort(params.sort, CLUB_NOM_ALLOWED_SORT_COLS, CLUB_NOM_PK);
-  const order = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
-  const { where, bindings } = buildWhere(params, CLUB_NOM_SEARCH_COLS, CLUB_NOM_FILTER_COLS);
-
-  const row = await dbGet<{ total: number }>(
-    `SELECT COUNT(*) AS total FROM "${CLUB_NOM_TABLE}" ${where}`,
-    bindings,
-  );
-  const total = row?.total ?? 0;
-
-  const data = await dbAll(
-    `SELECT ${CLUB_NOM_SELECT_SQL}
-     FROM "${CLUB_NOM_TABLE}" ${where}
-     ORDER BY "${sort}" ${order}
-     LIMIT ? OFFSET ?`,
-    [...bindings, limit, offset],
-  );
-
-  return {
-    data,
-    total,
-    page,
-    limit,
-    totalPages: Math.ceil(total / limit),
-  };
-}
-
-async function getClubNomById(id: string | number): Promise<Record<string, unknown> | undefined> {
-  return dbGet(
-    `SELECT ${CLUB_NOM_SELECT_SQL}
-     FROM "${CLUB_NOM_TABLE}"
-     WHERE "${CLUB_NOM_PK}" = ?`,
-    [id],
-  );
-}
 
 export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
   const clubId = normalizeText(id);
@@ -1099,8 +1050,6 @@ export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
 
 export default {
   ...baseService,
-  getAll: getClubNomAll,
-  getById: getClubNomById,
   getClubsGrid,
   getClubGridById,
   getClubProfileById,
