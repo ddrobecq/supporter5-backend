@@ -1,6 +1,7 @@
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
 import { AppError } from '../types';
 import { createEntityService } from '../lib/baseService';
+import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 
 export interface CompetitionTourGridRow {
   TUCLEUNIK: number;
@@ -351,7 +352,7 @@ async function moveTour(tourId: string | number, direction: 'up' | 'down'): Prom
   return getToursByCompetition(competitionId);
 }
 
-async function removeTourWithResequence(tourId: string | number): Promise<boolean> {
+async function removeTourWithResequence(tourId: string | number, integrityChecker?: IntegrityChecker): Promise<boolean> {
   const normalizedTourId = normalizeTourId(tourId);
   const selectedRow = await dbGet<{ COCLEUNIK: number }>(
     'SELECT "COCLEUNIK" FROM "TOUR" WHERE "TUCLEUNIK" = ?',
@@ -365,6 +366,7 @@ async function removeTourWithResequence(tourId: string | number): Promise<boolea
   const competitionId = Number(selectedRow.COCLEUNIK);
   // Deletion and resequencing of the remaining tours: all or nothing.
   return runInTransaction(async () => {
+    if (integrityChecker) await assertCanDelete(String(normalizedTourId), integrityChecker);
     const removed = (await dbRun('DELETE FROM "TOUR" WHERE "TUCLEUNIK" = ?', [normalizedTourId])).changes > 0;
     if (!removed) {
       return false;

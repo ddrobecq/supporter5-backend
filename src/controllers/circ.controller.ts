@@ -1,4 +1,8 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { checkCircIntegrity } from '../lib/integrityChecker';
 import circService from '../services/circ.service';
 
-export default createEntityController(circService);
+/** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
+export const integrityChecker = checkCircIntegrity;
+
+export default createEntityController(circService, { integrityChecker });

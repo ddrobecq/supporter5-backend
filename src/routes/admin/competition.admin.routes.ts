@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import ctrl, { createCompetitionWithWizard } from '../../controllers/competition.controller';
-import { checkCompetitionIntegrity } from '../../lib/integrityChecker';
+import ctrl, { integrityChecker, createCompetitionWithWizard } from '../../controllers/competition.controller';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 import { jsonBody } from '../../middlewares/jsonBody.middleware';
 import { IMAGE_JSON_BODY_LIMIT_BYTES } from '../../config/uploadLimits';
@@ -16,7 +15,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkCompetitionIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
 

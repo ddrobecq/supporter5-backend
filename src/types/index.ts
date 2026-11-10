@@ -26,6 +26,8 @@ export class AppError extends Error {
   constructor(
     public statusCode: number,
     message: string,
+    /** Optional structured payload sent to the client as `details` (e.g. blocking integrity constraints). */
+    public details?: unknown,
   ) {
     super(message);
     this.name = 'AppError';

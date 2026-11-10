@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import ctrl, {
+	integrityChecker,
 	addTourParticipant,
 	getTourByIdDetailed,
 	getTourParticipants,
@@ -10,7 +11,6 @@ import ctrl, {
 	removeTour,
 	removeTourParticipants,
 } from '../../controllers/tours.controller';
-import { checkTourIntegrity } from '../../lib/integrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
@@ -28,7 +28,7 @@ router.post('/:id/recompute', recomputeTour);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkTourIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', removeTour);
 export default router;

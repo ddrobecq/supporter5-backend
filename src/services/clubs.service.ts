@@ -1,4 +1,5 @@
 import { createEntityService } from '../lib/baseService';
+import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -754,9 +755,11 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
   return { data: scored };
 }
 
-export async function removeClubById(id: string): Promise<boolean> {
+export async function removeClubById(id: string, integrityChecker?: IntegrityChecker): Promise<boolean> {
   // CLUB_NOM and CLUB_TERRAIN are owned by CLUB and can be cleaned up on delete (all or nothing).
   return runInTransaction(async () => {
+    // The checker ignores CLUB_NOM / CLUB_TERRAIN, which are deleted below with the club.
+    if (integrityChecker) await assertCanDelete(id, integrityChecker);
     await dbRun('DELETE FROM CLUB_NOM WHERE IDCLUB = ?', [id]);
     await dbRun('DELETE FROM CLUB_TERRAIN WHERE IDCLUB = ?', [id]);
     const result = await dbRun('DELETE FROM CLUB WHERE IDCLUB = ?', [id]);

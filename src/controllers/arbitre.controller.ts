@@ -1,9 +1,13 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { checkArbitreIntegrity } from '../lib/arbitreIntegrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import arbitreService from '../services/arbitre.service';
 import type { NextFunction, Request, Response } from 'express';
 
-const baseController = createEntityController(arbitreService);
+/** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
+export const integrityChecker = checkArbitreIntegrity;
+
+const baseController = createEntityController(arbitreService, { integrityChecker });
 
 export async function getArbitreSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {

@@ -1,5 +1,5 @@
 import { dbAll } from '../config/database';
-import type { IntegrityCheckResult, IntegrityConstraint } from '../types';
+import { AppError, type IntegrityCheckResult, type IntegrityConstraint } from '../types';
 
 export interface FkConstraintSpec {
   /** Table qui referencerait potentiellement l'enregistrement */
@@ -35,4 +35,18 @@ export async function checkFkConstraints(
 
   const constraints = results.filter((c): c is IntegrityConstraint => c !== null);
   return { canDelete: constraints.length === 0, constraints };
+}
+
+export type IntegrityChecker = (id: string) => Promise<IntegrityCheckResult>;
+
+export function describeConstraints(result: IntegrityCheckResult): string {
+  return result.constraints.map((constraint) => constraint.description).join(', ');
+}
+
+/** Throws a 409 whose details are the can-delete result when the record is still referenced. */
+export async function assertCanDelete(id: string, checker: IntegrityChecker): Promise<void> {
+  const result = await checker(id);
+  if (!result.canDelete) {
+    throw new AppError(409, `Suppression impossible : ${describeConstraints(result)}.`, result);
+  }
 }

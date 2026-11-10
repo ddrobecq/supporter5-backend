@@ -1,10 +1,15 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { checkClubIntegrity } from '../lib/integrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { sendNotFound } from '../lib/responseHelpers';
 import clubsService from '../services/clubs.service';
 import type { NextFunction, Request, Response } from 'express';
 
+/** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
+export const integrityChecker = checkClubIntegrity;
+
+// No integrityChecker here: this generic controller targets CLUB_NOM; club deletion is guarded in removeClub.
 const baseController = createEntityController(clubsService);
 
 export async function getClubsGrid(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -233,7 +238,7 @@ export async function createClubWithWizard(req: Request, res: Response, next: Ne
 
 export async function removeClub(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const removed = await clubsService.removeClubById(req.params.id);
+		const removed = await clubsService.removeClubById(req.params.id, integrityChecker);
 		if (!removed) {
 			sendNotFound(res);
 			return;

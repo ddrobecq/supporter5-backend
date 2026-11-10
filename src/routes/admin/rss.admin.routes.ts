@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/rss.controller';
-import { checkRssIntegrity } from '../../lib/integrityChecker';
+import ctrl, { integrityChecker } from '../../controllers/rss.controller';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
@@ -10,7 +9,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkRssIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
 

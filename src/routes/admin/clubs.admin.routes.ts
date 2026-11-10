@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { removeClub } from '../../controllers/clubs.controller';
+import { integrityChecker, removeClub } from '../../controllers/clubs.controller';
 import { createClubWithWizard } from '../../controllers/clubs.controller';
 import { mergeClubs } from '../../controllers/clubs.controller';
 import { updateClubColors } from '../../controllers/clubs.controller';
@@ -10,7 +10,6 @@ import { deleteClubNameHistory } from '../../controllers/clubs.controller';
 import { createClubTerrainHistory } from '../../controllers/clubs.controller';
 import { updateClubTerrainHistory } from '../../controllers/clubs.controller';
 import { deleteClubTerrainHistory } from '../../controllers/clubs.controller';
-import { checkClubIntegrity } from '../../lib/integrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 const router = Router();
 router.post('/wizard-create', createClubWithWizard);
@@ -24,7 +23,7 @@ router.post('/:id/terrains', createClubTerrainHistory);
 router.put('/:id/terrains/:terrainId', updateClubTerrainHistory);
 router.delete('/:id/terrains/:terrainId', deleteClubTerrainHistory);
 
-bindCanDeleteRoute(router, checkClubIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', removeClub);
 export default router;

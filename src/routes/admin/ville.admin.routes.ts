@@ -1,6 +1,5 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/ville.controller';
-import { checkVilleIntegrity } from '../../lib/integrityChecker';
+import ctrl, { integrityChecker } from '../../controllers/ville.controller';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
@@ -10,7 +9,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkVilleIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
 

@@ -1,9 +1,13 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { checkEpreuveIntegrity } from '../lib/integrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import epreuveService from '../services/epreuve.service';
 import type { NextFunction, Request, Response } from 'express';
 
-const baseController = createEntityController(epreuveService);
+/** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
+export const integrityChecker = checkEpreuveIntegrity;
+
+const baseController = createEntityController(epreuveService, { integrityChecker });
 
 export async function getEpreuveSuggestions(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {

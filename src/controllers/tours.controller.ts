@@ -1,10 +1,14 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { checkTourIntegrity } from '../lib/integrityChecker';
 import toursService from '../services/tours.service';
 import rencontresService from '../services/rencontres.service';
 import { AppError } from '../types';
 import type { NextFunction, Request, Response } from 'express';
 
-const baseController = createEntityController(toursService);
+/** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
+export const integrityChecker = checkTourIntegrity;
+
+const baseController = createEntityController(toursService, { integrityChecker });
 
 export async function getToursByCompetition(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
@@ -40,7 +44,7 @@ export async function moveTour(req: Request, res: Response, next: NextFunction):
 
 export async function removeTour(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {
-		const removed = await toursService.removeTourWithResequence(req.params.id);
+		const removed = await toursService.removeTourWithResequence(req.params.id, integrityChecker);
 		if (!removed) {
 			res.status(404).json({ message: 'Not found' });
 			return;

@@ -79,7 +79,9 @@ export function errorMiddleware(
   if (err instanceof AppError) {
     const appErrorAsError = err as unknown as Error;
     logServerError(req, appErrorAsError, err.statusCode, false);
-    res.status(err.statusCode).json({ message: err.message });
+    res.status(err.statusCode).json(
+      err.details === undefined ? { message: err.message } : { message: err.message, details: err.details },
+    );
     return;
   }
 

@@ -1,4 +1,5 @@
 import { createEntityController } from '../lib/controllerFactory';
+import { checkJoueurIntegrity } from '../lib/joueurIntegrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { sendNotFound } from '../lib/responseHelpers';
@@ -6,7 +7,10 @@ import joueursService from '../services/joueurs.service';
 import { AppError } from '../types';
 import type { NextFunction, Request, Response } from 'express';
 
-const baseController = createEntityController(joueursService);
+/** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
+export const integrityChecker = checkJoueurIntegrity;
+
+const baseController = createEntityController(joueursService, { integrityChecker });
 
 export async function getJoueursGrid(req: Request, res: Response, next: NextFunction): Promise<void> {
 	try {

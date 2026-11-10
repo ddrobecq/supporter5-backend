@@ -1,9 +1,8 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/joueurs.controller';
+import ctrl, { integrityChecker } from '../../controllers/joueurs.controller';
 import { createJoueurWithWizard } from '../../controllers/joueurs.controller';
 import { createJoueurHistory, deleteJoueurHistory, updateJoueurHistory } from '../../controllers/joueurs.controller';
 import { createJoueurTransaction, deleteJoueurTransaction, updateJoueurTransaction } from '../../controllers/joueurs.controller';
-import { checkJoueurIntegrity } from '../../lib/joueurIntegrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 const router = Router();
 router.post('/',       ctrl.create);
@@ -18,7 +17,7 @@ router.put('/:id',    ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkJoueurIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
 export default router;

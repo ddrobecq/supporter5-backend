@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/arbitre.controller';
+import ctrl, { integrityChecker } from '../../controllers/arbitre.controller';
 import { createArbitreWithWizard } from '../../controllers/arbitre.controller';
-import { checkArbitreIntegrity } from '../../lib/arbitreIntegrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
@@ -12,7 +11,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkArbitreIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
 

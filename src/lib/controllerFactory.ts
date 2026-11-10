@@ -1,7 +1,27 @@
 import { Request, Response, NextFunction } from 'express';
 import { EntityService } from './baseService';
 import { sendNotFound } from './responseHelpers';
-import { AppError, QueryParams } from '../types';
+import { runInTransaction } from '../config/database';
+import { assertCanDelete, describeConstraints, type IntegrityChecker } from './fkIntegrity';
+import { AppError, QueryParams, type IntegrityCheckResult } from '../types';
+
+export interface EntityControllerOptions {
+  /** Same checker as the /:id/can-delete route: enforced server-side by remove and bulkDelete. */
+  integrityChecker?: IntegrityChecker;
+}
+
+/** Checks every id first: a single blocked id rejects the whole batch (409 listing the blocked ids). */
+async function assertAllCanDelete(ids: (string | number)[], checker: IntegrityChecker): Promise<void> {
+  const blocked: Array<{ id: string | number } & IntegrityCheckResult> = [];
+  for (const id of ids) {
+    const result = await checker(String(id));
+    if (!result.canDelete) blocked.push({ id, ...result });
+  }
+  if (blocked.length > 0) {
+    const summary = blocked.map((item) => `${item.id} (${describeConstraints(item)})`).join(' ; ');
+    throw new AppError(409, `Suppression impossible, aucun enregistrement supprime : ${summary}.`, { blocked });
+  }
+}
 
 function assertIds(ids: unknown): asserts ids is (string | number)[] {
   if (!Array.isArray(ids) || ids.length === 0) {
@@ -9,7 +29,8 @@ function assertIds(ids: unknown): asserts ids is (string | number)[] {
   }
 }
 
-export function createEntityController(service: EntityService) {
+export function createEntityController(service: EntityService, options: EntityControllerOptions = {}) {
+  const { integrityChecker } = options;
   return {
     async getAll(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
@@ -51,7 +72,14 @@ export function createEntityController(service: EntityService) {
 
     async remove(req: Request, res: Response, next: NextFunction): Promise<void> {
       try {
-        if (!(await service.remove(req.params.id))) {
+        const id = req.params.id;
+        const removed = integrityChecker
+          ? await runInTransaction(async () => {
+            await assertCanDelete(id, integrityChecker);
+            return service.remove(id);
+          })
+          : await service.remove(id);
+        if (!removed) {
           sendNotFound(res); return;
         }
         res.status(204).send();
@@ -62,7 +90,12 @@ export function createEntityController(service: EntityService) {
       try {
         const { ids } = req.body as { ids: unknown };
         assertIds(ids);
-        const changes = await service.bulkDelete(ids);
+        const changes = integrityChecker
+          ? await runInTransaction(async () => {
+            await assertAllCanDelete(ids, integrityChecker);
+            return service.bulkDelete(ids);
+          })
+          : await service.bulkDelete(ids);
         res.json({ changes });
       } catch (err) { next(err); }
     },

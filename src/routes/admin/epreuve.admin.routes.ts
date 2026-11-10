@@ -1,7 +1,6 @@
 import { Router } from 'express';
-import ctrl from '../../controllers/epreuve.controller';
+import ctrl, { integrityChecker } from '../../controllers/epreuve.controller';
 import { createEpreuveWithWizard } from '../../controllers/epreuve.controller';
-import { checkEpreuveIntegrity } from '../../lib/integrityChecker';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 import { jsonBody } from '../../middlewares/jsonBody.middleware';
 import { IMAGE_JSON_BODY_LIMIT_BYTES } from '../../config/uploadLimits';
@@ -17,7 +16,7 @@ router.put('/:id', ctrl.update);
 router.patch('/bulk', ctrl.bulkUpdate);
 router.delete('/bulk', ctrl.bulkDelete);
 
-bindCanDeleteRoute(router, checkEpreuveIntegrity);
+bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
 
