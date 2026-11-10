@@ -308,10 +308,10 @@ async function resequenceCompetitionTours(competitionId: number, orderedTourIds:
     return;
   }
 
+  const updateOrder = db.prepare('UPDATE "TOUR" SET "TU_ORDRE" = ? WHERE "TUCLEUNIK" = ? AND "COCLEUNIK" = ?');
   const transaction = db.transaction((ids: number[]) => {
     ids.forEach((tourId, index) => {
-      db.prepare('UPDATE "TOUR" SET "TU_ORDRE" = ? WHERE "TUCLEUNIK" = ? AND "COCLEUNIK" = ?')
-        .run(index + 1, tourId, competitionId);
+      updateOrder.run(index + 1, tourId, competitionId);
     });
   });
 

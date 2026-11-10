@@ -260,31 +260,44 @@ export async function clonePreviousCompetition(
       throw new AppError(500, 'Impossible de créer la nouvelle compétition à partir de la précédente.');
     }
 
+    const insertTour = db.prepare(
+      `INSERT INTO "TOUR" (
+        "TDCLEUNIK",
+        "NB_PARTICIPANTS",
+        "COCLEUNIK",
+        "NOM",
+        "DATE_DEBUT",
+        "DATE_FIN",
+        "TUHEURE",
+        "NB_EQUIPE",
+        "NB_GROUPE",
+        "TU_ORDRE",
+        "TU_FINAL",
+        "TU_DATETIRAGE",
+        "TU_HEURETIRAGE",
+        "TU_SELECTION",
+        "TU_COMMENT",
+        "NB_MATCH"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const insertQualif = db.prepare(
+      `INSERT INTO "Qualif" (
+        "CLASS_MinRang",
+        "CLASS_Couleur",
+        "CLASS_Libelle",
+        "CLASS_Type",
+        "TUCLEUNIK",
+        "CLASS_Abrege",
+        "CLASS_MaxRang"
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    );
+
     const tourMapping = new Map<number, number>();
     for (const previousTour of previousTours) {
       const oldTourId = Number(previousTour.TUCLEUNIK ?? 0);
       if (!oldTourId) continue;
 
-      const insertedTour = db.prepare(
-        `INSERT INTO "TOUR" (
-          "TDCLEUNIK",
-          "NB_PARTICIPANTS",
-          "COCLEUNIK",
-          "NOM",
-          "DATE_DEBUT",
-          "DATE_FIN",
-          "TUHEURE",
-          "NB_EQUIPE",
-          "NB_GROUPE",
-          "TU_ORDRE",
-          "TU_FINAL",
-          "TU_DATETIRAGE",
-          "TU_HEURETIRAGE",
-          "TU_SELECTION",
-          "TU_COMMENT",
-          "NB_MATCH"
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+      const insertedTour = insertTour.run(
         previousTour.TDCLEUNIK ?? 0,
         previousTour.NB_PARTICIPANTS ?? 0,
         newCompetitionId,
@@ -315,17 +328,7 @@ export async function clonePreviousCompetition(
       const newTourId = tourMapping.get(oldTourId);
       if (!newTourId) continue;
 
-      db.prepare(
-        `INSERT INTO "Qualif" (
-          "CLASS_MinRang",
-          "CLASS_Couleur",
-          "CLASS_Libelle",
-          "CLASS_Type",
-          "TUCLEUNIK",
-          "CLASS_Abrege",
-          "CLASS_MaxRang"
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`
-      ).run(
+      insertQualif.run(
         previousQualif.CLASS_MinRang ?? 0,
         previousQualif.CLASS_Couleur ?? 0,
         previousQualif.CLASS_Libelle ?? null,

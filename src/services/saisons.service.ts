@@ -49,6 +49,8 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
   const joueurEntries = Array.isArray(payload.joueurs) ? payload.joueurs : [];
   const joueurRows: Array<{ idJoueur: string; poste: number }> = [];
   const seenJoueurs = new Set<string>();
+  const findJoueurRg = db.prepare('SELECT IDJOUEUR FROM JOUEURRG WHERE IDJOUEUR = ?');
+  const findPlayerPoste = db.prepare('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1');
   for (const entry of joueurEntries) {
     const idJoueur = String(entry?.idJoueur ?? '').trim();
     const poste = Number(entry?.poste);
@@ -57,11 +59,11 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
       throw new AppError(400, `Poste invalide pour le joueur ${idJoueur}.`);
     }
 
-    const joueurRg = db.prepare('SELECT IDJOUEUR FROM JOUEURRG WHERE IDJOUEUR = ?').get(idJoueur);
+    const joueurRg = findJoueurRg.get(idJoueur);
     if (!joueurRg) {
       throw new AppError(400, `Joueur ${idJoueur} introuvable.`);
     }
-    const posteRow = db.prepare('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1').get(poste);
+    const posteRow = findPlayerPoste.get(poste);
     if (!posteRow) {
       throw new AppError(400, `Poste invalide pour le joueur ${idJoueur}.`);
     }

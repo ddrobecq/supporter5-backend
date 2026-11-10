@@ -155,8 +155,9 @@ function categorize(text: string): ActualiteCategorie {
 async function getClubAliases(): Promise<string[]> {
   const clubId = getSupportedClubIdFromEnv();
   const [club, history] = await Promise.all([
-    dbGet<ClubRow>('SELECT "CLUB" FROM "CLUB" WHERE CAST("IDCLUB" AS TEXT) = ? LIMIT 1', [clubId]),
-    dbAll<ClubNameRow>('SELECT "CN_NOM" FROM "CLUB_NOM" WHERE CAST("IDCLUB" AS TEXT) = ?', [clubId]),
+    // IDCLUB is a text column and clubId a string: same rows as CAST(IDCLUB AS TEXT), but indexed.
+    dbGet<ClubRow>('SELECT "CLUB" FROM "CLUB" WHERE "IDCLUB" = ? LIMIT 1', [clubId]),
+    dbAll<ClubNameRow>('SELECT "CN_NOM" FROM "CLUB_NOM" WHERE "IDCLUB" = ?', [clubId]),
   ]);
   const aliases = new Set<string>();
   for (const rawName of [club?.CLUB ?? '', ...history.map((row) => row.CN_NOM ?? '')]) {

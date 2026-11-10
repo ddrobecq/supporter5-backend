@@ -1,3 +1,4 @@
+import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
@@ -248,6 +249,18 @@ function parsePaSource(value: unknown): PaSourceRef | null {
   return { tourId, groupName, rank };
 }
 
+const statementCache = new Map<string, Statement<unknown[]>>();
+
+/** Statement prepared once and reused: for the lookups run per participant / per source during propagation. */
+function cachedStatement(sql: string): Statement<unknown[]> {
+  let statement = statementCache.get(sql);
+  if (!statement) {
+    statement = db.prepare(sql);
+    statementCache.set(sql, statement);
+  }
+  return statement;
+}
+
 function getClubNameById(clubId: string, cache: Map<string, string>): string {
   const normalized = toText(clubId);
   if (!normalized) {
@@ -259,7 +272,7 @@ function getClubNameById(clubId: string, cache: Map<string, string>): string {
     return cached;
   }
 
-  const row = db.prepare('SELECT COALESCE("CLUB", "IDCLUB") AS "CLUB" FROM "CLUB" WHERE "IDCLUB" = ? LIMIT 1')
+  const row = cachedStatement('SELECT COALESCE("CLUB", "IDCLUB") AS "CLUB" FROM "CLUB" WHERE "IDCLUB" = ? LIMIT 1')
     .get(normalized) as Record<string, unknown> | undefined;
 
   const label = row ? toText(row.CLUB) : normalized;
@@ -297,7 +310,7 @@ function resolveProgrammedCandidatesFromSource(
 
   visited.add(cycleKey);
 
-  const rows = db.prepare(
+  const rows = cachedStatement(
     `SELECT
        COALESCE("IDCLUB", '') AS "IDCLUB",
        COALESCE("PASource", '') AS "PASource"
@@ -337,7 +350,7 @@ function resolveProgrammedClubIdFromSource(sourceValue: string): string | null {
     return null;
   }
 
-  const rows = db.prepare(
+  const rows = cachedStatement(
     `SELECT COALESCE("IDCLUB", '') AS "IDCLUB"
      FROM "PARTICIP"
      WHERE "TUCLEUNIK" = ?
@@ -358,7 +371,7 @@ function isTourCompleted(tourId: number): boolean {
     return false;
   }
 
-  const tour = db.prepare(
+  const tour = cachedStatement(
     `SELECT COALESCE("NB_MATCH", 0) AS "NB_MATCH"
      FROM "TOUR"
      WHERE "TUCLEUNIK" = ?
@@ -370,7 +383,7 @@ function isTourCompleted(tourId: number): boolean {
     return false;
   }
 
-  const counters = db.prepare(
+  const counters = cachedStatement(
     `SELECT
        COUNT(*) AS "TOTAL",
        SUM(CASE WHEN COALESCE("ETAT", 0) = 3 THEN 1 ELSE 0 END) AS "DONE"
@@ -394,7 +407,7 @@ function getSourceTourMeta(tourId: number, cache: Map<number, SourceTourMeta>): 
     return cached;
   }
 
-  const row = db.prepare(
+  const row = cachedStatement(
     `SELECT
        COALESCE(td."TDTYPETOUR", 1) AS "TYPE_ID",
        COALESCE(td."ALLER_RETOUR", 0) AS "ALLER_RETOUR"
@@ -456,7 +469,7 @@ function isEliminatoireSourceDuelCompleted(
     return false;
   }
 
-  const participants = db.prepare(
+  const participants = cachedStatement(
     `SELECT
        "PACLEUNIK",
        COALESCE("IDCLUB", '') AS "IDCLUB",
@@ -483,7 +496,7 @@ function isEliminatoireSourceDuelCompleted(
   }
 
   const requiredCompletedMatches = allerRetour === 1 ? 2 : 1;
-  const counters = db.prepare(
+  const counters = cachedStatement(
     `SELECT
        COUNT(*) AS "TOTAL",
        SUM(CASE WHEN COALESCE("ETAT", 0) = 3 THEN 1 ELSE 0 END) AS "DONE"
@@ -546,6 +559,11 @@ function propagateProgrammedParticipantsAndMatches(): void {
   ).all() as Array<Record<string, unknown>>;
 
   const resolvedSources = new Set<string>();
+  const updateParticipantClub = db.prepare(
+    `UPDATE "PARTICIP"
+     SET "IDCLUB" = ?
+     WHERE "PACLEUNIK" = ?`,
+  );
 
   unresolved.forEach((row) => {
     const paSource = toText(row.PASource);
@@ -558,40 +576,42 @@ function propagateProgrammedParticipantsAndMatches(): void {
       return;
     }
 
-    db.prepare(
-      `UPDATE "PARTICIP"
-       SET "IDCLUB" = ?
-       WHERE "PACLEUNIK" = ?`,
-    ).run(resolvedClubId, toInt(row.PACLEUNIK));
-
+    updateParticipantClub.run(resolvedClubId, toInt(row.PACLEUNIK));
     resolvedSources.add(paSource);
   });
 
+  // `source` is never empty here (canResolveSourceForPropagation requires a parsable PASource), so
+  // `"PADOMSource" = ?` matches exactly the rows of `COALESCE("PADOMSource", '') = ?`; the redundant
+  // `<> ''` lets SQLite use the partial index WDIDX_RENCO_PADOMSOURCE / WDIDX_RENCO_PAEXTSOURCE.
+  const updateDomicileFromSource = db.prepare(
+    `UPDATE "RENCO"
+     SET "DOMICILE" = ?
+     WHERE "PADOMSource" = ?
+       AND "PADOMSource" <> ''
+       AND TRIM(COALESCE("DOMICILE", '')) = ''`,
+  );
+  const updateExterieurFromSource = db.prepare(
+    `UPDATE "RENCO"
+     SET "EXTERIEUR" = ?
+     WHERE "PAEXTSource" = ?
+       AND "PAEXTSource" <> ''
+       AND TRIM(COALESCE("EXTERIEUR", '')) = ''`,
+  );
   resolvedSources.forEach((source) => {
     const resolvedClubId = resolveProgrammedClubIdFromSource(source);
     if (!resolvedClubId) {
       return;
     }
 
-    db.prepare(
-      `UPDATE "RENCO"
-       SET "DOMICILE" = ?
-       WHERE COALESCE("PADOMSource", '') = ?
-         AND TRIM(COALESCE("DOMICILE", '')) = ''`,
-    ).run(resolvedClubId, source);
-
-    db.prepare(
-      `UPDATE "RENCO"
-       SET "EXTERIEUR" = ?
-       WHERE COALESCE("PAEXTSource", '') = ?
-         AND TRIM(COALESCE("EXTERIEUR", '')) = ''`,
-    ).run(resolvedClubId, source);
+    updateDomicileFromSource.run(resolvedClubId, source);
+    updateExterieurFromSource.run(resolvedClubId, source);
   });
 
+  // NULL never equals 5: same rows as COALESCE("ETAT", 0) = 5, but sargable (existing index WDIDX_RENCO_ETAT).
   db.prepare(
     `UPDATE "RENCO"
      SET "ETAT" = 1
-     WHERE COALESCE("ETAT", 0) = 5
+     WHERE "ETAT" = 5
        AND TRIM(COALESCE("DOMICILE", '')) <> ''
        AND TRIM(COALESCE("EXTERIEUR", '')) <> ''`,
   ).run();
@@ -3264,12 +3284,15 @@ export interface RencontreMatchMetaPayload {
 
 function clubHasTerrain(clubId: string, tecleunik: string): boolean {
   if (!clubId || !tecleunik) return false;
+  // CLUB_TERRAIN.TECLEUNIK is an INTEGER column: CAST(... AS TEXT) only ever matched the canonical
+  // decimal form, so convert that form to a number here and keep the column sargable.
+  if (!/^(0|-?[1-9]\d*)$/.test(tecleunik)) return false;
   const row = db.prepare(
     `SELECT 1
      FROM "CLUB_TERRAIN"
-     WHERE "IDCLUB" = ? AND CAST("TECLEUNIK" AS TEXT) = ?
+     WHERE "IDCLUB" = ? AND "TECLEUNIK" = ?
      LIMIT 1`,
-  ).get(clubId, tecleunik) as Record<string, unknown> | undefined;
+  ).get(clubId, Number(tecleunik)) as Record<string, unknown> | undefined;
   return !!row;
 }
 
