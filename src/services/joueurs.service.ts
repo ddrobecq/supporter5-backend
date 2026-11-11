@@ -124,7 +124,16 @@ export interface JoueurTransactionOptions {
 }
 
 export interface JoueurMatchEvent {
-  type: 'but' | 'passe' | 'entree' | 'sortie' | 'blessure';
+  type:
+    | 'but'
+    | 'passe'
+    | 'entree'
+    | 'sortie'
+    | 'avertissement'
+    | 'second-avertissement'
+    | 'exclusion'
+    | 'blessure'
+    | 'penalty';
   minute: number;
   periode: number;
 }
@@ -1049,6 +1058,7 @@ export async function getJoueurMatchesForSeason(
                WHEN ev.TYPE_EVENT = 4 AND ev.JOUEUR1 = ? THEN 'second-avertissement'
                WHEN ev.TYPE_EVENT = 5 AND ev.JOUEUR1 = ? THEN 'exclusion'
                WHEN ev.TYPE_EVENT = 9 AND ev.JOUEUR1 = ? THEN 'blessure'
+               WHEN ev.TYPE_EVENT = 7 AND ev.JOUEUR1 = ? AND COALESCE(ev.PERIODE, 0) <> 5 THEN 'penalty'
              END AS etype,
              ev.MINUTE AS minute,
              ev.PERIODE AS periode
@@ -1062,6 +1072,7 @@ export async function getJoueurMatchesForSeason(
                OR (ev.TYPE_EVENT = 4 AND ev.JOUEUR1 = ?)
                OR (ev.TYPE_EVENT = 5 AND ev.JOUEUR1 = ?)
                OR (ev.TYPE_EVENT = 9 AND ev.JOUEUR1 = ?)
+               OR (ev.TYPE_EVENT = 7 AND ev.JOUEUR1 = ? AND COALESCE(ev.PERIODE, 0) <> 5)
              )
            ORDER BY ev.PERIODE ASC, ev.MINUTE ASC
          ) evo
@@ -1128,7 +1139,7 @@ export async function getJoueurMatchesForSeason(
          AND ev.TYPE_EVENT = 2
      ) matches
      ORDER BY matches.DATE DESC`,
-    [id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, season, ...posParams, season, id],
+    [id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, id, season, ...posParams, season, id],
   );
 
   const rows: JoueurMatchRow[] = rawRows.map((row) => {
