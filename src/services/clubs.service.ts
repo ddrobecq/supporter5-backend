@@ -1,5 +1,6 @@
 import { createEntityService } from '../lib/baseService';
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
+import { cached } from '../lib/statsCache';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -698,7 +699,8 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
     return { data: [] };
   }
 
-  const rows = await dbAll<ClubCandidateRow>(
+  // Candidate list cached per generation (any admin write invalidates it); rows are only read below.
+  const rows = await cached('clubs:suggestion-candidates', () => dbAll<ClubCandidateRow>(
     `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
@@ -722,7 +724,7 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
        ), '') AS CLUB_NOMS_HISTORIQUE
      FROM CLUB c
      ORDER BY c.CLUB ASC, c.IDCLUB ASC`,
-  );
+  ));
 
   const scored = rows
     .map((row) => ({

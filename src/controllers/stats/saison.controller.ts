@@ -1,5 +1,5 @@
 import type { Request } from 'express';
-import { dataHandler } from '../../lib/responseHelpers';
+import { cachedDataHandler } from '../../lib/statsCache';
 import { AppError } from '../../types';
 import { getSaisonClassement, getSaisonsDisponibles, type SaisonClassementMetric } from '../../services/stats/saison/classements.service';
 import { getEquipeType } from '../../services/stats/saison/equipeType.service';
@@ -18,10 +18,10 @@ function requireSaison(req: Request): string {
   return saison;
 }
 
-export const getSaisonsStat = dataHandler(() => getSaisonsDisponibles());
+export const getSaisonsStat = cachedDataHandler(() => getSaisonsDisponibles());
 
 function classementHandler(metric: SaisonClassementMetric) {
-  return dataHandler((req) => getSaisonClassement(metric, requireSaison(req)));
+  return cachedDataHandler((req) => getSaisonClassement(metric, requireSaison(req)));
 }
 
 export const getSaisonTempsStat = classementHandler('temps');
@@ -29,10 +29,10 @@ export const getSaisonButsStat = classementHandler('buts');
 export const getSaisonPassesStat = classementHandler('passes');
 export const getSaisonSanctionsStat = classementHandler('sanctions');
 
-export const getSaisonEquipeTypeStat = dataHandler((req) => getEquipeType(requireSaison(req)));
+export const getSaisonEquipeTypeStat = cachedDataHandler((req) => getEquipeType(requireSaison(req)));
 
 function compositionHandler(metric: CompositionMetric) {
-  return dataHandler(() => getSaisonComposition(metric));
+  return cachedDataHandler(() => getSaisonComposition(metric));
 }
 
 export const getSaisonNombreJoueursStat = compositionHandler('nombre-joueurs');
@@ -42,10 +42,10 @@ export const getSaisonAgeMoyenStat = compositionHandler('age-moyen');
 export const getSaisonNombreMatchesStat = compositionHandler('nombre-matches');
 export const getSaisonNombreRemplacementsStat = compositionHandler('nombre-remplacements');
 
-export const getSaisonSchemaEvolutionStat = dataHandler(() => getLignesEvolution());
+export const getSaisonSchemaEvolutionStat = cachedDataHandler(() => getLignesEvolution());
 
 function butsEquipeHandler(metric: ButsEquipeMetric) {
-  return dataHandler(() => getSaisonButsEquipe(metric));
+  return cachedDataHandler(() => getSaisonButsEquipe(metric));
 }
 
 export const getSaisonButsPourStat = butsEquipeHandler('buts-pour');
@@ -55,7 +55,7 @@ export const getSaisonButsContreMatchStat = butsEquipeHandler('buts-contre-match
 export const getSaisonButsMatchStat = butsEquipeHandler('buts-match');
 
 function sanctionsEquipeHandler(metric: SanctionEquipeMetric) {
-  return dataHandler(() => getSaisonSanctionsEquipe(metric));
+  return cachedDataHandler(() => getSaisonSanctionsEquipe(metric));
 }
 
 export const getSaisonAvertissementsEquipeStat = sanctionsEquipeHandler('avertissements');
@@ -64,7 +64,7 @@ export const getSaisonAvertissementsMatchStat = sanctionsEquipeHandler('avertiss
 export const getSaisonExclusionsMatchStat = sanctionsEquipeHandler('exclusions-match');
 
 function transfertsEquipeHandler(metric: TransfertEquipeMetric) {
-  return dataHandler(() => getSaisonTransferts(metric));
+  return cachedDataHandler(() => getSaisonTransferts(metric));
 }
 
 export const getSaisonAchatsCumulesStat = transfertsEquipeHandler('achats-cumules');

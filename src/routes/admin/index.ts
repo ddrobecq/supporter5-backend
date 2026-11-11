@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../../middlewares/auth.middleware';
+import { invalidateCacheOnWrite } from '../../lib/statsCache';
 import rencontresAdmin from './rencontres.admin.routes';
 import joueursAdmin    from './joueurs.admin.routes';
 import statsAdmin      from './stats.admin.routes';
@@ -29,6 +30,8 @@ const router = Router();
 
 // Toutes les routes admin requièrent un JWT valide
 router.use(authMiddleware);
+// Any admin write invalidates the stats / suggestion caches (lib/statsCache).
+router.use(invalidateCacheOnWrite);
 
 router.use('/rencontres', rencontresAdmin);
 router.use('/joueurs',    joueursAdmin);
