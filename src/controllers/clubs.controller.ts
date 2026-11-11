@@ -1,4 +1,3 @@
-import { createEntityController } from '../lib/controllerFactory';
 import { checkClubIntegrity } from '../lib/integrityChecker';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
@@ -7,9 +6,6 @@ import clubsService from '../services/clubs.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = checkClubIntegrity;
-
-// No integrityChecker here: this generic controller targets CLUB_NOM; club deletion is guarded in removeClub.
-const baseController = createEntityController(clubsService);
 
 type ClubColorsPayload = { fond: string | number | null; texte: string | number | null };
 type ClubProfilePayload = {
@@ -97,4 +93,3 @@ export const mergeClubs = jsonHandler((req) => {
 	return clubsService.mergeClubs(sourceId, targetId);
 });
 
-export default baseController;

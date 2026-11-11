@@ -217,14 +217,17 @@ export async function clonePreviousCompetition(
   }
 
   const previousTours = await dbAll<Record<string, unknown>>(
-    `SELECT * FROM "TOUR"
+    `SELECT "TUCLEUNIK", "TDCLEUNIK", "NB_PARTICIPANTS", "NOM", "DATE_DEBUT", "DATE_FIN", "TUHEURE", "NB_EQUIPE",
+            "NB_GROUPE", "TU_ORDRE", "TU_FINAL", "TU_DATETIRAGE", "TU_HEURETIRAGE", "TU_SELECTION", "TU_COMMENT", "NB_MATCH"
+     FROM "TOUR"
      WHERE "COCLEUNIK" = ?
      ORDER BY "TU_ORDRE" ASC, "TUCLEUNIK" ASC`,
     [previousCompetitionId],
   );
 
   const previousQualifs = await dbAll<Record<string, unknown>>(
-    `SELECT q.*
+    `SELECT q."CLASS_ID", q."TUCLEUNIK", q."CLASS_MinRang", q."CLASS_MaxRang", q."CLASS_Couleur", q."CLASS_Libelle",
+            q."CLASS_Type", q."CLASS_Abrege"
      FROM "Qualif" q
      INNER JOIN "TOUR" t ON t."TUCLEUNIK" = q."TUCLEUNIK"
      WHERE t."COCLEUNIK" = ?

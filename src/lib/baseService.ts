@@ -3,25 +3,7 @@ import { AppError, QueryParams, PaginatedResult } from '../types';
 import { sanitizeSort, buildWhere } from './queryBuilder';
 import { normalizeDayDateFields } from './dates';
 import { sanitizeImageFields } from './imageUpload';
-
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
-function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly string[], search: string): boolean {
-  if (!search) {
-    return true;
-  }
-
-  return searchCols.some((col) => {
-    const value = row[col];
-    return normalizeSearchText(String(value ?? '')).includes(search);
-  });
-}
+import { normalizeSearchText, rowMatchesSearch } from './searchUtils';
 
 export interface EntityConfig {
   /** Nom exact de la table en base de données (Turso/libSQL) */
@@ -91,7 +73,7 @@ function readTableColumns(table: string): ReadonlyMap<string, string> {
  * - The primary key is kept only when `allowPk` is true.
  * The column list is read lazily on first use, then cached for the lifetime of the picker.
  */
-export function createWritableFieldPicker(table: string, pk: string) {
+function createWritableFieldPicker(table: string, pk: string) {
   let columns: ReadonlyMap<string, string> | null = null;
   const foldedPk = foldIdentifier(pk);
 

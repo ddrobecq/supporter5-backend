@@ -41,7 +41,7 @@ export interface MaintenanceMutationResult {
 export type MaintenanceQueryResult = MaintenanceSelectResult | MaintenanceMutationResult;
 
 /** Erreur levee quand une requete modifiante est soumise sans confirmation explicite. */
-export const CONFIRMATION_REQUIRED_STATUS = 428;
+const CONFIRMATION_REQUIRED_STATUS = 428;
 
 /**
  * `lastInsertRowid` reflete l'etat de la connexion et reste renseigne apres un

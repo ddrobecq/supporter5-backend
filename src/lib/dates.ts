@@ -4,7 +4,7 @@ import { AppError } from '../types';
  * Day-precision date columns (stored as TEXT "YYYY-MM-DD", '' when unknown).
  * Timestamps and time columns are intentionally excluded.
  */
-export const DAY_DATE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
+const DAY_DATE_COLUMNS: Readonly<Record<string, readonly string[]>> = {
   BLESSURE: ['DATE'],
   CLUB_NOM: ['DATE'],
   CLUB_TERRAIN: ['DATE'],

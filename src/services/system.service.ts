@@ -1,33 +1,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { backupDatabaseTo, dbGet } from '../config/database';
+import { backupDatabaseTo, dbGet, removeWalSidecars, resolvedDbPath } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 
 const ALLOWED_EXTENSIONS = new Set(['.sqlite', '.db']);
 const SQLITE_PENDING_SUFFIX = '.pending-upload';
-const SQLITE_WAL_SIDECAR_SUFFIXES = ['-wal', '-shm'];
 /** First 16 bytes of every SQLite 3 database file. */
 const SQLITE_HEADER = Buffer.from('SQLite format 3\0', 'latin1');
-
-/**
- * Supprime les -wal/-shm laisses par la base precedente. A n'appeler qu'une fois le fichier
- * principal deja remplace par le nouvel import: ces sidecars appartiennent alors a l'ancienne
- * generation et seraient sinon rejoues par erreur (recovery WAL) sur le nouveau fichier a la
- * prochaine ouverture, corrompant la base fraichement importee.
- */
-async function removeSqliteWalSidecars(dbPath: string): Promise<void> {
-  await Promise.all(
-    SQLITE_WAL_SIDECAR_SUFFIXES.map(async (suffix) => {
-      try {
-        await fs.rm(`${dbPath}${suffix}`, { force: true });
-      } catch (error) {
-        console.warn(`[system] Impossible de supprimer le sidecar SQLite "${dbPath}${suffix}": ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }),
-  );
-}
 
 export interface SupportedClubContext {
   clubId: string;
@@ -47,20 +28,7 @@ function isLockedFileError(error: unknown): boolean {
   return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
 }
 
-function resolveDbPath(): string {
-  const configuredDbPath = (process.env.SQLITE_DB_PATH ?? './data/supporter.sqlite').trim();
-  if (!configuredDbPath) {
-    throw new AppError(500, 'SQLITE_DB_PATH est vide.');
-  }
-
-  return path.isAbsolute(configuredDbPath)
-    ? configuredDbPath
-    : path.resolve(process.cwd(), configuredDbPath);
-}
-
 export async function getSqliteDatabaseDownloadInfo(): Promise<{ path: string; fileName: string; size: number; cleanup: () => Promise<void> }> {
-  const resolvedDbPath = resolveDbPath();
-
   try {
     const srcStats = await fs.stat(resolvedDbPath);
     if (!srcStats.isFile()) {
@@ -125,12 +93,10 @@ export async function uploadSqliteDatabase(file: Express.Multer.File): Promise<{
   }
 
   const sourcePath = typeof file.path === 'string' && file.path.length > 0 ? file.path : null;
-  let resolvedDbPath: string;
 
   try {
     assertAllowedExtension(file.originalname);
 
-    resolvedDbPath = resolveDbPath();
     await fs.mkdir(path.dirname(resolvedDbPath), { recursive: true });
 
     if (sourcePath) {
@@ -166,7 +132,7 @@ export async function uploadSqliteDatabase(file: Express.Multer.File): Promise<{
       await fs.rename(tempPath, resolvedDbPath);
       // Le fichier principal vient d'etre remplace: purge les -wal/-shm de l'ancienne base
       // pour eviter qu'ils soient rejoues par erreur sur le nouveau fichier au redemarrage.
-      await removeSqliteWalSidecars(resolvedDbPath);
+      removeWalSidecars(resolvedDbPath, 'warn');
     } catch (error) {
       if (!isLockedFileError(error)) {
         throw error;

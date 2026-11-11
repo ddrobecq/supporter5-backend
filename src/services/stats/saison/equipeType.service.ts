@@ -1,6 +1,6 @@
 import { dbAll } from '../../../config/database';
 import { officialMatchSql, playedMatchSql } from '../../../lib/supportedMatches';
-import { STARTER_LINES, type StarterSlot } from '../../../lib/compo';
+import { STARTER_LINES, STARTER_SLOTS, type StarterSlot } from '../../../lib/compo';
 
 /** Postes de champ (hors remplacants), du gardien vers l'attaque (ordre des lignes tactiques). */
 export const PITCH_SLOTS: readonly StarterSlot[] = STARTER_LINES.flatMap((line) => line.slots);
@@ -72,7 +72,7 @@ function tally(rows: CompoRow[], pick: (row: CompoRow) => string): Map<string, {
  */
 export async function getEquipeType(saison?: string | null): Promise<EquipeTypeResult> {
   const rows = await dbAll<CompoRow>(
-    `SELECT e.*, r.DATE
+    `SELECT ${STARTER_SLOTS.map((slot) => `e.${slot}`).join(', ')}, e.ENTRAINEUR, r.DATE
      FROM EQUIPE e
      INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK

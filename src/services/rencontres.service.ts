@@ -1,6 +1,7 @@
 import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
+import { toInt, toNum, toText } from '../lib/coerce';
 import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
 import { officialMatchSql, playedMatchSql } from '../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
@@ -201,22 +202,6 @@ interface ParticipantStats {
 type MatchOutcome = 'dom-win' | 'ext-win' | 'draw' | 'both-loss';
 type TeamOutcome = 'V' | 'N' | 'D';
 type TeamSide = 'dom' | 'ext';
-
-function toInt(value: unknown, fallback = 0): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  return Math.trunc(numeric);
-}
-
-function toNum(value: unknown, fallback = 0): number {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) return fallback;
-  return numeric;
-}
-
-function toText(value: unknown): string {
-  return String(value ?? '').trim();
-}
 
 function normalizeOptionalText(value: unknown): string | null {
   if (value == null) {
@@ -650,10 +635,6 @@ function normalizeClubIdentifier(value: unknown): string {
     return String(Number(raw));
   }
   return raw.toUpperCase();
-}
-
-function getSupportedClubId(): string {
-  return getSupportedClubIdFromEnv();
 }
 
 function resolveSupportedClubSide(
@@ -1474,7 +1455,7 @@ function orderParticipantGroups(
 }
 
 /** Classement d'un groupe : paquets ordonnes, les clubs d'un meme paquet partagent le rang. */
-export function sortParticipantsByPointsDesc(
+function sortParticipantsByPointsDesc(
   rows: ParticipantStats[],
   criteria: ParticipantSortCriterion[] = DEFAULT_SORT_CRITERIA,
   context: HeadToHeadContext = DISABLED_HEAD_TO_HEAD,
@@ -1954,18 +1935,6 @@ export function recomputeTourStandings(tourId: number): void {
   })();
 }
 
-function collectImpactedGroups(row: RencontresRow): string[] {
-  const groups = new Set<string>();
-
-  const dom = readParticipantByTourAndClub(row.TUCLEUNIK, row.DOMICILE);
-  const ext = readParticipantByTourAndClub(row.TUCLEUNIK, row.EXTERIEUR);
-
-  if (dom) groups.add(dom.GROUPE);
-  if (ext) groups.add(ext.GROUPE);
-
-  return [...groups];
-}
-
 function assertValidRencontreBody(body: Record<string, unknown>): void {
   const domicile = toText(body.DOMICILE);
   const exterieur = toText(body.EXTERIEUR);
@@ -2437,7 +2406,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       clubNameCache,
     );
 
-    const supportedClubId = getSupportedClubId();
+    const supportedClubId = getSupportedClubIdFromEnv();
     const supportedSide = resolveSupportedClubSide(detail.DOMICILE, detail.EXTERIEUR, supportedClubId);
 
     if (supportedSide !== 'none' && detail.MACLEUNIK == null) {
@@ -2509,7 +2478,7 @@ export async function getRencontreHighlightsById(id: string | number): Promise<R
   const domicile = toText(baseRow.DOMICILE);
   const exterieur = toText(baseRow.EXTERIEUR);
   const macleunik = baseRow.MACLEUNIK == null ? null : toInt(baseRow.MACLEUNIK);
-  const supportedClubId = getSupportedClubId();
+  const supportedClubId = getSupportedClubIdFromEnv();
   const supportedSide = resolveSupportedClubSide(domicile, exterieur, supportedClubId);
 
   if (!macleunik) {
@@ -2715,7 +2684,7 @@ function buildOnThisDayResume(candidate: OnThisDayCandidateRow): { text: string;
  * rester utile meme en treve (ex: coupure estivale sans aucun match a dd/mm exact).
  */
 export async function getOnThisDayMatch(referenceDate: Date = new Date()): Promise<OnThisDayMatchRow | undefined> {
-  const supportedClubId = getSupportedClubId();
+  const supportedClubId = getSupportedClubIdFromEnv();
   const { year: todayYear, month: todayMonth, day: todayDay } = parisDateParts(referenceDate);
   const todayUtc = Date.UTC(todayYear, todayMonth - 1, todayDay);
 
@@ -2898,7 +2867,7 @@ function resolveStatsSeasonForRencontre(recleunik: number): string {
  */
 function supportedClubStatsSeason(row: { RECLEUNIK: number; DOMICILE: string; EXTERIEUR: string } | undefined): string {
   if (!row) return '';
-  const supportedClubId = getSupportedClubId();
+  const supportedClubId = getSupportedClubIdFromEnv();
   if (row.DOMICILE !== supportedClubId && row.EXTERIEUR !== supportedClubId) return '';
   return resolveStatsSeasonForRencontre(row.RECLEUNIK);
 }
@@ -2941,7 +2910,7 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
   const normalizedSeason = toText(season);
   if (!normalizedSeason) return;
 
-  const supportedClubId = getSupportedClubId();
+  const supportedClubId = getSupportedClubIdFromEnv();
   const matchRows = db.prepare(
     `SELECT
        r."RECLEUNIK",
@@ -2957,8 +2926,9 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
          ELSE COALESCE(m."MADUREE", 90)
        END AS "MATCH_DURATION",
        COALESCE(m."EXTRATIME", 0) AS "MATCH_EXTRATIME",
-       q.*,
-       e.*
+       ${STARTER_SLOTS.map((slot) => `q."${slot}"`).join(', ')},
+       q."ENTRAINEUR",
+       e."EVCLEUNIK", e."MINUTE", e."PERIODE", e."TYPE_EVENT", e."ADVERSAIRE", e."JOUEUR1", e."JOUEUR2", e."COMMENT"
      FROM "RENCO" r
      LEFT JOIN "MATCH" m ON m."RECLEUNIK" = r."RECLEUNIK"
      LEFT JOIN "TOUR" t ON t."TUCLEUNIK" = r."TUCLEUNIK"
@@ -3305,7 +3275,7 @@ function resolveMatchLieuFromTerrain(recleunik: number, tecleunik: string | null
 
   const domicile = toText(rencontre.DOMICILE);
   const exterieur = toText(rencontre.EXTERIEUR);
-  const supportedClubId = getSupportedClubId();
+  const supportedClubId = getSupportedClubIdFromEnv();
   const supportedSide = resolveSupportedClubSide(domicile, exterieur, supportedClubId);
 
   if (supportedSide === 'none') return 'N';
@@ -3350,7 +3320,8 @@ export async function getCompositionForRencontre(id: string | number): Promise<C
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
   const row = db.prepare(
-    `SELECT e.*, m."RECLEUNIK", m."MACLEUNIK" AS "MATCH_MACLEUNIK", COALESCE(m."IDARBITRE", '') AS "IDARBITRE", COALESCE(m."MACOMPOADVERSAIRE", '') AS "MACOMPOADVERSAIRE"
+    `SELECT e."EQCLEUNIK", ${ALL_SLOTS.map((slot) => `e."${slot}"`).join(', ')}, e."ENTRAINEUR", e."MACLEUNIK",
+            m."RECLEUNIK", m."MACLEUNIK" AS "MATCH_MACLEUNIK", COALESCE(m."IDARBITRE", '') AS "IDARBITRE", COALESCE(m."MACOMPOADVERSAIRE", '') AS "MACOMPOADVERSAIRE"
      FROM "MATCH" m
      LEFT JOIN "EQUIPE" e ON e."MACLEUNIK" = m."MACLEUNIK"
      WHERE m."RECLEUNIK" = ? LIMIT 1`,
@@ -3390,7 +3361,7 @@ export async function upsertCompositionForRencontre(
 
   // EQUIPE, MATCH.MACOMPOADVERSAIRE et les stats de la saison sont enregistres ensemble : tout ou rien.
   await runInTransaction(() => {
-    const existing = db.prepare('SELECT * FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
+    const existing = db.prepare('SELECT 1 FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
 
     if (existing) {
       const sets = fieldsToSave.map((f) => `"${f}" = ?`).join(', ');

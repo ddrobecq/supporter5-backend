@@ -38,7 +38,7 @@ export interface SafeFetchResponse {
  * True for non-IP values and for blocked addresses. IPv4-mapped IPv6 addresses
  * (::ffff:a.b.c.d) are matched against the IPv4 rules by net.BlockList.
  */
-export function isBlockedAddress(address: string): boolean {
+function isBlockedAddress(address: string): boolean {
   const family = net.isIP(address);
   if (family === 0) {
     return true;

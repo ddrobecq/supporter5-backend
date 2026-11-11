@@ -6,6 +6,15 @@ export function normalizeSearchText(value: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
+/** True when one of `searchCols` contains `search` (already normalized); an empty search matches everything. */
+export function rowMatchesSearch(row: Record<string, unknown>, searchCols: readonly string[], search: string): boolean {
+  if (!search) {
+    return true;
+  }
+
+  return searchCols.some((col) => normalizeSearchText(String(row[col] ?? '')).includes(search));
+}
+
 export function levenshteinDistance(a: string, b: string): number {
   if (a === b) return 0;
   if (!a) return b.length;

@@ -1,4 +1,5 @@
 import { dbAll } from '../config/database';
+import { toText as normalizeText } from './coerce';
 
 export interface CircCompletSourceRow {
   TUCLEUNIK: number;
@@ -23,10 +24,6 @@ export const CIRC_COMPLET_SELECT = `t.COCLEUNIK,
 export const CIRC_COMPLET_JOINS = `LEFT JOIN CIRC c ON c.IDCIRC = r.IDCIRC
      LEFT JOIN TOUR t ON t.TUCLEUNIK = r.TUCLEUNIK
      LEFT JOIN COMPET co ON co.COCLEUNIK = t.COCLEUNIK`;
-
-function normalizeText(value: unknown): string {
-  return String(value ?? '').trim();
-}
 
 export interface CircCompletResolver {
   saison: (row: CircCompletSourceRow) => string;

@@ -1,12 +1,5 @@
 import { QueryParams } from '../types';
-
-function normalizeSearchInput(input: string): string {
-  return input
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
+import { normalizeSearchText } from './searchUtils';
 
 /**
  * Vérifie que la colonne demandée est dans la liste blanche.
@@ -39,7 +32,7 @@ export function buildWhere(
 
   // Recherche plein-texte (LIKE)
   if (params.search && typeof params.search === 'string' && searchCols.length > 0) {
-    const normalizedSearch = normalizeSearchInput(params.search);
+    const normalizedSearch = normalizeSearchText(params.search);
     if (normalizedSearch) {
       const clause = searchCols.map((col) => `lower(ifnull("${col}", '')) LIKE ?`).join(' OR ');
       conditions.push(`(${clause})`);

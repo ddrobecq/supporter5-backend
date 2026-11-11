@@ -1,6 +1,6 @@
-import { createEntityService } from '../lib/baseService';
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { cached } from '../lib/statsCache';
+import { toText as normalizeText } from '../lib/coerce';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -824,10 +824,6 @@ export async function mergeClubs(sourceIdInput: unknown, targetIdInput: unknown)
   return transaction();
 }
 
-function normalizeText(value: unknown): string {
-  return String(value ?? '').trim();
-}
-
 function normalizeClubNameEventType(value: unknown): number {
   const eventType = Number(value);
   if (!Number.isInteger(eventType) || eventType < 1 || eventType > 3) {
@@ -937,15 +933,6 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   return created;
 }
 
-const baseService = createEntityService({
-  table:           'CLUB_NOM',
-  pk:              'IDCLUB_NOM',
-  selectCols:      ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE', 'CN_ACTION'],
-  allowedSortCols: ['IDCLUB_NOM', 'IDCLUB', 'CN_NOM', 'DATE'],
-  searchCols:      ['CN_NOM'],
-  filterCols:      ['IDCLUB'],
-});
-
 export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
   const clubId = normalizeText(id);
   if (!clubId) throw new AppError(400, 'Identifiant de club invalide.');
@@ -1049,7 +1036,6 @@ export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
 }
 
 export default {
-  ...baseService,
   getClubsGrid,
   getClubGridById,
   getClubProfileById,

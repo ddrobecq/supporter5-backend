@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import ctrl, {
+import {
 	getClubGridById,
 	getClubNameHistory,
 	getClubProfileById,
@@ -18,6 +18,4 @@ router.get('/grid/:id/terrains-history', getClubTerrainHistory);
 router.get('/grid/:id/matches', getClubMatches);
 router.get('/grid/:id/palmares', getClubPalmares);
 router.get('/grid/:id', getClubGridById);
-router.get('/', ctrl.getAll);
-router.get('/:id', ctrl.getById);
 export default router;

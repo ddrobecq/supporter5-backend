@@ -6,13 +6,10 @@ import path from 'node:path';
 dotenv.config();
 
 const configuredDbPath = (process.env.SQLITE_DB_PATH ?? './data/supporter.sqlite').trim();
-const resolvedDbPath = path.isAbsolute(configuredDbPath)
+/** Absolute path of the SQLite database (SQLITE_DB_PATH, relative paths resolved from the working directory). */
+export const resolvedDbPath = path.isAbsolute(configuredDbPath)
   ? configuredDbPath
   : path.resolve(process.cwd(), configuredDbPath);
-
-if (!resolvedDbPath) {
-  throw new Error('Missing SQLITE_DB_PATH environment variable');
-}
 
 const dbDirectory = path.dirname(resolvedDbPath);
 try {
@@ -26,16 +23,16 @@ try {
  * Supprime les -wal/-shm laisses par la base precedente. A n'appeler qu'une fois le fichier
  * principal deja remplace: ces sidecars appartiennent alors a l'ancienne generation et seraient
  * sinon rejoues par erreur (recovery WAL) sur le nouveau fichier a l'ouverture, le corrompant.
+ * onError 'throw' (demarrage: l'ouverture serait dangereuse) ou 'warn' (upload: le remplacement est deja fait).
  */
-function removeWalSidecarsSync(dbPath: string): void {
+export function removeWalSidecars(dbPath: string, onError: 'throw' | 'warn'): void {
   for (const suffix of ['-wal', '-shm']) {
     try {
       fs.unlinkSync(`${dbPath}${suffix}`);
     } catch (error) {
-      const code = (error as NodeJS.ErrnoException)?.code;
-      if (code !== 'ENOENT') {
-        throw error;
-      }
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') continue;
+      if (onError === 'throw') throw error;
+      console.warn(`[system] Impossible de supprimer le sidecar SQLite "${dbPath}${suffix}": ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 }
@@ -57,7 +54,7 @@ function applyPendingUploadedDatabase(dbPath: string): void {
     fs.unlinkSync(pendingPath);
     // Le fichier principal vient d'etre remplace par l'import en attente: purge les -wal/-shm
     // de l'ancienne base avant que la connexion SQLite ne soit ouverte plus bas.
-    removeWalSidecarsSync(dbPath);
+    removeWalSidecars(dbPath, 'throw');
     if (fs.existsSync(backupPath)) {
       fs.unlinkSync(backupPath);
     }
@@ -157,8 +154,8 @@ export async function dbGet<T = Record<string, unknown>>(
   sql: string,
   params: unknown[] = [],
 ): Promise<T | undefined> {
-  const rows = await dbAll<T>(sql, params);
-  return rows[0];
+  const stmt = db.prepare(sql);
+  return stmt.get(...(params as Array<string | number | null | Uint8Array | boolean>)) as T | undefined;
 }
 
 /** Exécute un INSERT / UPDATE / DELETE. */
