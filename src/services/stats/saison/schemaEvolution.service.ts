@@ -1,13 +1,8 @@
 import { dbAll } from '../../../config/database';
+import { STARTER_LINES } from '../../../lib/compo';
 
 /** Regroupement des postes de champ par ligne tactique, du gardien vers l'attaque. */
-const LINE_GROUPS = [
-  { key: 'GARDIEN', slots: ['GOAL'] },
-  { key: 'DEFENSE', slots: ['DLG', 'DLD', 'DCG', 'DCD', 'LIB', 'STO'] },
-  { key: 'MIL_DEFENSIF', slots: ['MDLD', 'MDLG', 'MDCD', 'MDCG', 'MDCC'] },
-  { key: 'MIL_OFFENSIF', slots: ['MOLD', 'MOLG', 'MOCD', 'MOCG', 'MOCC'] },
-  { key: 'ATTAQUE', slots: ['ALD', 'ALG', 'ACD', 'ACG', 'AVC'] },
-] as const;
+const LINE_GROUPS = STARTER_LINES;
 
 type LineKey = typeof LINE_GROUPS[number]['key'];
 

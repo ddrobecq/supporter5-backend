@@ -1,6 +1,7 @@
 import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
+import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
@@ -2837,16 +2838,7 @@ export async function getTourMatchesForRencontre(id: string | number): Promise<T
   }));
 }
 
-const COMPO_FIELDS = [
-  'GOAL','DLG','DLD','DCG','DCD','LIB','STO',
-  'MDLD','MDLG','MDCD','MDCG','MOLD','MOLG','MOCD','MOCG','MOCC','MDCC',
-  'ALD','ALG','ACD','ACG','AVC',
-  'REMP1','REMP2','REMP3','REMP4','REMP5','REMP6',
-  'REMP7','REMP8','REMP9','REMP10','REMP11',
-  'ENTRAINEUR',
-] as const;
-
-const STARTER_FIELDS = COMPO_FIELDS.filter((field) => !field.startsWith('REMP') && field !== 'ENTRAINEUR');
+const COMPO_FIELDS = [...ALL_SLOTS, 'ENTRAINEUR'] as const;
 
 /** Poste.POS_ID du poste "Entraineur" : ligne staff prioritaire pour les matchs dirigés. */
 const COACH_POSTE_ID = 5;
@@ -3006,7 +2998,7 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
       matches.set(recleunik, match);
     }
 
-    STARTER_FIELDS.forEach((field) => {
+    STARTER_SLOTS.forEach((field) => {
       const playerId = toText(row[field]);
       if (playerId) {
         match!.starters.add(playerId);

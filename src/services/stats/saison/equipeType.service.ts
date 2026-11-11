@@ -1,23 +1,11 @@
 import { dbAll } from '../../../config/database';
+import { STARTER_LINES, type StarterSlot } from '../../../lib/compo';
 
-/** Postes de champ (hors remplacants), du gardien vers l'attaque. */
-export const PITCH_SLOTS = [
-  'GOAL',
-  'DLG', 'DLD', 'DCG', 'DCD', 'LIB', 'STO',
-  'MDLD', 'MDLG', 'MDCD', 'MDCG', 'MDCC',
-  'MOLD', 'MOLG', 'MOCD', 'MOCG', 'MOCC',
-  'ALD', 'ALG', 'ACD', 'ACG', 'AVC',
-] as const;
+/** Postes de champ (hors remplacants), du gardien vers l'attaque (ordre des lignes tactiques). */
+export const PITCH_SLOTS: readonly StarterSlot[] = STARTER_LINES.flatMap((line) => line.slots);
 
-type SlotCode = typeof PITCH_SLOTS[number];
-
-/** Lignes utilisees pour deduire le libelle de formation (ex: 3-4-2-1). */
-const FORMATION_LINES: SlotCode[][] = [
-  ['DLG', 'DLD', 'DCG', 'DCD', 'LIB', 'STO'],
-  ['MDLD', 'MDLG', 'MDCD', 'MDCG', 'MDCC'],
-  ['MOLD', 'MOLG', 'MOCD', 'MOCG', 'MOCC'],
-  ['ALD', 'ALG', 'ACD', 'ACG', 'AVC'],
-];
+/** Lignes utilisees pour deduire le libelle de formation (ex: 3-4-2-1) : toutes sauf le gardien. */
+const FORMATION_LINES: readonly (readonly StarterSlot[])[] = STARTER_LINES.slice(1).map((line) => line.slots);
 
 export interface EquipeTypeJoueur {
   CODE: string;

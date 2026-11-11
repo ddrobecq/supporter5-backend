@@ -1,5 +1,6 @@
 import { dbAll } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
+import { STARTER_SLOTS, SUB_SLOTS } from '../lib/compo';
 
 export interface JoueurIncompletRow {
   IDJOUEUR: string;
@@ -173,12 +174,8 @@ const RENCONTRE_INCOMPLETE_FLAGS = [
   'DESYNCHRO',
 ] as const;
 
-const COMPO_STARTER_FIELDS = [
-  'GOAL', 'DLG', 'DLD', 'DCG', 'DCD', 'LIB', 'STO',
-  'MDLD', 'MDLG', 'MDCD', 'MDCG', 'MOLD', 'MOLG', 'MOCD', 'MOCG', 'MOCC', 'MDCC',
-  'ALD', 'ALG', 'ACD', 'ACG', 'AVC',
-] as const;
-const COMPO_SUB_FIELDS = Array.from({ length: 11 }, (_, index) => `REMP${index + 1}`);
+const COMPO_STARTER_FIELDS = STARTER_SLOTS;
+const COMPO_SUB_FIELDS = SUB_SLOTS;
 const STARTERS_EXPECTED = 11;
 
 /** But marque en cours de jeu: TYPE_EVENT=1, ou penalty transforme (7) hors seance de tirs au but (PERIODE=5). */
