@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchWithScopeJoinsSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { scopeFilterClause, scopeFilterJoins } from '../../../lib/matchScopeFilter';
 
 export type ArbitreSanctionMetric = 'avertissements' | 'exclusions';
@@ -30,7 +31,8 @@ export async function getArbitreSanctions(metric: ArbitreSanctionMetric, scope?:
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
      INNER JOIN ARBITRE a ON a.IDARBITRE = m.IDARBITRE
      ${scopeFilterJoins('r')}
-     WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
+     WHERE ${officialMatchWithScopeJoinsSql('r')}
+        AND ${playedMatchSql('r')}
        AND e.TYPE_EVENT IN ${METRIC_TYPE_EVENT[metric]}
        ${scopeFilterClause(scope)}
      GROUP BY a.IDARBITRE, a.NOM, a.PRENOM, a.IDNATIO

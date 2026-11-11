@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchWithScopeJoinsSql } from '../../../lib/supportedMatches';
 import { scopeFilterClause, scopeFilterJoins } from '../../../lib/matchScopeFilter';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
 
@@ -38,7 +39,7 @@ export async function getRencontreSeries(metric: RencontreSerieMetric, scope?: n
         CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTEXT, 0) ELSE COALESCE(r.BUTDOM, 0) END AS BUT_CONTRE
       FROM RENCO r
       ${scopeFilterJoins()}
-      WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
+      WHERE ${officialMatchWithScopeJoinsSql('r')}
         AND COALESCE(r.ETAT, 0) = 3
         AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
         ${scopeFilterClause(scope)}

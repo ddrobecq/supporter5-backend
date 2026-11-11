@@ -1,9 +1,10 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
 
 /**
  * Nombre de rencontres officielles jouees par le club supporte, par saison
- * (RENCO.TUCLEUNIK <> 0, club en DOMICILE ou EXTERIEUR). Mutualise entre
+ * (match officiel et joue, cf. lib/supportedMatches, club en DOMICILE ou EXTERIEUR). Mutualise entre
  * butsEquipe/sanctionsEquipe/composition (memes JOIN/WHERE/GROUP BY partout).
  */
 export async function getNbMatchesOfficielsClubBySaison(): Promise<Map<string, number>> {
@@ -13,7 +14,8 @@ export async function getNbMatchesOfficielsClubBySaison(): Promise<Map<string, n
     `SELECT r.SAISON, COUNT(DISTINCT r.RECLEUNIK) AS MATCHES
      FROM RENCO r
      INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
-     WHERE r.TUCLEUNIK <> 0
+     WHERE ${officialMatchSql('r')}
+        AND ${playedMatchSql('r')}
        AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
        AND TRIM(COALESCE(r.SAISON, '')) <> ''
      GROUP BY r.SAISON`,

@@ -2,6 +2,7 @@ import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
+import { officialMatchSql, playedMatchSql } from '../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { AppError } from '../types';
 import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
@@ -2965,7 +2966,9 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
     LEFT JOIN "COMPET" co ON co."COCLEUNIK" = t."COCLEUNIK"
      LEFT JOIN "EQUIPE" q ON q."MACLEUNIK" = m."MACLEUNIK"
      LEFT JOIN "EVENT" e ON e."MACLEUNIK" = m."MACLEUNIK"
-     WHERE r."TUCLEUNIK" > 0
+     -- Same rules as the public stats: official match (official EPREUVE) and played (ETAT = 3).
+     WHERE ${officialMatchSql('r')}
+       AND ${playedMatchSql('r')}
        AND NULLIF(TRIM(co."SAISON"), '') = ?
        AND (r."DOMICILE" = ? OR r."EXTERIEUR" = ?)
      ORDER BY r."RECLEUNIK" ASC, e."EVCLEUNIK" ASC`,

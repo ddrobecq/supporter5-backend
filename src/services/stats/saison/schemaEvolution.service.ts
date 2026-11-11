@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { STARTER_LINES } from '../../../lib/compo';
 
 /** Regroupement des postes de champ par ligne tactique, du gardien vers l'attaque. */
@@ -27,9 +28,12 @@ export async function getLignesEvolution(): Promise<LigneEvolutionRow[]> {
        ${selectLines},
        COUNT(*) AS MATCHES
      FROM EQUIPE e
-     INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
-     INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
-     WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
+     -- CROSS JOIN fixes the join order (EQUIPE -> MATCH -> RENCO): the official-match EXISTS is then
+     -- evaluated on the ~4k compositions instead of every RENCO row. Same rows as INNER JOIN.
+     CROSS JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
+     CROSS JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
+     WHERE ${officialMatchSql('r')}
+        AND ${playedMatchSql('r')}
        AND TRIM(COALESCE(r.SAISON, '')) <> ''
      GROUP BY r.SAISON
      ORDER BY r.SAISON ASC`,

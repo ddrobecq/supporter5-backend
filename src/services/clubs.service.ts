@@ -2,7 +2,7 @@ import { createEntityService } from '../lib/baseService';
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { cached } from '../lib/statsCache';
 import { buildCircCompletResolver } from '../lib/circComplet';
-import { getLatestTerrainForClub } from '../lib/clubTerrain';
+import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { normalizeDayDate } from '../lib/dates';
@@ -404,13 +404,11 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
   );
 
   const { saison: resolveSeasonLabel, circComplet: buildCircComplete } = await buildCircCompletResolver(rows);
+  // Default terrain (home club's latest) resolved once per club instead of once per row.
+  const latestTerrainName = createLatestTerrainNameResolver();
 
   return rows.map((row) => ({
-    ...(() => {
-      const explicitTerrain = normalizeText(row.TERRAIN_NOM);
-      const defaultTerrain = explicitTerrain ? null : getLatestTerrainForClub(row.DOMICILE);
-      return { TERRAIN_NOM: explicitTerrain || defaultTerrain?.TERRAIN_NOM || '' };
-    })(),
+    TERRAIN_NOM: normalizeText(row.TERRAIN_NOM) || latestTerrainName(row.DOMICILE),
     RECLEUNIK: Number(row.RECLEUNIK),
     DATE: String(row.DATE ?? ''),
     HEURE: String(row.HEURE ?? ''),

@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
 import { getNbMatchesOfficielsClubBySaison } from './matchesOfficielsClub.service';
 
@@ -25,7 +26,8 @@ export async function getSaisonButsEquipe(metric: ButsEquipeMetric): Promise<But
        SUM(CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTEXT, 0) ELSE COALESCE(r.BUTDOM, 0) END) AS BUTS_CONTRE
      FROM RENCO r
      INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
-     WHERE r.TUCLEUNIK <> 0
+     WHERE ${officialMatchSql('r')}
+        AND ${playedMatchSql('r')}
        AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
        AND TRIM(COALESCE(r.SAISON, '')) <> ''
      GROUP BY r.SAISON`,

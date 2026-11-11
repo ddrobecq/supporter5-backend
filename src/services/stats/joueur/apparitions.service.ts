@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchWithScopeJoinsSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { scopeFilterClause, scopeFilterJoins } from '../../../lib/matchScopeFilter';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
 import { joueurPresentSql } from './joueurPresent';
@@ -224,7 +225,8 @@ export async function getExclusionsRapides(scope?: number | null): Promise<Exclu
         AND e.JOUEUR1 IS NOT NULL
         AND TRIM(e.JOUEUR1) <> ''
         AND e.MINUTE < 45
-        AND re.TUCLEUNIK <> 0
+        AND ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
     )
     SELECT
@@ -259,7 +261,8 @@ export async function getMeilleursGardiens(scope?: number | null): Promise<Gardi
       FROM MATCH m
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
       ${scopeFilterJoins('re')}
-      WHERE re.TUCLEUNIK <> 0
+      WHERE ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
     ),
     goalkeeper_match_players AS (
@@ -387,7 +390,8 @@ export async function getSeriesInviolabilite(scope?: number | null): Promise<Ser
       SELECT m.MACLEUNIK, re.DATE, re.DOMICILE, re.BUTDOM, re.BUTEXT
       FROM MATCH m INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
       ${scopeFilterJoins('re')}
-      WHERE re.TUCLEUNIK <> 0
+      WHERE ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
     ),
     goalkeeper_match_players AS (
@@ -470,7 +474,8 @@ export async function getSeriesButeurs(metric: ScoringMetric = 'buts', scope?: n
       FROM MATCH m
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
       ${scopeFilterJoins('re')}
-      WHERE re.TUCLEUNIK <> 0
+      WHERE ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
     ),
     played_matches AS (
@@ -559,7 +564,8 @@ export async function getButeursParMatch(metric: ScoringMetric = 'buts', scope?:
         AND e.ADVERSAIRE = 0
         AND ${eventPlayer} IS NOT NULL
         AND TRIM(${eventPlayer}) <> ''
-        AND re.TUCLEUNIK <> 0
+        AND ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
       GROUP BY ${eventPlayer}, re.DATE, re.RECLEUNIK
       HAVING BUTS > 1
@@ -621,7 +627,8 @@ export async function getButsMultiplesParJoueur(metric: ScoringMetric, minButs: 
         AND e.ADVERSAIRE = 0
         AND ${eventPlayer} IS NOT NULL
         AND TRIM(${eventPlayer}) <> ''
-        AND re.TUCLEUNIK <> 0
+        AND ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
       GROUP BY ${eventPlayer}, re.RECLEUNIK
       HAVING COUNT(*) >= ?
@@ -703,7 +710,8 @@ export async function getPremierMatch(order: 'ASC' | 'DESC' = 'ASC', scope?: num
       JOIN MATCH m ON m.MACLEUNIK = pm.MACLEUNIK
       JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
       ${scopeFilterJoins('re')}
-      WHERE re.TUCLEUNIK <> 0
+      WHERE ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         ${scopeFilterClause(scope)}
     ),
     first_appearance AS (
@@ -731,6 +739,7 @@ export async function getPremierMatch(order: 'ASC' | 'DESC' = 'ASC', scope?: num
     WHERE fa.rn = 1 
       AND jr.NAISSANCE IS NOT NULL 
       AND TRIM(jr.NAISSANCE) <> ''
+      -- fa rows already come from official_player_matches (official and played): original redundant guard kept.
       AND re.TUCLEUNIK <> 0
     ORDER BY fa.FIRST_DATE ${appearanceOrder}, jr.NOM ASC, jr.PRENOM ASC`,
     scope != null ? [scope] : [],
@@ -884,7 +893,8 @@ export async function getPerformances(metric: PerformanceMetric = 'victoires', s
       FROM MATCH m
       INNER JOIN RENCO re ON re.RECLEUNIK = m.RECLEUNIK
       ${scopeFilterJoins('re')}
-      WHERE re.TUCLEUNIK <> 0
+      WHERE ${officialMatchWithScopeJoinsSql('re')}
+        AND ${playedMatchSql('re')}
         AND (re.DOMICILE = ? OR re.EXTERIEUR = ?)
         ${scopeFilterClause(scope)}
     ),

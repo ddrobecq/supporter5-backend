@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchWithScopeJoinsSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { scopeFilterClause, scopeFilterJoins } from '../../../lib/matchScopeFilter';
 
 export interface ArbitreMatchesRow {
@@ -22,7 +23,8 @@ export async function getArbitreMatches(scope?: number | null): Promise<ArbitreM
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
      INNER JOIN ARBITRE a ON a.IDARBITRE = m.IDARBITRE
      ${scopeFilterJoins('r')}
-     WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
+     WHERE ${officialMatchWithScopeJoinsSql('r')}
+        AND ${playedMatchSql('r')}
        ${scopeFilterClause(scope)}
      GROUP BY a.IDARBITRE, a.NOM, a.PRENOM, a.IDNATIO
      ORDER BY MATCHES DESC, a.NOM ASC, a.PRENOM ASC`,

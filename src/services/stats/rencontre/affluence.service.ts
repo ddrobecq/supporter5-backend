@@ -1,7 +1,6 @@
 import { dbAll } from '../../../config/database';
-import { buildCircCompletResolver, CIRC_COMPLET_JOINS, CIRC_COMPLET_SELECT, type CircCompletSourceRow } from '../../../lib/circComplet';
-import { getLatestTerrainForClub } from '../../../lib/clubTerrain';
-import { scopeFilterClause, scopeFilterJoins } from '../../../lib/matchScopeFilter';
+import { buildCircCompletResolver } from '../../../lib/circComplet';
+import { createLatestTerrainNameResolver, mapSupportedMatchRow, supportedMatchesSql, type SupportedMatchQueryRow } from '../../../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../../../lib/supportedClub';
 
 export interface AffluenceRow {
@@ -15,16 +14,7 @@ export interface AffluenceRow {
   NBSPECT: number;
 }
 
-type AffluenceQueryRow = CircCompletSourceRow & {
-  RECLEUNIK: number;
-  DATE: string;
-  DOMICILE: string;
-  EXTERIEUR: string;
-  DOMICILE_NOM: string;
-  EXTERIEUR_NOM: string;
-  DOMICILE_IDNATIO: string | null;
-  EXTERIEUR_IDNATIO: string | null;
-  TERRAIN_NOM: string;
+type AffluenceQueryRow = SupportedMatchQueryRow & {
   NBSPECT: number;
 };
 
@@ -33,51 +23,20 @@ export async function getAffluence(scope?: number | null): Promise<AffluenceRow[
   const supportedClubId = getSupportedClubIdFromEnv();
 
   const rows = await dbAll<AffluenceQueryRow>(
-    `SELECT
-       r.RECLEUNIK,
-       REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
-       r.DOMICILE,
-       r.EXTERIEUR,
-       COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
-       COALESCE(ce.CLUB, r.EXTERIEUR, '') AS EXTERIEUR_NOM,
-       cd.IDNATIO AS DOMICILE_IDNATIO,
-       ce.IDNATIO AS EXTERIEUR_IDNATIO,
-       COALESCE(te.STADE, '') AS TERRAIN_NOM,
-       m.NBSPECT AS NBSPECT,
-       ${CIRC_COMPLET_SELECT}
-     FROM RENCO r
-     ${CIRC_COMPLET_JOINS}
-     ${scopeFilterJoins()}
-     INNER JOIN MATCH m ON m.RECLEUNIK = r.RECLEUNIK
-     LEFT JOIN TERRAIN te ON te.TECLEUNIK = m.TECLEUNIK
-     LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
-     LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
-     WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
-       AND COALESCE(r.ETAT, 0) <> 4
-       AND (r.DOMICILE = ? OR r.EXTERIEUR = ?)
-       AND m.NBSPECT > -1
-       ${scopeFilterClause(scope)}
+    `${supportedMatchesSql({
+      extraSelect: ['m.NBSPECT AS NBSPECT'],
+      matchJoin: 'INNER',
+      extraWhere: 'AND m.NBSPECT > -1',
+      scope,
+    })}
      ORDER BY m.NBSPECT DESC, DATE DESC`,
     [supportedClubId, supportedClubId, ...(scope != null ? [scope] : [])],
   );
 
-  const resolver = await buildCircCompletResolver(rows);
+  const context = { supportedClubId, circ: await buildCircCompletResolver(rows), latestTerrainName: createLatestTerrainNameResolver() };
 
-  return rows.map((row) => {
-    const isHome = String(row.DOMICILE ?? '') === supportedClubId;
-    const terrain = String(row.TERRAIN_NOM ?? '').trim()
-      || getLatestTerrainForClub(row.DOMICILE)?.TERRAIN_NOM
-      || '';
-
-    return {
-      RECLEUNIK: Number(row.RECLEUNIK),
-      DATE: String(row.DATE ?? ''),
-      CIRC_COMPLET: resolver.circComplet(row),
-      TERRAIN_NOM: terrain,
-      ADVERSAIRE_ID: String((isHome ? row.EXTERIEUR : row.DOMICILE) ?? ''),
-      ADVERSAIRE_NOM: String((isHome ? row.EXTERIEUR_NOM : row.DOMICILE_NOM) ?? ''),
-      ADVERSAIRE_IDNATIO: (isHome ? row.EXTERIEUR_IDNATIO : row.DOMICILE_IDNATIO) ?? null,
-      NBSPECT: Number(row.NBSPECT ?? 0),
-    };
-  });
+  return rows.map((row) => ({
+    ...mapSupportedMatchRow(row, context),
+    NBSPECT: Number(row.NBSPECT ?? 0),
+  }));
 }

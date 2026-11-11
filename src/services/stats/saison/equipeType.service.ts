@@ -1,4 +1,5 @@
 import { dbAll } from '../../../config/database';
+import { officialMatchSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { STARTER_LINES, type StarterSlot } from '../../../lib/compo';
 
 /** Postes de champ (hors remplacants), du gardien vers l'attaque (ordre des lignes tactiques). */
@@ -75,7 +76,8 @@ export async function getEquipeType(saison?: string | null): Promise<EquipeTypeR
      FROM EQUIPE e
      INNER JOIN MATCH m ON m.MACLEUNIK = e.MACLEUNIK
      INNER JOIN RENCO r ON r.RECLEUNIK = m.RECLEUNIK
-     WHERE COALESCE(r.TUCLEUNIK, 0) <> 0
+     WHERE ${officialMatchSql('r')}
+        AND ${playedMatchSql('r')}
        ${saison ? 'AND r.SAISON = ?' : ''}`,
     saison ? [saison] : [],
   );
