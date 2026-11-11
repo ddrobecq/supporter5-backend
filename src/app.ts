@@ -7,6 +7,7 @@ import { errorMiddleware } from './middlewares/error.middleware';
 import { jsonBody } from './middlewares/jsonBody.middleware';
 import { DEFAULT_JSON_BODY_LIMIT_BYTES } from './config/uploadLimits';
 import { getSitemapXml } from './services/sitemap.service';
+import { sendNotFound } from './lib/responseHelpers';
 
 dotenv.config();
 
@@ -65,6 +66,10 @@ app.get('/sitemap.xml', async (_req, res, next) => {
 
 // API
 app.use('/api', routes);
+
+// Unknown /api routes: JSON 404 (same body as sendNotFound) instead of Express's HTML page.
+// The app serves no static files nor the front, so nothing else lives under /api.
+app.use('/api', (_req, res) => sendNotFound(res));
 
 // Gestion globale des erreurs (doit être le dernier middleware)
 app.use(errorMiddleware);

@@ -103,12 +103,21 @@ function toBuffer(raw: unknown): Buffer | null {
   return null;
 }
 
+/**
+ * Configuration image d'une entite, ou undefined si l'entite n'est pas dans la whitelist.
+ * Object.hasOwn : une cle heritee ("constructor", "toString"...) n'est jamais une entite valide.
+ */
+function resolveImageConfig(entityType: string): ImageConfig | undefined {
+  const key = entityType.toLowerCase();
+  return Object.hasOwn(IMAGE_CONFIGS, key) ? IMAGE_CONFIGS[key] : undefined;
+}
+
 /** Retourne l'image d'une entité ou null si absente. */
 export async function getEntityImage(
   entityType: string,
   id: string,
 ): Promise<ImageResult | null> {
-  const config: ImageConfig | undefined = IMAGE_CONFIGS[entityType.toLowerCase()];
+  const config = resolveImageConfig(entityType);
   if (!config) {
     return null;
   }
@@ -142,7 +151,7 @@ export async function setEntityImage(
   id: string,
   imageValue: unknown,
 ): Promise<boolean> {
-  const config: ImageConfig | undefined = IMAGE_CONFIGS[entityType.toLowerCase()];
+  const config = resolveImageConfig(entityType);
   if (!config) {
     return false;
   }

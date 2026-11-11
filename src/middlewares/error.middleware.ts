@@ -77,8 +77,10 @@ export function errorMiddleware(
   const exposeInternalErrors = INTERNAL_ERROR_ENVIRONMENTS.has(process.env.NODE_ENV ?? '');
 
   if (err instanceof AppError) {
-    const appErrorAsError = err as unknown as Error;
-    logServerError(req, appErrorAsError, err.statusCode, false);
+    // Only server errors are logged: 4xx answers are expected client outcomes, not incidents.
+    if (err.statusCode >= 500) {
+      logServerError(req, err, err.statusCode, false);
+    }
     res.status(err.statusCode).json(
       err.details === undefined ? { message: err.message } : { message: err.message, details: err.details },
     );
@@ -91,20 +93,15 @@ export function errorMiddleware(
       console.error('[errorMiddleware]', err);
     }
 
-    // Détecte les violations de contraintes (SQLite, Turso/libSQL, MySQL)
-    const isConstraintError =
-      (err as NodeJS.ErrnoException).code === 'SQLITE_CONSTRAINT' ||
-      (err as NodeJS.ErrnoException).code === 'SQLITE_CONSTRAINT_NOTNULL' ||
-      (err as NodeJS.ErrnoException).code === 'SQLITE_CONSTRAINT_FOREIGNKEY' ||
-      (err as NodeJS.ErrnoException).code === 'SQLITE_CONSTRAINT_UNIQUE' ||
-      err.message?.includes('UNIQUE constraint failed') ||
-      err.message?.includes('foreign key constraint') ||
-      err.message?.includes('Foreign key') ||
-      err.message?.includes('Constraint') ||
-      err.message?.includes('constraint');
+    // SQLite constraint violations (SQLITE_CONSTRAINT, SQLITE_CONSTRAINT_UNIQUE / _NOTNULL / _FOREIGNKEY / ...),
+    // identified by their driver code rather than by the wording of the message.
+    const code = (err as NodeJS.ErrnoException).code;
+    const isConstraintError = typeof code === 'string' && code.startsWith('SQLITE_CONSTRAINT');
 
     const status = isConstraintError ? 409 : 500;
-    logServerError(req, err, status, isConstraintError);
+    if (status >= 500) {
+      logServerError(req, err, status, isConstraintError);
+    }
     if (isConstraintError) {
       res.status(status).json({
         message: exposeInternalErrors

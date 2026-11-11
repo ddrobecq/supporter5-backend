@@ -32,7 +32,10 @@ export const getJoueursGrid = jsonHandler((req) => {
 
 	const search = String(req.query.search ?? '').trim();
 	const posTypeRaw = req.query.posType;
-	const posType = posTypeRaw != null ? parseInt(String(posTypeRaw), 10) : undefined;
+	if (posTypeRaw != null && !/^-?\d+$/.test(String(posTypeRaw).trim())) {
+		throw new AppError(400, 'Parametre posType invalide (entier attendu)');
+	}
+	const posType = posTypeRaw != null ? Number(String(posTypeRaw).trim()) : undefined;
 	return joueursService.getJoueursGridBySeason(season, search, posType, parseGridPagination(req.query));
 });
 

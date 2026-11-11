@@ -13,5 +13,5 @@ export const loginHandler = jsonHandler(async (req) => {
   if (!isValidCredential(username) || !isValidCredential(password)) {
     throw new AppError(400, `username and password are required (non-empty strings, ${MAX_CREDENTIAL_LENGTH} characters max)`);
   }
-  return { token: login(username, password) };
+  return { token: await login(username, password) };
 });
