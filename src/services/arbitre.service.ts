@@ -1,6 +1,6 @@
 import { createEntityService } from '../lib/baseService';
 import { dbGet, dbAll } from '../config/database';
-import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { AppError } from '../types';
 
 /** Generates IDARBITRE (MAX + 1, 4 digits) when missing, then checks the required fields. */
@@ -90,11 +90,11 @@ export async function getArbitreSuggestions(search: string, limit = 12): Promise
      ORDER BY NOM ASC, PRENOM ASC, IDARBITRE ASC`,
   );
 
-  const data = rows
-    .map((row) => ({ ...row, SCORE: computeApproxScore(query, String(row.NOM ?? ''), String(row.PRENOM ?? '')) }))
-    .filter((row) => row.SCORE >= 20)
-    .sort((a, b) => b.SCORE - a.SCORE || String(a.NOM).localeCompare(String(b.NOM)) || String(a.PRENOM).localeCompare(String(b.PRENOM)))
-    .slice(0, Math.max(1, Math.min(limit, 30)));
+  const data = rankSuggestions(rows, (row) => computeApproxScore(query, String(row.NOM ?? ''), String(row.PRENOM ?? '')), {
+    min: 20,
+    limit: Math.max(1, Math.min(limit, 30)),
+    tieBreak: (a, b) => String(a.NOM).localeCompare(String(b.NOM)) || String(a.PRENOM).localeCompare(String(b.PRENOM)),
+  });
 
   return { data };
 }

@@ -55,3 +55,19 @@ export function levenshteinDistance(a: string, b: string): number {
 
   return dp[rows - 1][cols - 1];
 }
+
+/**
+ * Ranking shared by the suggestion endpoints: score every row, keep scores >= `min`, sort by score
+ * (descending) then `tieBreak` (stable sort: remaining ties keep the input order), keep the first `limit`.
+ */
+export function rankSuggestions<T>(
+  rows: readonly T[],
+  score: (row: T) => number,
+  opts: { min: number; limit: number; tieBreak: (a: T, b: T) => number },
+): Array<T & { SCORE: number }> {
+  return rows
+    .map((row) => ({ ...row, SCORE: score(row) }))
+    .filter((row) => row.SCORE >= opts.min)
+    .sort((a, b) => b.SCORE - a.SCORE || opts.tieBreak(a, b))
+    .slice(0, opts.limit);
+}

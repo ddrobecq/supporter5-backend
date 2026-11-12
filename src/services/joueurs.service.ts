@@ -1,7 +1,7 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
 import { requirePositiveInt, requireText } from '../lib/coerce';
 import { createEntityService } from '../lib/baseService';
-import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
@@ -221,18 +221,21 @@ export async function getJoueurSuggestions(search: string, limit = 12): Promise<
      ORDER BY NOM ASC, PRENOM ASC, IDJOUEUR ASC`,
   );
 
-  const data = rows
-    .map((row) => ({ ...row, SCORE: computeApproxScore(query, String(row.NOM ?? ''), String(row.PRENOM ?? ''), String(row.SURNOM ?? '')) }))
-    .filter((row) => row.SCORE >= 20)
-    .sort((a, b) => b.SCORE - a.SCORE || String(a.NOM).localeCompare(String(b.NOM)) || String(a.PRENOM).localeCompare(String(b.PRENOM)))
-    .map((row) => ({
-      IDJOUEUR: row.IDJOUEUR,
-      NOM: row.NOM,
-      PRENOM: row.PRENOM,
-      IDNATIO: row.IDNATIO,
-      SCORE: row.SCORE,
-    }))
-    .slice(0, Math.max(1, Math.min(limit, 30)));
+  const data = rankSuggestions(
+    rows,
+    (row) => computeApproxScore(query, String(row.NOM ?? ''), String(row.PRENOM ?? ''), String(row.SURNOM ?? '')),
+    {
+      min: 20,
+      limit: Math.max(1, Math.min(limit, 30)),
+      tieBreak: (a, b) => String(a.NOM).localeCompare(String(b.NOM)) || String(a.PRENOM).localeCompare(String(b.PRENOM)),
+    },
+  ).map((row) => ({
+    IDJOUEUR: row.IDJOUEUR,
+    NOM: row.NOM,
+    PRENOM: row.PRENOM,
+    IDNATIO: row.IDNATIO,
+    SCORE: row.SCORE,
+  }));
 
   return { data };
 }
@@ -511,13 +514,16 @@ function normalizeOptionalClubId(value: unknown): string | null {
   return text ? text : null;
 }
 
-function normalizeMoney(value: unknown, fieldName: string, allowNull: boolean): number | null {
+/** TRANSAC.INDEMNITES marker for "no known fee" (0 = unknown): the only negative amount accepted. */
+const NO_KNOWN_FEE = -1;
+
+function normalizeMoney(value: unknown, fieldName: string, allowNull: boolean, acceptNoKnownFee = false): number | null {
   const text = String(value ?? '').trim();
   if (!text) {
     return allowNull ? null : 0;
   }
   const amount = Number(text.replace(',', '.'));
-  if (!Number.isFinite(amount) || amount < 0) {
+  if (!Number.isFinite(amount) || (amount < 0 && !(acceptNoKnownFee && amount === NO_KNOWN_FEE))) {
     throw new AppError(400, `${fieldName} invalide.`);
   }
   return amount;
@@ -705,7 +711,7 @@ async function buildTransactionValues(
     : null;
 
   const indemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0
-    ? normalizeMoney(payload.indemnites, 'Indemnites', false) ?? 0
+    ? normalizeMoney(payload.indemnites, 'Indemnites', false, true) ?? 0
     : 0;
 
   const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0

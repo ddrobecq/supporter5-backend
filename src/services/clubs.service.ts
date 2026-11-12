@@ -4,7 +4,7 @@ import { requirePositiveInt, requireText, toText as normalizeText } from '../lib
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
-import { foldSearchWords, levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { foldSearchWords, levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError } from '../types';
@@ -653,10 +653,8 @@ export async function updateClubProfileById(
 }
 
 export async function getClubSuggestions(search: string, limit = 12): Promise<ClubSuggestionsResponse> {
-  const query = search.trim();
-  if (!query) {
-    return { data: [] };
-  }
+  const query = String(search ?? '').trim();
+  if (!query) return { data: [] };
 
   // Candidate list cached per generation (any admin write invalidates it); rows are only read below.
   const rows = await cached('clubs:suggestion-candidates', () => dbAll<ClubCandidateRow>(
@@ -678,32 +676,29 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
      ORDER BY c.CLUB ASC, c.IDCLUB ASC`,
   ));
 
-  const scored = rows
-    .map((row) => ({
-      ...row,
-      ...computeApproxScore(
-        query,
-        String(row.CLUB_ABREGE ?? ''),
-        String(row.CLUB_NOM_COMPLET ?? ''),
-        String(row.CLUB_NOMS_HISTORIQUE ?? ''),
-      ),
-    }))
-    .filter((row) => row.score >= 24)
-    .sort((a, b) => {
-      if (b.score !== a.score) return b.score - a.score;
-      if (a.bestDistance !== b.bestDistance) return a.bestDistance - b.bestDistance;
-      const byFullName = String(a.CLUB_NOM_COMPLET).localeCompare(String(b.CLUB_NOM_COMPLET));
-      if (byFullName !== 0) return byFullName;
-      return String(a.CLUB_ABREGE).localeCompare(String(b.CLUB_ABREGE));
-    })
-    .map((row) => ({
-      IDCLUB: row.IDCLUB,
-      CLUB_ABREGE: row.CLUB_ABREGE,
-      CLUB_NOM_COMPLET: row.CLUB_NOM_COMPLET,
-      CLUB_NOMS: parseHistoryNames(String(row.CLUB_NOMS_HISTORIQUE ?? ''), String(row.CLUB_NOM_COMPLET ?? '')),
-      SCORE: row.score,
-    }))
-    .slice(0, Math.max(1, Math.min(limit, 30)));
+  // The club score also yields the best edit distance, used as the first tie-break.
+  const candidates = rows.map((row) => ({
+    ...row,
+    ...computeApproxScore(
+      query,
+      String(row.CLUB_ABREGE ?? ''),
+      String(row.CLUB_NOM_COMPLET ?? ''),
+      String(row.CLUB_NOMS_HISTORIQUE ?? ''),
+    ),
+  }));
+  const scored = rankSuggestions(candidates, (row) => row.score, {
+    min: 24,
+    limit: Math.max(1, Math.min(limit, 30)),
+    tieBreak: (a, b) => a.bestDistance - b.bestDistance
+      || String(a.CLUB_NOM_COMPLET).localeCompare(String(b.CLUB_NOM_COMPLET))
+      || String(a.CLUB_ABREGE).localeCompare(String(b.CLUB_ABREGE)),
+  }).map((row) => ({
+    IDCLUB: row.IDCLUB,
+    CLUB_ABREGE: row.CLUB_ABREGE,
+    CLUB_NOM_COMPLET: row.CLUB_NOM_COMPLET,
+    CLUB_NOMS: parseHistoryNames(String(row.CLUB_NOMS_HISTORIQUE ?? ''), String(row.CLUB_NOM_COMPLET ?? '')),
+    SCORE: row.score,
+  }));
 
   return { data: scored };
 }
