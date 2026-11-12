@@ -1,6 +1,6 @@
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { cached } from '../lib/statsCache';
-import { parseFlag, requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode, toText as normalizeText } from '../lib/coerce';
+import { parseFlag, parseHexColor, requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode, toText as normalizeText } from '../lib/coerce';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -99,8 +99,8 @@ export interface CreateClubWizardPayload {
   isSelection: boolean;
   creationDate?: string;
   villeId?: string | number;
-  fond?: string | number | null;
-  texte?: string | number | null;
+  fond?: string | null;
+  texte?: string | null;
 }
 
 interface ClubCandidateRow {
@@ -607,7 +607,7 @@ export async function deleteClubNameHistoryById(id: string, historyId: string): 
 
 export async function updateClubColorsById(
   id: string,
-  payload: { fond: string | number | null; texte: string | number | null },
+  payload: { fond?: string | null; texte?: string | null },
 ): Promise<ClubProfileRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
 
@@ -621,7 +621,7 @@ export async function updateClubColorsById(
 
 export async function updateClubProfileById(
   id: string,
-  payload: { name: string; natioId: string; villeId?: string | number | null; fond?: string | number | null; texte?: string | number | null },
+  payload: { name: string; natioId: string; villeId?: string | number | null; fond?: string | null; texte?: string | null },
 ): Promise<ClubProfileRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
   const name = requireMaxLength(normalizeText(payload.name), 100, 'Nom du club');
@@ -793,16 +793,12 @@ function normalizeTerrainId(value: unknown): number {
 }
 
 /**
- * CLUB.FOND / CLUB.TEXTE as sent: WinDev colour integer (-1 = no colour, otherwise 0..0xFFFFFF), number or integer
- * string. Both columns are NOT NULL: a missing or non-numeric value is a 400 instead of a constraint error (409).
+ * CLUB.FOND / CLUB.TEXTE as sent: "#RRGGBB" or NULL / empty = no colour. Profile and /colors must send both keys
+ * (absent -> 400, as before); an integer (former WinDev format) or any other value is a 400.
  */
-function parseClubColor(value: unknown): number {
-  const raw = typeof value === 'string' ? value.trim() : value;
-  const numeric = typeof raw === 'number' || (typeof raw === 'string' && /^-?\d+$/.test(raw)) ? Number(raw) : Number.NaN;
-  if (!Number.isInteger(numeric) || numeric < -1 || numeric > 0xFFFFFF) {
-    throw new AppError(400, 'fond et texte sont requis.');
-  }
-  return numeric;
+function parseClubColor(value: unknown): string | null {
+  if (value === undefined) throw new AppError(400, 'fond et texte sont requis.');
+  return parseHexColor(value, 'fond et texte doivent être au format #RRGGBB ou null.');
 }
 
 /** CL_SELECTION: strict 0/1 flag. Absent, it keeps its historical default 0 (nothing was sent). */
@@ -858,9 +854,9 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   }
 
   const idVille = await resolveExplicitVilleId(payload.villeId);
-  // Wizard rule: a new club has no colours (-1) unless the client sends them (validated, stored as sent).
-  const fond = payload.fond === undefined ? -1 : parseClubColor(payload.fond);
-  const texte = payload.texte === undefined ? -1 : parseClubColor(payload.texte);
+  // Wizard rule: a new club has no colours (NULL) unless the client sends them (validated, stored as sent).
+  const fond = payload.fond === undefined ? null : parseClubColor(payload.fond);
+  const texte = payload.texte === undefined ? null : parseClubColor(payload.texte);
 
   // CLUB and its first CLUB_NOM row are created together: all or nothing.
   const idClub = await runInTransaction(async () => {

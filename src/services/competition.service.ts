@@ -336,7 +336,7 @@ export async function clonePreviousCompetition(
 
       insertQualif.run(
         previousQualif.CLASS_MinRang ?? 0,
-        previousQualif.CLASS_Couleur ?? 0,
+        previousQualif.CLASS_Couleur ?? null,
         previousQualif.CLASS_Libelle ?? null,
         previousQualif.CLASS_Type ?? 0,
         newTourId,

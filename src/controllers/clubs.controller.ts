@@ -7,13 +7,13 @@ import clubsService from '../services/clubs.service';
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = integrityCheckerFor('club');
 
-type ClubColorsPayload = { fond: string | number | null; texte: string | number | null };
+type ClubColorsPayload = { fond?: string | null; texte?: string | null };
 type ClubProfilePayload = {
 	name: string;
 	natioId: string;
 	villeId?: string | number | null;
-	fond?: string | number | null;
-	texte?: string | number | null;
+	fond?: string | null;
+	texte?: string | null;
 };
 type ClubNamePayload = { date?: string | null; eventType: number | string; name: string };
 type ClubTerrainPayload = { date?: string | null; terrainId: string | number };

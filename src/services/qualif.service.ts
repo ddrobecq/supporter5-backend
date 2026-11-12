@@ -1,4 +1,5 @@
 import { createEntityService } from '../lib/baseService';
+import { parseHexColor } from '../lib/coerce';
 import { AppError } from '../types';
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
@@ -24,6 +25,11 @@ function parseIntegerField(value: unknown, field: string): number {
   return numeric;
 }
 
+/** Qualif.CLASS_Couleur as sent: "#RRGGBB" or NULL / empty = no colour (absent on create: NULL). */
+function parseQualifColor(value: unknown): string | null {
+  return parseHexColor(value, 'CLASS_Couleur doit etre au format #RRGGBB ou null');
+}
+
 function validateType(value: unknown): number {
   const parsed = parseIntegerField(value, 'CLASS_Type');
   if (parsed < 1 || parsed > 5) {
@@ -38,7 +44,7 @@ function validatePayload(body: Record<string, unknown>, isCreate: boolean): Reco
   if (isCreate) {
     clean.CLASS_MinRang = parseIntegerField(clean.CLASS_MinRang, 'CLASS_MinRang');
     clean.CLASS_MaxRang = parseIntegerField(clean.CLASS_MaxRang, 'CLASS_MaxRang');
-    clean.CLASS_Couleur = parseIntegerField(clean.CLASS_Couleur, 'CLASS_Couleur');
+    if (clean.CLASS_Couleur !== undefined) clean.CLASS_Couleur = parseQualifColor(clean.CLASS_Couleur);
     clean.CLASS_Type = validateType(clean.CLASS_Type);
     clean.TUCLEUNIK = parseIntegerField(clean.TUCLEUNIK, 'TUCLEUNIK');
 
@@ -55,7 +61,7 @@ function validatePayload(body: Record<string, unknown>, isCreate: boolean): Reco
       clean.CLASS_MaxRang = parseIntegerField(clean.CLASS_MaxRang, 'CLASS_MaxRang');
     }
     if (clean.CLASS_Couleur !== undefined) {
-      clean.CLASS_Couleur = parseIntegerField(clean.CLASS_Couleur, 'CLASS_Couleur');
+      clean.CLASS_Couleur = parseQualifColor(clean.CLASS_Couleur);
     }
     if (clean.CLASS_Type !== undefined) {
       clean.CLASS_Type = validateType(clean.CLASS_Type);

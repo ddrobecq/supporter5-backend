@@ -61,10 +61,10 @@ export interface RencontreDetailRow {
   TYPE_TOUR: number;
   DOMICILE_ABREGE: string;
   EXTERIEUR_ABREGE: string;
-  DOMICILE_FOND: string | number | null;
-  DOMICILE_TEXTE: string | number | null;
-  EXTERIEUR_FOND: string | number | null;
-  EXTERIEUR_TEXTE: string | number | null;
+  DOMICILE_FOND: string | null;
+  DOMICILE_TEXTE: string | null;
+  EXTERIEUR_FOND: string | null;
+  EXTERIEUR_TEXTE: string | null;
   DOMICILE_NOM_EFFECTIF: string;
   EXTERIEUR_NOM_EFFECTIF: string;
   DOMICILE_NOM_COMPLET: string;

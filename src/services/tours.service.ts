@@ -38,14 +38,14 @@ export interface TourParticipantRow {
   TDCalculDiffBut?: number;
   LOCKED_QUALIF_ABREGE?: string | null;
   LOCKED_QUALIF_LIBELLE?: string | null;
-  LOCKED_QUALIF_COULEUR?: number | null;
+  LOCKED_QUALIF_COULEUR?: string | null;
   LOCKED_QUALIF_TYPE?: number | null;
 }
 
 interface QualifRuleRow {
   CLASS_MinRang: number;
   CLASS_MaxRang: number;
-  CLASS_Couleur: number;
+  CLASS_Couleur: string | null;
   CLASS_Libelle: string;
   CLASS_Type: number;
   CLASS_Abrege: string;

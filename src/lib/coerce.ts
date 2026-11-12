@@ -52,3 +52,13 @@ export function requireUpperCaseCode(code: string, message: string): string {
   if (code !== code.toUpperCase()) throw new AppError(400, message);
   return code;
 }
+
+/** Colour as sent: "#RRGGBB" (hex digits, case kept as sent) or empty / NULL = no colour (NULL); anything else is a 400. */
+export function parseHexColor(value: unknown, message: string): string | null {
+  if (value == null) return null;
+  if (typeof value !== 'string') throw new AppError(400, message);
+  const text = value.trim();
+  if (!text) return null;
+  if (!/^#[0-9A-Fa-f]{6}$/.test(text)) throw new AppError(400, message);
+  return text;
+}
