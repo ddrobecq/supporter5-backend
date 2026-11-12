@@ -254,7 +254,13 @@ function computeApproxScore(
 export async function getClubsGrid(search: string, pagination?: GridPagination): Promise<ClubsGridResponse> {
   const normalizedSearch = search.trim().toLowerCase();
   const likeSearch = `%${normalizedSearch}%`;
-  const params = [normalizedSearch, likeSearch, likeSearch];
+  const prefixSearch = `${normalizedSearch}%`;
+  const wordStartSearch = `% ${normalizedSearch}%`;
+  // WHERE params first, then the relevance CASE params of the ORDER BY (same order as the placeholders).
+  const params = [
+    normalizedSearch, likeSearch, likeSearch,
+    normalizedSearch, normalizedSearch, prefixSearch, wordStartSearch, likeSearch,
+  ];
   return fetchGridPage<ClubGridRow>(
     `SELECT
        c.IDCLUB,
@@ -275,7 +281,17 @@ export async function getClubsGrid(search: string, pagination?: GridPagination):
        OR LOWER(COALESCE(c.CLUB, '')) LIKE ?
        OR LOWER(COALESCE(v.NOM, '')) LIKE ?
      )
-     ORDER BY c.CLUB ASC, c.IDCLUB ASC`,
+     ORDER BY
+       CASE
+         WHEN ? = '' THEN 0
+         WHEN LOWER(COALESCE(c.CLUB, '')) = ? THEN 0
+         WHEN LOWER(COALESCE(c.CLUB, '')) LIKE ? THEN 1
+         WHEN LOWER(COALESCE(c.CLUB, '')) LIKE ? THEN 2
+         WHEN LOWER(COALESCE(c.CLUB, '')) LIKE ? THEN 3
+         ELSE 4
+       END ASC,
+       c.CLUB ASC,
+       c.IDCLUB ASC`,
     params,
     pagination,
     CLUBS_GRID_MAX_ROWS,
