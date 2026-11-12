@@ -38,7 +38,20 @@ export interface MaintenanceMutationResult {
   durationMs: number;
 }
 
-export type MaintenanceQueryResult = MaintenanceSelectResult | MaintenanceMutationResult;
+/** Result of a CREATE / ALTER statement: the schema changed, the back should be restarted. */
+export interface MaintenanceSchemaResult {
+  kind: 'schema';
+  message: string;
+  durationMs: number;
+}
+
+export type MaintenanceQueryResult =
+  | MaintenanceSelectResult
+  | MaintenanceMutationResult
+  | MaintenanceSchemaResult;
+
+const SCHEMA_CHANGED_MESSAGE =
+  'Structure de la base modifiée. Redémarrez le back pour que toutes les requêtes utilisent la nouvelle structure.';
 
 /** Erreur levee quand une requete modifiante est soumise sans confirmation explicite. */
 const CONFIRMATION_REQUIRED_STATUS = 428;
@@ -55,7 +68,26 @@ function isInsertStatement(sql: string): boolean {
 }
 
 /** Statements accepted by the console, identified by their first keyword. */
-const ALLOWED_FIRST_KEYWORDS = new Set(['SELECT', 'WITH', 'INSERT', 'REPLACE', 'UPDATE', 'DELETE']);
+const ALLOWED_FIRST_KEYWORDS = new Set([
+  'SELECT', 'WITH', 'INSERT', 'REPLACE', 'UPDATE', 'DELETE', 'CREATE', 'ALTER',
+]);
+
+/** Schema statements (DDL) accepted by the console, identified by their first keyword. */
+const SCHEMA_FIRST_KEYWORDS = new Set(['CREATE', 'ALTER']);
+
+const ALLOWED_STATEMENTS_LABEL =
+  'SELECT, WITH, INSERT, REPLACE, UPDATE, DELETE, ALTER TABLE, CREATE TABLE, CREATE [UNIQUE] INDEX et CREATE VIEW';
+
+/** CREATE forms accepted, captured with the start of the object name. */
+const ALLOWED_CREATE_PATTERN =
+  /^CREATE\s+(?:UNIQUE\s+INDEX|INDEX|TABLE|VIEW)\b(?:\s+IF\s+NOT\s+EXISTS\b)?\s*([\s\S]*)$/i;
+
+/** Object name qualified by the temp schema (`temp.x`, `"temp".x`...): it would shadow main objects. */
+const TEMP_SCHEMA_QUALIFIER = /^["`[]?(?:temp|temporary)["`\]]?\s*\./i;
+
+function firstKeywordOf(code: string): string {
+  return (/^[A-Za-z]+/.exec(code.trimStart())?.[0] ?? '').toUpperCase();
+}
 
 interface SqlScan {
   /** SQL with comments removed and string literals emptied; quoted identifiers are kept. */
@@ -123,27 +155,52 @@ function scanSql(sql: string): SqlScan {
   return { code, hasContentAfterSeparator: false };
 }
 
-/**
- * Accepts a single SELECT / WITH / INSERT / REPLACE / UPDATE / DELETE statement.
- * ATTACH, DETACH, PRAGMA, VACUUM, DDL and transaction statements are rejected: SQLite only
- * allows them as top-level statements, so they cannot hide behind an allowed first keyword
- * once a single statement is enforced.
- */
-function assertAllowedStatement(sql: string): void {
-  const { code, hasContentAfterSeparator } = scanSql(sql);
-  if (hasContentAfterSeparator) {
-    throw new AppError(400, 'Une seule instruction SQL par requete : rien ne doit suivre le « ; » final.');
+/** Rejects every CREATE form except TABLE, INDEX, UNIQUE INDEX and VIEW in the main schema. */
+function assertAllowedCreate(code: string): void {
+  const match = ALLOWED_CREATE_PATTERN.exec(code.trimStart());
+  if (!match) {
+    const form = /^CREATE\s+([A-Za-z]+)/i.exec(code.trimStart())?.[1]?.toUpperCase();
+    throw new AppError(
+      400,
+      `Instruction non autorisee (CREATE${form ? ` ${form}` : ''}) : seules ${ALLOWED_STATEMENTS_LABEL} sont acceptees.`,
+    );
   }
-  const firstKeyword = (/^[A-Za-z]+/.exec(code.trimStart())?.[0] ?? '').toUpperCase();
+  if (TEMP_SCHEMA_QUALIFIER.test(match[1])) {
+    throw new AppError(400, 'Les objets du schema temp sont interdits.');
+  }
+}
+
+/**
+ * Accepts a single SELECT / WITH / INSERT / REPLACE / UPDATE / DELETE statement, or a schema
+ * statement: ALTER TABLE, CREATE TABLE, CREATE [UNIQUE] INDEX, CREATE VIEW.
+ * ATTACH, DETACH, PRAGMA, VACUUM, DROP, CREATE TRIGGER / VIRTUAL / TEMP and transaction
+ * statements are rejected: SQLite only allows them as top-level statements, so they cannot
+ * hide behind an allowed first keyword once a single statement is enforced.
+ * Returns true for a schema statement.
+ */
+function assertAllowedStatement(sql: string): boolean {
+  const { code, hasContentAfterSeparator } = scanSql(sql);
+  // The keyword is checked first (code holds the first statement) so that a CREATE TRIGGER,
+  // whose body contains `;`, gets an explicit message.
+  const firstKeyword = firstKeywordOf(code);
   if (!ALLOWED_FIRST_KEYWORDS.has(firstKeyword)) {
     throw new AppError(
       400,
-      `Instruction non autorisee${firstKeyword ? ` (${firstKeyword})` : ''} : seules SELECT, WITH, INSERT, REPLACE, UPDATE et DELETE sont acceptees.`,
+      `Instruction non autorisee${firstKeyword ? ` (${firstKeyword})` : ''} : seules ${ALLOWED_STATEMENTS_LABEL} sont acceptees.`,
     );
+  }
+  if (firstKeyword === 'CREATE') {
+    assertAllowedCreate(code);
+  } else if (firstKeyword === 'ALTER' && !/^ALTER\s+TABLE\b/i.test(code.trimStart())) {
+    throw new AppError(400, 'Instruction non autorisee : seule ALTER TABLE est acceptee parmi les ALTER.');
+  }
+  if (hasContentAfterSeparator) {
+    throw new AppError(400, 'Une seule instruction SQL par requete : rien ne doit suivre le « ; » final.');
   }
   if (/load_extension/i.test(code)) {
     throw new AppError(400, 'La fonction load_extension est interdite.');
   }
+  return SCHEMA_FIRST_KEYWORDS.has(firstKeyword);
 }
 
 function isMultiStatementError(error: unknown): boolean {
@@ -201,7 +258,7 @@ function resolveColumnLabels(names: Array<string | null>): string[] {
 
 /**
  * Outils > Maintenance : execute une requete SQL libre sur la base.
- * Les requetes non « readonly » (INSERT / UPDATE / DELETE...) exigent `confirmed`.
+ * Les requetes non « readonly » (INSERT / UPDATE / DELETE...) et les DDL (CREATE / ALTER) exigent `confirmed`.
  */
 export async function executeMaintenanceQuery({
   sql,
@@ -216,7 +273,7 @@ export async function executeMaintenanceQuery({
     throw new AppError(400, `Requete SQL trop longue (maximum ${MAX_SQL_LENGTH} caracteres).`);
   }
 
-  assertAllowedStatement(normalizedSql);
+  const isSchemaStatement = assertAllowedStatement(normalizedSql);
 
   let statement;
   try {
@@ -231,7 +288,9 @@ export async function executeMaintenanceQuery({
 
   // `readonly` provient de SQLite lui-meme : il couvre aussi les cas
   // « INSERT ... RETURNING » ou « WITH ... DELETE » que l'analyse textuelle rate.
-  const isReadOnly = statement.readonly;
+  // Un DDL exige toujours la confirmation, meme si SQLite le juge « readonly »
+  // (CREATE ... IF NOT EXISTS sur un objet existant).
+  const isReadOnly = statement.readonly && !isSchemaStatement;
   if (!isReadOnly && !confirmed) {
     throw new AppError(
       CONFIRMATION_REQUIRED_STATUS,
@@ -243,6 +302,15 @@ export async function executeMaintenanceQuery({
   const startedAt = Date.now();
 
   try {
+    if (isSchemaStatement) {
+      statement.run();
+      return {
+        kind: 'schema',
+        message: SCHEMA_CHANGED_MESSAGE,
+        durationMs: Date.now() - startedAt,
+      };
+    }
+
     if (!statement.reader) {
       const result = statement.run();
       const changes = Number(result.changes ?? 0);
