@@ -150,10 +150,8 @@ export function createEntityService(config: EntityConfig) {
   }
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
-    const { page, size: limit } = parsePageParams(params.page, params.limit, {
-      sizeName: 'limit', defaultSize: 20, maxSize: 200, invalid: 'fallback',
-    });
-    const offset = (page - 1) * limit;
+    const { page, pageSize } = parsePageParams(params);
+    const offset = (page - 1) * pageSize;
     const sort   = sanitizeSort(params.sort, allowedSortCols, pk);
     const order  = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const searchValue = typeof params.search === 'string' ? normalizeSearchText(params.search) : '';
@@ -166,17 +164,17 @@ export function createEntityService(config: EntityConfig) {
       );
       const filteredRows = allRows.filter((row) => rowMatchesSearch(row, searchCols, searchValue));
       const total = filteredRows.length;
-      const data = filteredRows.slice(offset, offset + limit);
+      const data = filteredRows.slice(offset, offset + pageSize);
 
-      return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+      return { data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
     }
 
     const { where, bindings } = buildWhere(params, searchCols, filterCols, tableAlias);
     const row   = await dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM ${tableSql} ${where}`, bindings);
     const total = row?.total ?? 0;
-    const data  = await dbAll(`SELECT ${selectClause} FROM ${tableSql} ${where} ORDER BY ${colPrefix}"${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);
+    const data  = await dbAll(`SELECT ${selectClause} FROM ${tableSql} ${where} ORDER BY ${colPrefix}"${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, pageSize, offset]);
 
-    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return { data, total, page, pageSize, totalPages: Math.ceil(total / pageSize) };
   }
 
   async function getById(id: string | number): Promise<Record<string, unknown> | undefined> {

@@ -1,6 +1,6 @@
 export interface QueryParams {
   page?: string | number;
-  limit?: string | number;
+  pageSize?: string | number;
   sort?: string;
   order?: string;
   search?: string;
@@ -11,7 +11,7 @@ export interface PaginatedResult<T = Record<string, unknown>> {
   data: T[];
   total: number;
   page: number;
-  limit: number;
+  pageSize: number;
   totalPages: number;
 }
 

@@ -1,43 +1,32 @@
 import { AppError, QueryParams } from '../types';
 import { normalizeSearchText } from './searchUtils';
 
-export interface PageParamsOptions {
-  /** Name of the size parameter, used in the 400 message ('limit', 'pageSize'). */
-  sizeName: string;
-  defaultSize: number;
-  maxSize: number;
-  /**
-   * 'fallback': invalid or missing values fall back to the defaults and the size is clamped to maxSize
-   * (generic CRUD lists). 'reject': a given value must be an integer string within bounds, else 400 (grids).
-   */
-  invalid: 'fallback' | 'reject';
-}
+/** Single pagination convention of every list route: `page` (>= 1, default 1) and `pageSize` (1..500, default 100). */
+export const DEFAULT_PAGE_SIZE = 100;
+export const MAX_PAGE_SIZE = 500;
 
 function strictPageInteger(value: unknown, name: string, max: number): number {
   const raw = typeof value === 'string' ? value.trim() : '';
   const parsed = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) {
-    throw new AppError(400, `Parametre ${name} invalide (entier entre 1 et ${max} attendu)`);
+    throw new AppError(400, max === Number.MAX_SAFE_INTEGER
+      ? `Parametre ${name} invalide (entier >= 1 attendu)`
+      : `Parametre ${name} invalide (entier entre 1 et ${max} attendu)`);
   }
   return parsed;
 }
 
-/** Page number and page size of a list query (raw query values, possibly undefined). */
-export function parsePageParams(
-  rawPage: unknown,
-  rawSize: unknown,
-  options: PageParamsOptions,
-): { page: number; size: number } {
-  const { sizeName, defaultSize, maxSize, invalid } = options;
-  if (invalid === 'fallback') {
-    return {
-      page: Math.max(1, Number(rawPage) || 1),
-      size: Math.min(maxSize, Math.max(1, Number(rawSize) || defaultSize)),
-    };
+/**
+ * `page` / `pageSize` query values (possibly undefined): absent -> default, otherwise an integer within bounds,
+ * else 400 (never clamped nor replaced). The former `limit` parameter is rejected so that it is never silently ignored.
+ */
+export function parsePageParams(query: { page?: unknown; pageSize?: unknown; limit?: unknown }): { page: number; pageSize: number } {
+  if (query.limit !== undefined) {
+    throw new AppError(400, 'Parametre limit non supporte : utilisez pageSize.');
   }
   return {
-    page: rawPage === undefined ? 1 : strictPageInteger(rawPage, 'page', Number.MAX_SAFE_INTEGER),
-    size: rawSize === undefined ? defaultSize : strictPageInteger(rawSize, sizeName, maxSize),
+    page: query.page === undefined ? 1 : strictPageInteger(query.page, 'page', Number.MAX_SAFE_INTEGER),
+    pageSize: query.pageSize === undefined ? DEFAULT_PAGE_SIZE : strictPageInteger(query.pageSize, 'pageSize', MAX_PAGE_SIZE),
   };
 }
 

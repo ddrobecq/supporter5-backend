@@ -2,9 +2,6 @@ import type { Request } from 'express';
 import { dbAll, dbGet } from '../config/database';
 import { parsePageParams } from './queryBuilder';
 
-const DEFAULT_GRID_PAGE_SIZE = 100;
-const MAX_GRID_PAGE_SIZE = 500;
-
 export interface GridPagination {
   page: number;
   pageSize: number;
@@ -28,13 +25,10 @@ export type GridPageResult<T> = { data: T[] } & GridPageMeta;
  * which keeps the historical "all rows" behavior (bounded by a hard row limit).
  */
 export function parseGridPagination(query: Request['query']): GridPagination | undefined {
-  if (query.page === undefined && query.pageSize === undefined) {
+  if (query.page === undefined && query.pageSize === undefined && query.limit === undefined) {
     return undefined;
   }
-  const { page, size } = parsePageParams(query.page, query.pageSize, {
-    sizeName: 'pageSize', defaultSize: DEFAULT_GRID_PAGE_SIZE, maxSize: MAX_GRID_PAGE_SIZE, invalid: 'reject',
-  });
-  return { page, pageSize: size };
+  return parsePageParams(query);
 }
 
 async function countRows(baseSql: string, params: unknown[]): Promise<number> {
