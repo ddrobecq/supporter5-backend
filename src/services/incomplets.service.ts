@@ -326,7 +326,7 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
          AND TRIM(COALESCE(r."DATE", '')) <> ''
          AND r."DATE" < DATE('now')
        THEN 1 ELSE 0 END AS "SCORE_INCONNU",
-       CASE WHEN ${PLAYED_SQL} AND COALESCE(m."NBSPECT", 0) = 0 THEN 1 ELSE 0 END AS "SPECTATEURS_INCONNUS",
+       CASE WHEN ${PLAYED_SQL} AND COALESCE(m."NBSPECT", 0) = 0 AND COALESCE(m."HUIS_CLOS", 0) = 0 THEN 1 ELSE 0 END AS "SPECTATEURS_INCONNUS",
        CASE WHEN ${PLAYED_SQL} AND (
          SELECT COUNT(*) FROM "EVENT" ev
          WHERE ev."MACLEUNIK" = m."MACLEUNIK" AND ${GOAL_EVENT_PREDICATE}

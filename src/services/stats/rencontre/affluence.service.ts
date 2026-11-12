@@ -18,7 +18,7 @@ type AffluenceQueryRow = SupportedMatchQueryRow & {
   NBSPECT: number;
 };
 
-/** Rencontres du club supporte classees par affluence decroissante (huis-clos exclus, MATCH.NBSPECT = -1). */
+/** Rencontres du club supporte classees par affluence decroissante (huis clos exclus, MATCH.HUIS_CLOS = 1). */
 export async function getAffluence(scope?: number | null): Promise<AffluenceRow[]> {
   const supportedClubId = getSupportedClubIdFromEnv();
 
@@ -26,7 +26,7 @@ export async function getAffluence(scope?: number | null): Promise<AffluenceRow[
     `${supportedMatchesSql({
       extraSelect: ['m.NBSPECT AS NBSPECT'],
       matchJoin: 'INNER',
-      extraWhere: 'AND m.NBSPECT > -1',
+      extraWhere: 'AND COALESCE(m.HUIS_CLOS, 0) = 0',
       scope,
     })}
      ORDER BY m.NBSPECT DESC, DATE DESC`,

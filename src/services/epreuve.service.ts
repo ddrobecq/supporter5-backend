@@ -2,6 +2,7 @@ import { createEntityService } from '../lib/baseService';
 import { dbAll } from '../config/database';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { parseFlag } from '../lib/coerce';
+import { VALID_SCOPES } from '../lib/matchScopeFilter';
 import { AppError } from '../types';
 
 /** Strict 0/1 flag (OFFICIELLE, EPR_PAYS). Absent on create, it keeps its historical default 0 (nothing was sent). */
@@ -9,9 +10,14 @@ function normalizeFlag(value: unknown, field: string): number {
   return value === undefined ? 0 : parseFlag(value, field);
 }
 
+/** EPREUVE.SCOPE as sent: an integer among the known scopes (number or integer string), else 400. */
 function normalizeScope(value: unknown): number {
-  const numeric = Number(value);
-  return Number.isNaN(numeric) ? 0 : numeric;
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const numeric = typeof raw === 'number' || (typeof raw === 'string' && /^\d+$/.test(raw)) ? Number(raw) : Number.NaN;
+  if (!VALID_SCOPES.has(numeric)) {
+    throw new AppError(400, 'SCOPE invalide (1, 2, 3 ou 4 attendu).');
+  }
+  return numeric;
 }
 
 /** Trims texts, normalizes SCOPE / flags; on create the PK is ignored, EPREUVE is required and EPR_WEB defaults to ''. */

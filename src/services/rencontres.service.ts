@@ -77,6 +77,7 @@ export interface RencontreDetailRow {
   TERRAIN_VILLE: string;
   TERRAIN_DISPLAY: string;
   NBSPECT: number;
+  HUIS_CLOS: number;
   EXTRATIME: number;
   PENALTY: number;
   FIN_TPS_REG: number;
@@ -2322,6 +2323,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       COALESCE(te.STADE, '') AS TERRAIN_NOM,
       COALESCE(vt.NOM, '') AS TERRAIN_VILLE,
       COALESCE(m.NBSPECT, 0) AS NBSPECT,
+      COALESCE(m.HUIS_CLOS, 0) AS HUIS_CLOS,
       COALESCE(m.EXTRATIME, 0) AS EXTRATIME,
       COALESCE(m.PENALTY, 0) AS PENALTY,
       COALESCE(td.FIN_TPS_REG, 0) AS FIN_TPS_REG,
@@ -3150,8 +3152,8 @@ function ensureMatchRowForRencontre(recleunik: number): { macleunik: number } {
   if (!rencoExists) throw new AppError(404, 'Rencontre introuvable.');
 
   const inserted = db.prepare(
-    `INSERT INTO "MATCH" ("RECLEUNIK", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "LIEU", "MADUREE")
-     VALUES (?, 0, 1, 0, 0, 0, 0, 0, 'N', 90)`,
+    `INSERT INTO "MATCH" ("RECLEUNIK", "NBSPECT", "CALCULE", "EXTRATIME", "PENALTY", "CLIMAT", "TV", "PELOUSE", "MADUREE")
+     VALUES (?, 0, 1, 0, 0, 0, 0, 0, 90)`,
   ).run(recleunik);
 
   return {
@@ -3185,8 +3187,8 @@ export async function upsertArbitreForRencontre(rencontreId: string | number, id
 export interface RencontreMatchMetaPayload {
   IDARBITRE?: string | null;
   TECLEUNIK?: string | null;
-  NBSPECT?: number;
-  LIEU?: string | null;
+  NBSPECT?: number | string | null;
+  HUIS_CLOS?: number | boolean | string | null;
   EXTRATIME?: number | boolean | string;
   PENALTY?: number | boolean | string;
 }
@@ -3205,15 +3207,14 @@ function clubHasTerrain(clubId: string, tecleunik: string): boolean {
   return !!row;
 }
 
-const MATCH_LIEUX = new Set(['D', 'E', 'N']);
-
-/** MATCH.LIEU as sent: 'D' (domicile), 'E' (exterieur) or 'N' (neutre); never recomputed from the terrain. */
-function parseMatchLieu(value: unknown): string {
-  const lieu = toText(value);
-  if (!MATCH_LIEUX.has(lieu)) {
-    throw new AppError(400, "LIEU invalide ('D', 'E' ou 'N' attendu).");
+/** MATCH.NBSPECT as sent: integer >= 0 (number or digit string); -1 is no longer a closed-doors marker (HUIS_CLOS). */
+function parseNbSpect(value: unknown): number {
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const numeric = typeof raw === 'number' || (typeof raw === 'string' && /^\d+$/.test(raw)) ? Number(raw) : Number.NaN;
+  if (!Number.isSafeInteger(numeric) || numeric < 0) {
+    throw new AppError(400, 'NBSPECT invalide (entier positif ou nul attendu).');
   }
-  return lieu;
+  return numeric;
 }
 
 export async function upsertMatchMetaForRencontre(rencontreId: string | number, payload: RencontreMatchMetaPayload): Promise<void> {
@@ -3223,19 +3224,27 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
     const { macleunik } = ensureMatchRowForRencontre(recleunik);
     const normalizedArbitre = payload.IDARBITRE == null ? null : (String(payload.IDARBITRE).trim() || null);
     const normalizedTerrain = payload.TECLEUNIK == null ? null : (String(payload.TECLEUNIK).trim() || null);
-    const rawNbSpect = toInt(payload.NBSPECT, 0);
-    const normalizedNbSpect = rawNbSpect === -1 ? -1 : Math.max(0, rawNbSpect);
-    // LIEU, EXTRATIME and PENALTY are written only when sent (validated, stored as received).
+    // NBSPECT, HUIS_CLOS, EXTRATIME and PENALTY are written only when sent (validated, stored as received).
     const optional: Array<[string, unknown]> = [];
-    if (payload.LIEU !== undefined) optional.push(['LIEU', parseMatchLieu(payload.LIEU)]);
+    const nbSpect = payload.NBSPECT === undefined ? undefined : parseNbSpect(payload.NBSPECT);
+    const huisClos = payload.HUIS_CLOS === undefined ? undefined : parseFlag(payload.HUIS_CLOS, 'HUIS_CLOS');
+    if (nbSpect !== undefined) optional.push(['NBSPECT', nbSpect]);
+    if (huisClos !== undefined) optional.push(['HUIS_CLOS', huisClos]);
     if (payload.EXTRATIME !== undefined) optional.push(['EXTRATIME', parseFlag(payload.EXTRATIME, 'EXTRATIME')]);
     if (payload.PENALTY !== undefined) optional.push(['PENALTY', parseFlag(payload.PENALTY, 'PENALTY')]);
 
+    // Business rule on the resulting row (sent values, else stored ones): no spectators behind closed doors.
+    const stored = db.prepare('SELECT "NBSPECT", "HUIS_CLOS" FROM "MATCH" WHERE "MACLEUNIK" = ?')
+      .get(macleunik) as { NBSPECT: number; HUIS_CLOS: number };
+    if ((huisClos ?? toInt(stored.HUIS_CLOS)) === 1 && (nbSpect ?? toInt(stored.NBSPECT)) > 0) {
+      throw new AppError(422, 'Un match à huis clos ne peut pas avoir de spectateurs (NBSPECT doit valoir 0).');
+    }
+
     db.prepare(
       `UPDATE "MATCH"
-       SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?${optional.map(([col]) => `, "${col}" = ?`).join('')}
+       SET "IDARBITRE" = ?, "TECLEUNIK" = ?${optional.map(([col]) => `, "${col}" = ?`).join('')}
        WHERE "MACLEUNIK" = ?`,
-    ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, ...optional.map(([, value]) => value), macleunik);
+    ).run(normalizedArbitre, normalizedTerrain, ...optional.map(([, value]) => value), macleunik);
 
     recomputeSupportedClubStatsForRencontreIds([recleunik]);
   });

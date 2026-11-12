@@ -14,7 +14,8 @@ export function scopeFilterClause(scope: number | null | undefined): string {
   return scope != null ? 'AND st_ep.SCOPE = ?' : '';
 }
 
-const VALID_SCOPES = new Set([1, 2, 3, 4]);
+/** EPREUVE.SCOPE values: 1 regional/amateur, 2 national league, 3 national cup, 4 European/intercontinental. */
+export const VALID_SCOPES: ReadonlySet<number> = new Set([1, 2, 3, 4]);
 
 /** Normalise un parametre de requete `scope` (string) en nombre valide ou null. */
 export function parseScopeParam(value: unknown): number | null {

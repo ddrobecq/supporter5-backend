@@ -63,7 +63,7 @@ export const setMatchMeta = asyncHandler(async (req, res) => {
 		IDARBITRE: req.body?.IDARBITRE === '' ? null : req.body?.IDARBITRE,
 		TECLEUNIK: req.body?.TECLEUNIK === '' ? null : req.body?.TECLEUNIK,
 		NBSPECT: req.body?.NBSPECT,
-		LIEU: req.body?.LIEU === '' ? null : req.body?.LIEU,
+		HUIS_CLOS: req.body?.HUIS_CLOS,
 		EXTRATIME: req.body?.EXTRATIME,
 		PENALTY: req.body?.PENALTY,
 	});

@@ -99,6 +99,8 @@ export interface CreateClubWizardPayload {
   isSelection: boolean;
   creationDate?: string;
   villeId?: string | number;
+  fond?: string | number | null;
+  texte?: string | number | null;
 }
 
 interface ClubCandidateRow {
@@ -611,7 +613,7 @@ export async function updateClubColorsById(
 
   await dbRun(
     'UPDATE CLUB SET FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
-    [payload.fond ?? null, payload.texte ?? null, clubId],
+    [parseClubColor(payload.fond), parseClubColor(payload.texte), clubId],
   );
 
   return getClubProfileById(clubId);
@@ -647,7 +649,7 @@ export async function updateClubProfileById(
 
   await dbRun(
     'UPDATE CLUB SET CLUB = ?, IDNATIO = ?, IDVILLE = ?, FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
-    [name, natioId, villeId, payload.fond ?? null, payload.texte ?? null, clubId],
+    [name, natioId, villeId, parseClubColor(payload.fond), parseClubColor(payload.texte), clubId],
   );
 
   return getClubProfileById(clubId);
@@ -790,6 +792,19 @@ function normalizeTerrainId(value: unknown): number {
   return terrainId;
 }
 
+/**
+ * CLUB.FOND / CLUB.TEXTE as sent: WinDev colour integer (-1 = no colour, otherwise 0..0xFFFFFF), number or integer
+ * string. Both columns are NOT NULL: a missing or non-numeric value is a 400 instead of a constraint error (409).
+ */
+function parseClubColor(value: unknown): number {
+  const raw = typeof value === 'string' ? value.trim() : value;
+  const numeric = typeof raw === 'number' || (typeof raw === 'string' && /^-?\d+$/.test(raw)) ? Number(raw) : Number.NaN;
+  if (!Number.isInteger(numeric) || numeric < -1 || numeric > 0xFFFFFF) {
+    throw new AppError(400, 'fond et texte sont requis.');
+  }
+  return numeric;
+}
+
 /** CL_SELECTION: strict 0/1 flag. Absent, it keeps its historical default 0 (nothing was sent). */
 function toSelectionFlag(value: unknown): 0 | 1 {
   return value === undefined ? 0 : parseFlag(value, 'isSelection');
@@ -843,6 +858,9 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   }
 
   const idVille = await resolveExplicitVilleId(payload.villeId);
+  // Wizard rule: a new club has no colours (-1) unless the client sends them (validated, stored as sent).
+  const fond = payload.fond === undefined ? -1 : parseClubColor(payload.fond);
+  const texte = payload.texte === undefined ? -1 : parseClubColor(payload.texte);
 
   // CLUB and its first CLUB_NOM row are created together: all or nothing.
   const idClub = await runInTransaction(async () => {
@@ -851,7 +869,7 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
     await dbRun(
       `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [nextIdClub, name, natioId, -1, -1, idVille, selection],
+      [nextIdClub, name, natioId, fond, texte, idVille, selection],
     );
 
     await dbRun(
