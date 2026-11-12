@@ -34,7 +34,7 @@ export function buildWhere(
   if (params.search && typeof params.search === 'string' && searchCols.length > 0) {
     const normalizedSearch = normalizeSearchText(params.search);
     if (normalizedSearch) {
-      const clause = searchCols.map((col) => `lower(ifnull("${col}", '')) LIKE ?`).join(' OR ');
+      const clause = searchCols.map((col) => `fold("${col}") LIKE ?`).join(' OR ');
       conditions.push(`(${clause})`);
       const val = `%${normalizedSearch}%`;
       searchCols.forEach(() => bindings.push(val));

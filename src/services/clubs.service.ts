@@ -4,7 +4,7 @@ import { toText as normalizeText } from '../lib/coerce';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
-import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
+import { foldSearchWords, levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError } from '../types';
@@ -252,10 +252,11 @@ function computeApproxScore(
 }
 
 export async function getClubsGrid(search: string, pagination?: GridPagination): Promise<ClubsGridResponse> {
-  const normalizedSearch = search.trim().toLowerCase();
+  const normalizedSearch = normalizeSearchText(search);
   const likeSearch = `%${normalizedSearch}%`;
   const prefixSearch = `${normalizedSearch}%`;
-  const wordStartSearch = `% ${normalizedSearch}%`;
+  // Word start: compared with ' ' || fold_words(c.CLUB), so the first word also matches.
+  const wordStartSearch = `% ${foldSearchWords(search)}%`;
   // WHERE params first, then the relevance CASE params of the ORDER BY (same order as the placeholders).
   const params = [
     normalizedSearch, likeSearch, likeSearch,
@@ -278,16 +279,16 @@ export async function getClubsGrid(search: string, pagination?: GridPagination):
      LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
      WHERE (
        ? = ''
-       OR LOWER(COALESCE(c.CLUB, '')) LIKE ?
-       OR LOWER(COALESCE(v.NOM, '')) LIKE ?
+       OR fold(c.CLUB) LIKE ?
+       OR fold(v.NOM) LIKE ?
      )
      ORDER BY
        CASE
          WHEN ? = '' THEN 0
-         WHEN LOWER(COALESCE(c.CLUB, '')) = ? THEN 0
-         WHEN LOWER(COALESCE(c.CLUB, '')) LIKE ? THEN 1
-         WHEN LOWER(COALESCE(c.CLUB, '')) LIKE ? THEN 2
-         WHEN LOWER(COALESCE(c.CLUB, '')) LIKE ? THEN 3
+         WHEN fold(c.CLUB) = ? THEN 0
+         WHEN fold(c.CLUB) LIKE ? THEN 1
+         WHEN (' ' || fold_words(c.CLUB)) LIKE ? THEN 2
+         WHEN fold(c.CLUB) LIKE ? THEN 3
          ELSE 4
        END ASC,
        c.CLUB ASC,

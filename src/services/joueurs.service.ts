@@ -336,7 +336,7 @@ export async function getJoueursGridBySeason(
   posType = 1,
   pagination?: GridPagination,
 ): Promise<GridPageResult<JoueurGridRow>> {
-  const normalizedSearch = search.trim().toLowerCase();
+  const normalizedSearch = normalizeSearchText(search);
   const likeSearch = `%${normalizedSearch}%`;
 
   return fetchGridPage<JoueurGridRow>(
@@ -371,10 +371,10 @@ export async function getJoueursGridBySeason(
        AND p.POS_TYPE = ?
        AND (
          ? = ''
-         OR LOWER(COALESCE(jr.SURNOM, '')) LIKE ?
-         OR LOWER(COALESCE(jr.NOM, '')) LIKE ?
-         OR LOWER(COALESCE(jr.PRENOM, '')) LIKE ?
-         OR LOWER(COALESCE(p.POS_NOM, '')) LIKE ?
+         OR fold(jr.SURNOM) LIKE ?
+         OR fold(jr.NOM) LIKE ?
+         OR fold(jr.PRENOM) LIKE ?
+         OR fold(p.POS_NOM) LIKE ?
        )
      ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
     [season, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],

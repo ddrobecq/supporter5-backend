@@ -1,9 +1,24 @@
-export function normalizeSearchText(value: string): string {
+/** Latin letters that NFD does not decompose into base letter + diacritic (looked up after lowercasing). */
+const NON_DECOMPOSABLE_LETTERS: Readonly<Record<string, string>> = {
+  \u00df: 'ss', \u00e6: 'ae', \u0153: 'oe', \u00f8: 'o', \u0142: 'l', \u0111: 'd', \u0131: 'i', \u00fe: 'th', \u00f0: 'd',
+};
+
+function foldLetters(value: string): string {
   return value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/[\u00df\u00e6\u0153\u00f8\u0142\u0111\u0131\u00fe\u00f0]/g, (letter) => NON_DECOMPOSABLE_LETTERS[letter]);
+}
+
+/** Accent- and case-insensitive search key: letters folded to a-z, every other character removed. */
+export function normalizeSearchText(value: string): string {
+  return foldLetters(value).replace(/[^a-z0-9]/g, '');
+}
+
+/** Same folding as normalizeSearchText, but each run of non-alphanumerics becomes a single space (word starts kept). */
+export function foldSearchWords(value: string): string {
+  return foldLetters(value).replace(/[^a-z0-9]+/g, ' ').trim();
 }
 
 /** True when one of `searchCols` contains `search` (already normalized); an empty search matches everything. */

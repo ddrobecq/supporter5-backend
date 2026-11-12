@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
+import { foldSearchWords, normalizeSearchText } from '../lib/searchUtils';
 
 dotenv.config();
 
@@ -114,6 +115,9 @@ cleanupStaleSqliteArtifacts(resolvedDbPath);
 
 const db = new Database(resolvedDbPath);
 db.pragma('foreign_keys = OFF');
+// Accent/case-insensitive search: SQL side of normalizeSearchText / foldSearchWords (NULL -> '').
+db.function('fold', { deterministic: true }, (value: unknown) => (value == null ? '' : normalizeSearchText(String(value))));
+db.function('fold_words', { deterministic: true }, (value: unknown) => (value == null ? '' : foldSearchWords(String(value))));
 db.exec(`
   CREATE TABLE IF NOT EXISTS APP_THEME (
     CODE VARCHAR(10) PRIMARY KEY NOT NULL,
