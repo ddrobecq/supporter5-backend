@@ -1,12 +1,12 @@
 import { createEntityController } from '../lib/controllerFactory';
-import { checkTourIntegrity } from '../lib/integrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
 import toursService from '../services/tours.service';
 import rencontresService from '../services/rencontres.service';
 import { AppError } from '../types';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkTourIntegrity;
+export const integrityChecker = integrityCheckerFor('tour');
 
 const baseController = createEntityController(toursService, { integrityChecker });
 

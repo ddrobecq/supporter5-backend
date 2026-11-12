@@ -1,11 +1,11 @@
 import { createEntityController } from '../lib/controllerFactory';
-import { checkEpreuveIntegrity } from '../lib/integrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { jsonHandler } from '../lib/responseHelpers';
 import epreuveService from '../services/epreuve.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkEpreuveIntegrity;
+export const integrityChecker = integrityCheckerFor('epreuve');
 
 const baseController = createEntityController(epreuveService, { integrityChecker });
 

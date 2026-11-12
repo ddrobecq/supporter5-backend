@@ -20,7 +20,7 @@ async function countReferences(table: string, column: string, value: string | nu
 
 /**
  * Verifie une liste de contraintes de cle etrangere pour un enregistrement donne
- * (mutualise le pattern "COUNT(*) FROM X WHERE fk = ?" repete dans les *IntegrityChecker).
+ * (mutualise le pattern "COUNT(*) FROM X WHERE fk = ?" des dependances declarees dans fkDependencies).
  */
 export async function checkFkConstraints(
   specs: readonly FkConstraintSpec[],

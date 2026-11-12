@@ -1,10 +1,10 @@
 import { createEntityController } from '../lib/controllerFactory';
-import { checkCompetitionIntegrity } from '../lib/integrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import { jsonHandler } from '../lib/responseHelpers';
 import competitionService from '../services/competition.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkCompetitionIntegrity;
+export const integrityChecker = integrityCheckerFor('competition');
 
 const baseController = createEntityController(competitionService, { integrityChecker });
 

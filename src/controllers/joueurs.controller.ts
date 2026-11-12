@@ -1,5 +1,5 @@
 import { createEntityController } from '../lib/controllerFactory';
-import { checkJoueurIntegrity } from '../lib/joueurIntegrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
@@ -7,7 +7,7 @@ import joueursService from '../services/joueurs.service';
 import { AppError } from '../types';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkJoueurIntegrity;
+export const integrityChecker = integrityCheckerFor('joueur');
 
 const baseController = createEntityController(joueursService, { integrityChecker });
 

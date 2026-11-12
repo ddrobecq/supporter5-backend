@@ -1,11 +1,11 @@
 import { createEntityController } from '../lib/controllerFactory';
-import { checkArbitreIntegrity } from '../lib/arbitreIntegrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { jsonHandler } from '../lib/responseHelpers';
 import arbitreService from '../services/arbitre.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkArbitreIntegrity;
+export const integrityChecker = integrityCheckerFor('arbitre');
 
 const baseController = createEntityController(arbitreService, { integrityChecker });
 

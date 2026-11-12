@@ -2892,15 +2892,6 @@ export function recomputeSupportedClubStatsForRencontreIds(recleuniks: Iterable<
   recomputeSupportedClubPlayerStatsForSeasons(Array.from(ids, (id) => supportedClubStatsSeasonForRencontreId(id)));
 }
 
-/** RECLEUNIK des MATCH donnes (les MACLEUNIK inconnus sont ignores). */
-export function rencontreIdsForMatchIds(macleuniks: Iterable<unknown>): number[] {
-  const ids = Array.from(new Set(Array.from(macleuniks).map((value) => toInt(value)).filter((id) => Number.isInteger(id) && id > 0)));
-  if (ids.length === 0) return [];
-  const rows = db.prepare(`SELECT DISTINCT "RECLEUNIK" FROM "MATCH" WHERE "MACLEUNIK" IN (${ids.map(() => '?').join(', ')})`)
-    .all(...ids) as Array<Record<string, unknown>>;
-  return rows.map((row) => toInt(row.RECLEUNIK)).filter((id) => id > 0);
-}
-
 /** Remise a zero puis reecriture des totaux de la saison : tout ou rien (savepoint si deja en transaction). */
 function recomputeSupportedClubPlayerStatsForSeason(season: string): void {
   db.transaction(writeSupportedClubPlayerStatsForSeason)(season);
@@ -3690,7 +3681,6 @@ export default {
   upsertMatchMetaForRencontre,
   recomputeStatsForRencontreId,
   recomputeSupportedClubStatsForRencontreIds,
-  rencontreIdsForMatchIds,
   recomputeTourStandings,
   getSquadForRencontre,
   createEventForRencontre,

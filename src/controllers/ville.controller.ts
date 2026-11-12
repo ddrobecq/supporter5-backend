@@ -1,8 +1,8 @@
 import { createEntityController } from '../lib/controllerFactory';
-import { checkVilleIntegrity } from '../lib/integrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import villeService from '../services/ville.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkVilleIntegrity;
+export const integrityChecker = integrityCheckerFor('ville');
 
 export default createEntityController(villeService, { integrityChecker });

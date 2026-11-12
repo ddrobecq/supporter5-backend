@@ -14,8 +14,6 @@ router.post('/:id/transactions', createJoueurTransaction);
 router.put('/:id/transactions/:transactionId', updateJoueurTransaction);
 router.delete('/:id/transactions/:transactionId', deleteJoueurTransaction);
 router.put('/:id',    ctrl.update);
-router.patch('/bulk', ctrl.bulkUpdate);
-router.delete('/bulk', ctrl.bulkDelete);
 
 bindCanDeleteRoute(router, integrityChecker);
 

@@ -1,6 +1,6 @@
 import { runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
-import { recomputeSupportedClubStatsForRencontreIds, rencontreIdsForMatchIds } from './rencontres.service';
+import { recomputeSupportedClubStatsForRencontreIds } from './rencontres.service';
 
 const baseService = createEntityService({
   table:           'MATCH',
@@ -54,18 +54,8 @@ async function update(id: string | number, body: Record<string, unknown>): Promi
   });
 }
 
-async function bulkUpdate(ids: (string | number)[], body: Record<string, unknown>): Promise<number> {
-  return runInTransaction(async () => {
-    const rencontresBefore = rencontreIdsForMatchIds(ids);
-    const changes = await baseService.bulkUpdate(ids, body);
-    recomputeSupportedClubStatsForRencontreIds([...rencontresBefore, ...rencontreIdsForMatchIds(ids)]);
-    return changes;
-  });
-}
-
 export default {
   ...baseService,
   create,
   update,
-  bulkUpdate,
 };

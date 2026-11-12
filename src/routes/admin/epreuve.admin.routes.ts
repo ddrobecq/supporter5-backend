@@ -13,8 +13,6 @@ router.use(jsonBody(IMAGE_JSON_BODY_LIMIT_BYTES));
 router.post('/', ctrl.create);
 router.post('/wizard-create', createEpreuveWithWizard);
 router.put('/:id', ctrl.update);
-router.patch('/bulk', ctrl.bulkUpdate);
-router.delete('/bulk', ctrl.bulkDelete);
 
 bindCanDeleteRoute(router, integrityChecker);
 

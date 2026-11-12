@@ -36,7 +36,6 @@ export interface EntityConfig {
   /**
    * Normalisation / validation métier d'un body create/update, appliquée après la whitelist de colonnes
    * (pickWritableFields) et avant le contrôle "No fields provided". Peut lever une AppError 400.
-   * Non appliquée à bulkUpdate.
    */
   prepareWrite?: (
     body: Record<string, unknown>,
@@ -208,31 +207,11 @@ export function createEntityService(config: EntityConfig) {
     return getById(id);
   }
 
-  async function bulkUpdate(ids: (string | number)[], rawBody: Record<string, unknown>): Promise<number> {
-    if (!ids.length) return 0;
-    const body = normalizeDayDateFields(table, pickWritableFields(rawBody, { allowPk: false }));
-    const keys = Object.keys(body);
-    if (!keys.length) throw new AppError(400, 'No fields provided');
-    const sets   = keys.map((c) => `"${c}" = ?`).join(', ');
-    const marks  = ids.map(() => '?').join(', ');
-    const result = await dbRun(
-      `UPDATE "${table}" SET ${sets} WHERE "${pk}" IN (${marks})`,
-      [...Object.values(body), ...ids],
-    );
-    return result.changes;
-  }
-
   async function remove(id: string | number): Promise<boolean> {
     return (await dbRun(`DELETE FROM "${table}" WHERE "${pk}" = ?`, [id])).changes > 0;
   }
 
-  async function bulkDelete(ids: (string | number)[]): Promise<number> {
-    if (!ids.length) return 0;
-    const marks = ids.map(() => '?').join(', ');
-    return (await dbRun(`DELETE FROM "${table}" WHERE "${pk}" IN (${marks})`, ids)).changes;
-  }
-
-  return { getAll, getById, create, update, bulkUpdate, remove, bulkDelete, pickWritableFields };
+  return { getAll, getById, create, update, remove, pickWritableFields };
 }
 
 export type EntityService = ReturnType<typeof createEntityService>;

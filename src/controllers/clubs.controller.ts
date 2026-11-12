@@ -1,11 +1,11 @@
-import { checkClubIntegrity } from '../lib/integrityChecker';
+import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
 import clubsService from '../services/clubs.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
-export const integrityChecker = checkClubIntegrity;
+export const integrityChecker = integrityCheckerFor('club');
 
 type ClubColorsPayload = { fond: string | number | null; texte: string | number | null };
 type ClubProfilePayload = {
