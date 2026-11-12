@@ -3267,6 +3267,25 @@ export async function getCompositionForRencontre(id: string | number): Promise<C
 
 const MAX_STARTERS = 11;
 
+/**
+ * A player occupies at most one slot among starters and substitutes (ALL_SLOTS). ENTRAINEUR is not checked:
+ * player-coaches exist (22 historical line-ups, e.g. 0574 in 1924-1925).
+ */
+function assertNoDuplicatePlayer(payload: Record<string, unknown>): void {
+  const slotsByPlayer = new Map<string, string[]>();
+  for (const slot of ALL_SLOTS) {
+    const id = payload[slot] == null ? '' : toText(payload[slot]);
+    if (id) slotsByPlayer.set(id, [...(slotsByPlayer.get(id) ?? []), slot]);
+  }
+  const duplicate = Array.from(slotsByPlayer.entries()).find(([, slots]) => slots.length > 1);
+  if (!duplicate) return;
+  const [idJoueur, slots] = duplicate;
+  const player = db.prepare('SELECT "NOM", "PRENOM" FROM "JOUEURRG" WHERE "IDJOUEUR" = ?').get(idJoueur) as
+    { NOM: string | null; PRENOM: string | null } | undefined;
+  const name = player ? `${toText(player.NOM)} ${toText(player.PRENOM)}`.trim() : '';
+  throw new AppError(422, `Le joueur ${name ? `${name} (${idJoueur})` : idJoueur} figure sur plusieurs cases : ${slots.join(', ')}.`);
+}
+
 export async function upsertCompositionForRencontre(
   id: string | number,
   payload: Record<string, unknown>,
@@ -3305,6 +3324,7 @@ export async function upsertCompositionForRencontre(
   const warnings = starterCount < MAX_STARTERS
     ? [`Composition incomplète : ${starterCount} titulaire(s) sur ${MAX_STARTERS}.`]
     : [];
+  assertNoDuplicatePlayer(payload);
 
   // EQUIPE, MATCH.MACOMPOADVERSAIRE et les stats de la saison sont enregistres ensemble : tout ou rien.
   await runInTransaction(() => {
@@ -3461,13 +3481,38 @@ export function parseEventPayload(body: unknown): EventPayload {
  * types 6 (penalty whistled) and 10 (additional time) carry no player. "JOUEUR1 required", "JOUEUR2 required"
  * and "JOUEUR2 empty" are violated by historical events, so they are not enforced yet.
  */
+/** business rules.md (Event): types whose JOUEUR1 is required, with the 422 message naming the type. */
+const JOUEUR1_REQUIRED_MESSAGES: Readonly<Record<number, string>> = {
+  1: 'Le joueur est requis pour un but.',
+  2: 'Le joueur sortant est requis pour un remplacement.',
+  3: 'Le joueur est requis pour un carton jaune.',
+  4: 'Le joueur est requis pour un second carton jaune.',
+  5: 'Le joueur est requis pour un carton rouge.',
+  7: 'Le joueur est requis pour un tir au but ou un penalty marqué.',
+  8: 'Le joueur est requis pour un tir au but ou un penalty manqué.',
+  9: 'Le joueur est requis pour une blessure.',
+};
+
 function assertEventBusinessRules(payload: EventPayload): void {
   // Additional time is a neutral fact, always stored with ADVERSAIRE = 0.
   const ownClubEvent = payload.adversaire === 0 || payload.typeEvent === 10;
-  if (ownClubEvent && (payload.typeEvent === 6 || payload.typeEvent === 10) && (payload.joueur1 || payload.joueur2)) {
+  if (!ownClubEvent) return; // opponent event: only the comment matters
+  if ((payload.typeEvent === 6 || payload.typeEvent === 10) && (payload.joueur1 || payload.joueur2)) {
     throw new AppError(422, payload.typeEvent === 6
       ? 'Un penalty sifflé ne désigne aucun joueur (JOUEUR1 et JOUEUR2 vides).'
       : 'Le temps additionnel ne concerne aucun joueur (JOUEUR1 et JOUEUR2 vides).');
+  }
+  const joueur1Required = JOUEUR1_REQUIRED_MESSAGES[payload.typeEvent];
+  if (joueur1Required && !payload.joueur1) {
+    throw new AppError(422, joueur1Required);
+  }
+  // JOUEUR2 stays optional (unknown assist or incoming player), but never the same player as JOUEUR1.
+  if (payload.joueur1 && payload.joueur2 && payload.joueur1 === payload.joueur2) {
+    throw new AppError(422, payload.typeEvent === 1
+      ? 'Le passeur doit être différent du buteur.'
+      : payload.typeEvent === 2
+        ? 'Le joueur entrant doit être différent du joueur sortant.'
+        : 'JOUEUR2 doit être différent de JOUEUR1.');
   }
 }
 
