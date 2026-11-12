@@ -3331,10 +3331,12 @@ export async function getCompositionForRencontre(id: string | number): Promise<C
   return row as CompositionRow;
 }
 
+const MAX_STARTERS = 11;
+
 export async function upsertCompositionForRencontre(
   id: string | number,
   payload: Record<string, unknown>,
-): Promise<CompositionRow | null> {
+): Promise<(CompositionRow & { warnings: string[] }) | null> {
   const recleunik = toInt(id);
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
 
@@ -3359,6 +3361,18 @@ export async function upsertCompositionForRencontre(
     values.push(val === '' || val == null ? null : toText(val));
   }
 
+  // business rules.md (Compo): never more than 11 starters (error, nothing saved); fewer is only a warning.
+  const starterCount = STARTER_SLOTS.filter((slot) => {
+    const val = payload[slot];
+    return !(val === '' || val == null || toText(val) === '');
+  }).length;
+  if (starterCount > MAX_STARTERS) {
+    throw new AppError(422, `Composition invalide : ${starterCount} titulaires (${MAX_STARTERS} maximum).`);
+  }
+  const warnings = starterCount < MAX_STARTERS
+    ? [`Composition incomplète : ${starterCount} titulaire(s) sur ${MAX_STARTERS}.`]
+    : [];
+
   // EQUIPE, MATCH.MACOMPOADVERSAIRE et les stats de la saison sont enregistres ensemble : tout ou rien.
   await runInTransaction(() => {
     const existing = db.prepare('SELECT 1 FROM "EQUIPE" WHERE "MACLEUNIK" = ? LIMIT 1').get(macleunik) as Record<string, unknown> | undefined;
@@ -3376,7 +3390,8 @@ export async function upsertCompositionForRencontre(
     recomputeSupportedClubStatsForRencontreIds([recleunik]);
   });
 
-  return getCompositionForRencontre(id);
+  const saved = await getCompositionForRencontre(id);
+  return saved ? { ...saved, warnings } : null;
 }
 
 export interface SquadPlayerRow {
@@ -3448,13 +3463,95 @@ export async function getSquadForRencontre(id: string | number): Promise<SquadPl
 }
 
 export interface EventPayload {
-  adversaire: number;
+  adversaire: 0 | 1;
   minute: number;
   periode: number;
   typeEvent: number;
   joueur1: string | null;
   joueur2: string | null;
   comment: string | null;
+}
+
+/** Integer from a number or an integer string; NaN otherwise. */
+function strictInt(value: unknown): number {
+  if (typeof value === 'number') return Number.isInteger(value) ? value : Number.NaN;
+  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return Number(value.trim());
+  return Number.NaN;
+}
+
+function optionalPlayerId(value: unknown, field: string): string | null {
+  if (value == null || value === '') return null;
+  if (typeof value !== 'string' && typeof value !== 'number') throw new AppError(400, `${field} invalide.`);
+  return toText(value) || null;
+}
+
+/**
+ * Event format (400 when malformed): TYPE_EVENT integer 1..10, PERIODE 1..5 (business rules.md, Event),
+ * MINUTE integer >= 0, ADVERSAIRE 0/1 (or boolean), players and comment as text or empty.
+ */
+export function parseEventPayload(body: unknown): EventPayload {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AppError(400, 'Événement invalide.');
+  const raw = body as Record<string, unknown>;
+
+  const typeEvent = strictInt(raw.typeEvent);
+  if (!Number.isInteger(typeEvent) || typeEvent < 1 || typeEvent > 10) {
+    throw new AppError(400, 'TYPE_EVENT invalide (entier de 1 à 10 attendu).');
+  }
+  const periode = strictInt(raw.periode);
+  if (!Number.isInteger(periode) || periode < 1 || periode > 5) {
+    throw new AppError(400, 'PERIODE invalide (entier de 1 à 5 attendu).');
+  }
+  const minute = strictInt(raw.minute);
+  if (!Number.isInteger(minute) || minute < 0) {
+    throw new AppError(400, 'MINUTE invalide (entier positif ou nul attendu).');
+  }
+  const adversaire = typeof raw.adversaire === 'boolean' ? Number(raw.adversaire) : strictInt(raw.adversaire ?? 0);
+  if (adversaire !== 0 && adversaire !== 1) {
+    throw new AppError(400, 'ADVERSAIRE invalide (0 ou 1 attendu).');
+  }
+  if (raw.comment != null && typeof raw.comment !== 'string' && typeof raw.comment !== 'number') {
+    throw new AppError(400, 'COMMENT invalide.');
+  }
+
+  return {
+    adversaire,
+    minute,
+    periode,
+    typeEvent,
+    joueur1: optionalPlayerId(raw.joueur1, 'JOUEUR1'),
+    joueur2: optionalPlayerId(raw.joueur2, 'JOUEUR2'),
+    comment: raw.comment == null || raw.comment === '' ? null : String(raw.comment),
+  };
+}
+
+/**
+ * Business rules (422) for supported-club events. Only rules that no existing data violates are enforced:
+ * types 6 (penalty whistled) and 10 (additional time) carry no player. "JOUEUR1 required", "JOUEUR2 required"
+ * and "JOUEUR2 empty" are violated by historical events, so they are not enforced yet.
+ */
+function assertEventBusinessRules(payload: EventPayload): void {
+  // Additional time is a neutral fact, always stored with ADVERSAIRE = 0.
+  const ownClubEvent = payload.adversaire === 0 || payload.typeEvent === 10;
+  if (ownClubEvent && (payload.typeEvent === 6 || payload.typeEvent === 10) && (payload.joueur1 || payload.joueur2)) {
+    throw new AppError(422, payload.typeEvent === 6
+      ? 'Un penalty sifflé ne désigne aucun joueur (JOUEUR1 et JOUEUR2 vides).'
+      : 'Le temps additionnel ne concerne aucun joueur (JOUEUR1 et JOUEUR2 vides).');
+  }
+}
+
+/** Event id and MACLEUNIK; 404 when the event does not exist or belongs to another rencontre. */
+function readEventOfRencontre(rencontreId: string | number, evcleunik: string | number): { id: number; macleunik: number } {
+  const recleunik = toInt(rencontreId);
+  const id = toInt(evcleunik);
+  if (!Number.isInteger(recleunik) || recleunik <= 0 || !Number.isInteger(id) || id <= 0) {
+    throw new AppError(400, 'Identifiant invalide.');
+  }
+  const row = db.prepare(
+    `SELECT e."MACLEUNIK" FROM "EVENT" e INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
+     WHERE e."EVCLEUNIK" = ? AND m."RECLEUNIK" = ? LIMIT 1`,
+  ).get(id, recleunik) as Record<string, unknown> | undefined;
+  if (!row) throw new AppError(404, 'Événement introuvable.');
+  return { id, macleunik: toInt(row.MACLEUNIK) };
 }
 
 // TYPE_EVENT=10 (temps additionnel) : aucun joueur, aucune equipe (fait de match neutre),
@@ -3490,9 +3587,11 @@ function validateAdditionalTimeEvent(payload: EventPayload, macleunik: number, e
   }
 }
 
-export async function createEventForRencontre(rencontreId: string | number, payload: EventPayload): Promise<void> {
+export async function createEventForRencontre(rencontreId: string | number, body: unknown): Promise<void> {
   const recleunik = toInt(rencontreId);
   if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+  const payload = parseEventPayload(body);
+  assertEventBusinessRules(payload);
 
   const row = db.prepare(
     `SELECT m."MACLEUNIK"
@@ -3523,17 +3622,14 @@ export async function createEventForRencontre(rencontreId: string | number, payl
   // dans la fiche match (cf. recomputeStatsForRencontreId et la route /recompute-stats).
 }
 
-export async function updateEventForRencontre(evcleunik: string | number, payload: EventPayload): Promise<void> {
-  const id = toInt(evcleunik);
-  if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
-
-  const eventRow = db.prepare(
-    `SELECT "MACLEUNIK" FROM "EVENT" WHERE "EVCLEUNIK" = ? LIMIT 1`,
-  ).get(id) as Record<string, unknown> | undefined;
-
-  if (!eventRow) throw new AppError(404, 'Événement introuvable.');
-
-  const macleunik = toInt(eventRow.MACLEUNIK);
+export async function updateEventForRencontre(
+  rencontreId: string | number,
+  evcleunik: string | number,
+  body: unknown,
+): Promise<void> {
+  const { id, macleunik } = readEventOfRencontre(rencontreId, evcleunik);
+  const payload = parseEventPayload(body);
+  assertEventBusinessRules(payload);
   validateAdditionalTimeEvent(payload, macleunik, id);
   const isAdditionalTime = payload.typeEvent === 10;
 
@@ -3556,9 +3652,8 @@ export async function updateEventForRencontre(evcleunik: string | number, payloa
   // Pas de recalcul ici : les stats sont recalculees explicitement quand l'utilisateur clique sur "Enregistrer".
 }
 
-export async function deleteEventForRencontre(evcleunik: string | number): Promise<void> {
-  const id = toInt(evcleunik);
-  if (!Number.isInteger(id) || id <= 0) throw new AppError(400, 'Identifiant invalide.');
+export async function deleteEventForRencontre(rencontreId: string | number, evcleunik: string | number): Promise<void> {
+  const { id } = readEventOfRencontre(rencontreId, evcleunik);
 
   const result = db.prepare(`DELETE FROM "EVENT" WHERE "EVCLEUNIK" = ?`).run(id);
   if (result.changes === 0) throw new AppError(404, 'Événement introuvable.');

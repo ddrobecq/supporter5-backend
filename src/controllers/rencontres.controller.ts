@@ -96,7 +96,7 @@ export const removeWithImpact = asyncHandler(async (req, res) => {
 
 export const createEvent = jsonHandler(async (req) => {
 	const id = requireRencontreId(req);
-	await rencontresService.createEventForRencontre(id, req.body as never);
+	await rencontresService.createEventForRencontre(id, req.body);
 	return rencontresService.getRencontreHighlightsById(id);
 }, 201);
 
@@ -110,13 +110,13 @@ function requireEventIds(req: Request): { rencontreId: string; evcleunik: string
 
 export const updateEvent = jsonHandler(async (req) => {
 	const { rencontreId, evcleunik } = requireEventIds(req);
-	await rencontresService.updateEventForRencontre(evcleunik, req.body as never);
+	await rencontresService.updateEventForRencontre(rencontreId, evcleunik, req.body);
 	return rencontresService.getRencontreHighlightsById(rencontreId);
 });
 
 export const deleteEvent = jsonHandler(async (req) => {
 	const { rencontreId, evcleunik } = requireEventIds(req);
-	await rencontresService.deleteEventForRencontre(evcleunik);
+	await rencontresService.deleteEventForRencontre(rencontreId, evcleunik);
 	return rencontresService.getRencontreHighlightsById(rencontreId);
 });
 
