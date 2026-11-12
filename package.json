@@ -1,6 +1,6 @@
 {
 	"name": "supporter-v5-backend",
-	"version": "5.44.1",
+	"version": "5.45.0",
 	"description": "API REST – Supporter v5 (Express/TypeScript + SQLite)",
 	"main": "dist/server.js",
 	"scripts": {
@@ -8,7 +8,8 @@
 		"build": "tsc",
 		"start": "node dist/server.js",
 		"typecheck": "tsc --noEmit",
-		"db:indexes": "node scripts/create-indexes.js"
+		"db:indexes": "node scripts/create-indexes.js",
+		"db:migrate-indemnites": "node scripts/migrate-transac-indemnites.js"
 	},
 	"dependencies": {
 		"bcryptjs": "^2.4.3",

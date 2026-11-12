@@ -510,16 +510,14 @@ function normalizeOptionalClubId(value: unknown): string | null {
   return text ? text : null;
 }
 
-/** TRANSAC.INDEMNITES marker for "no known fee" (0 = unknown): the only negative amount accepted. */
-const NO_KNOWN_FEE = -1;
-
-function normalizeMoney(value: unknown, fieldName: string, allowNull: boolean, acceptNoKnownFee = false): number | null {
+/** Amount as sent: empty -> NULL (unknown), otherwise a finite number >= 0 ("," accepted as decimal separator), else 400. */
+function normalizeMoney(value: unknown, fieldName: string): number | null {
   const text = String(value ?? '').trim();
   if (!text) {
-    return allowNull ? null : 0;
+    return null;
   }
   const amount = Number(text.replace(',', '.'));
-  if (!Number.isFinite(amount) || (amount < 0 && !(acceptNoKnownFee && amount === NO_KNOWN_FEE))) {
+  if (!Number.isFinite(amount) || amount < 0) {
     throw new AppError(400, `${fieldName} invalide.`);
   }
   return amount;
@@ -676,7 +674,7 @@ export async function getJoueurTransactionOptions(_idJoueur: string | number): P
 /**
  * Validated TRANSAC values of a transaction payload, in the column order of the INSERT ('create',
  * IDJOUEUR included) or of the UPDATE SET clause ('update'). Values are stored as sent (after trim and
- * parsing) or rejected: 400 for a bad format, 422 for a business rule. INDEMNITES -1 = no known fee, 0 = unknown.
+ * parsing) or rejected: 400 for a bad format, 422 for a business rule. INDEMNITES: NULL = unknown, 0 = no fee, > 0 = amount.
  */
 async function buildTransactionValues(
   joueurId: string,
@@ -716,14 +714,15 @@ async function buildTransactionValues(
   await ensureDeviseExists(deviseId);
 
   // Salary: empty -> NULL. On a type without salary, only empty or 0 (historical value of 2 275 rows) is accepted.
-  const salaire = normalizeMoney(payload.salaire, 'Salaire', true);
+  const salaire = normalizeMoney(payload.salaire, 'Salaire');
   if (!usesSalaire && salaire !== null && salaire !== 0) {
     throw new AppError(422, "Le salaire n'est pas applicable à ce type de transaction.");
   }
 
-  // Fees: empty -> 0 (unknown), -1 = no known fee. On a type without fees, only empty or 0 (unknown) is accepted.
-  const indemnites = normalizeMoney(payload.indemnites, 'Indemnites', false, true) ?? 0;
-  if (!usesIndemnites && indemnites !== 0) {
+  // Fees (option A): empty or NULL -> NULL (unknown), 0 = no fee (known), > 0 = amount; negatives are a 400.
+  // On a type without fees, only NULL is accepted (0 would claim a known "no fee").
+  const indemnites = normalizeMoney(payload.indemnites, 'Indemnites');
+  if (!usesIndemnites && indemnites !== null) {
     throw new AppError(422, "Les indemnités ne sont pas applicables à ce type de transaction.");
   }
 
