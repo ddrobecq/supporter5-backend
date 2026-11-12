@@ -1,5 +1,6 @@
 import { dbAll } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
+import { getGeneration } from '../lib/statsCache';
 
 type SitemapRow = {
   kind: 'club' | 'joueur';
@@ -13,13 +14,15 @@ type RencontreRow = {
 type SitemapCache = {
   xml: string;
   expiresAt: number;
+  /** statsCache generation the sitemap was computed for: any admin write since then invalidates it. */
+  generation: number;
 };
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_SITE_URL = 'https://votre-domaine.com';
 
 let cache: SitemapCache | null = null;
-let refreshInProgress: Promise<string> | null = null;
+let refreshInProgress: { generation: number; promise: Promise<string> } | null = null;
 
 function xmlEscape(value: string): string {
   return value
@@ -99,22 +102,27 @@ async function refreshSitemap(): Promise<string> {
   return buildSitemapXml(entities, rencontres);
 }
 
+/** Sitemap rebuilt after any admin write (statsCache generation), the 24 h TTL being kept as a safety net. */
 export async function getSitemapXml(): Promise<string> {
-  const now = Date.now();
-  if (cache && cache.expiresAt > now) {
+  const generation = getGeneration();
+  if (cache && cache.generation === generation && cache.expiresAt > Date.now()) {
     return cache.xml;
   }
 
-  if (!refreshInProgress) {
-    refreshInProgress = refreshSitemap()
-      .then((xml) => {
-        cache = { xml, expiresAt: Date.now() + CACHE_TTL_MS };
-        return xml;
-      })
-      .finally(() => {
-        refreshInProgress = null;
-      });
+  if (!refreshInProgress || refreshInProgress.generation !== generation) {
+    const current = {
+      generation,
+      promise: refreshSitemap()
+        .then((xml) => {
+          cache = { xml, expiresAt: Date.now() + CACHE_TTL_MS, generation };
+          return xml;
+        })
+        .finally(() => {
+          if (refreshInProgress === current) refreshInProgress = null;
+        }),
+    };
+    refreshInProgress = current;
   }
 
-  return refreshInProgress;
+  return refreshInProgress.promise;
 }

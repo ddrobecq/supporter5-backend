@@ -520,15 +520,17 @@ function canResolveSourceForPropagation(sourceValue: string, metaCache: Map<numb
 
 function propagateProgrammedParticipantsAndMatches(): void {
   const sourceTourMetaCache = new Map<number, SourceTourMeta>();
+  // Sargable filter + unary plus on the sort key: lets SQLite read the partial index
+  // WDIDX_PARTICIP_PASOURCE_SET (~1 800 of 55 000 rows) and sort them, instead of scanning PARTICIP in rowid order.
   const unresolved = db.prepare(
     `SELECT
        "PACLEUNIK",
        "TUCLEUNIK",
        COALESCE("PASource", '') AS "PASource"
      FROM "PARTICIP"
-     WHERE COALESCE("PASource", '') <> ''
+     WHERE "PASource" <> ''
        AND ("IDCLUB" IS NULL OR TRIM(COALESCE("IDCLUB", '')) = '')
-     ORDER BY "PACLEUNIK" ASC`,
+     ORDER BY +"PACLEUNIK" ASC`,
   ).all() as Array<Record<string, unknown>>;
 
   const resolvedSources = new Set<string>();

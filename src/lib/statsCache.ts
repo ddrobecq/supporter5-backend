@@ -5,7 +5,7 @@ import { dataHandler } from './responseHelpers';
  * In-memory cache of derived read data (stats, suggestion candidates), invalidated by "generation":
  * every successful (or 5xx) admin write bumps the generation and drops all entries. No TTL: none of the
  * cached computations depends on the current date (the data only changes through writes).
- * Same spirit as the sitemap cache (sitemap.service), which keeps its own 24 h TTL.
+ * The sitemap cache (sitemap.service) also follows the generation, with a 24 h TTL as a safety net.
  */
 const MAX_ENTRIES = 500;
 

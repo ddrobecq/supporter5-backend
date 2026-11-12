@@ -9,6 +9,9 @@
  * - MATCH(TECLEUNIK): can-delete terrain (checkTerrainIntegrity, COUNT ... WHERE TECLEUNIK = ?).
  * - RENCO(PADOMSource) / RENCO(PAEXTSource), partial WHERE <> '': propagation of programmed
  *   participants (rencontres.service, UPDATE "RENCO" ... WHERE "PADOMSource" = ? AND "PADOMSource" <> '').
+ * - PARTICIP(PASource), partial WHERE <> '': unresolved programmed participants read by the propagation
+ *   (SELECT ... WHERE "PASource" <> '' ... ORDER BY +"PACLEUNIK"). The existing full index WDIDX_PARTICIP_PASource
+ *   cannot serve "<> ''", hence a distinct partial index.
  * RENCO(ETAT) already exists (WDIDX_RENCO_ETAT) and serves `"ETAT" = 5`: nothing to add.
  * No ANALYZE: the database has no sqlite_stat1, and creating statistics would change the planner's
  * choices for every query, not only for these indexes.
@@ -22,6 +25,7 @@ const INDEXES = [
   { name: 'WDIDX_MATCH_TECLEUNIK', table: 'MATCH', columns: ['TECLEUNIK'], where: null },
   { name: 'WDIDX_RENCO_PADOMSOURCE', table: 'RENCO', columns: ['PADOMSource'], where: `"PADOMSource" <> ''` },
   { name: 'WDIDX_RENCO_PAEXTSOURCE', table: 'RENCO', columns: ['PAEXTSource'], where: `"PAEXTSource" <> ''` },
+  { name: 'WDIDX_PARTICIP_PASOURCE_SET', table: 'PARTICIP', columns: ['PASource'], where: `"PASource" <> ''` },
 ];
 
 function parseArgs(argv) {
@@ -33,9 +37,10 @@ function parseArgs(argv) {
   return args;
 }
 
-/** Name of an existing index on exactly the same column list, or null. */
-function findEquivalentIndex(db, table, columns) {
-  for (const index of db.prepare('SELECT name FROM pragma_index_list(?)').all(table)) {
+/** Name of an existing index on exactly the same column list and of the same kind (partial or full), or null. */
+function findEquivalentIndex(db, table, columns, partial) {
+  for (const index of db.prepare('SELECT name, partial FROM pragma_index_list(?)').all(table)) {
+    if (Boolean(index.partial) !== partial) continue;
     const indexColumns = db.prepare('SELECT name FROM pragma_index_info(?) ORDER BY seqno').all(index.name).map((row) => row.name);
     if (indexColumns.length === columns.length && indexColumns.every((col, i) => col.toUpperCase() === columns[i].toUpperCase())) {
       return index.name;
@@ -63,7 +68,7 @@ function main() {
     console.log(`Database: ${resolved} (journal_mode=${db.pragma('journal_mode', { simple: true })})`);
     const toCreate = [];
     for (const index of INDEXES) {
-      const existing = findEquivalentIndex(db, index.table, index.columns);
+      const existing = findEquivalentIndex(db, index.table, index.columns, Boolean(index.where));
       if (existing) {
         console.log(`skip   ${index.name}: equivalent index ${existing} already on ${index.table}(${index.columns.join(', ')})`);
       } else {

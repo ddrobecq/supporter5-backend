@@ -687,7 +687,7 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
     ),
   }));
   const scored = rankSuggestions(candidates, (row) => row.score, {
-    min: 24,
+    min: 20,
     limit: Math.max(1, Math.min(limit, 30)),
     tieBreak: (a, b) => a.bestDistance - b.bestDistance
       || String(a.CLUB_NOM_COMPLET).localeCompare(String(b.CLUB_NOM_COMPLET))

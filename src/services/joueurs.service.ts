@@ -162,6 +162,7 @@ export interface JoueurMatchRow {
 
 interface JoueurTransactionUpsertPayload {
   date: string;
+  saison?: string | null;
   type: number | string;
   statut?: number | string;
   idClub?: string | null;
@@ -502,13 +503,6 @@ function normalizeTransactionId(transactionId: string | number): number {
   return requirePositiveInt(transactionId, 'Identifiant transaction invalide.');
 }
 
-function seasonFromDate(isoDate: string): string {
-  const year = Number(isoDate.slice(0, 4));
-  const month = Number(isoDate.slice(5, 7));
-  const startYear = month >= 7 ? year : year - 1;
-  return `${startYear}-${startYear + 1}`;
-}
-
 function normalizeOptionalClubId(value: unknown): string | null {
   const text = String(value ?? '').trim();
   return text ? text : null;
@@ -541,11 +535,13 @@ function normalizeDeviseId(value: unknown): number | null {
   return deviseId;
 }
 
-function resolveTransactionStatut(transactionType: JoueurTransactionTypeOption, payloadStatut: unknown): number {
-  const typeStatut = Number(transactionType.TYT_STATUT);
-  const defaultStatut = typeStatut === 1 || typeStatut === 2 || typeStatut === 3 ? typeStatut : 3;
-  const statut = Number(payloadStatut);
-  return statut === 1 || statut === 2 || statut === 3 ? statut : defaultStatut;
+/** TRANSAC.STATUT as sent (1, 2 or 3): required, never replaced by the default of the transaction type. */
+function normalizeTransactionStatut(value: unknown): number {
+  const statut = Number(requireText(value, 'Le statut de la transaction est requis.'));
+  if (statut !== 1 && statut !== 2 && statut !== 3) {
+    throw new AppError(400, 'Statut de transaction invalide (1, 2 ou 3 attendu).');
+  }
+  return statut;
 }
 
 async function getTransactionTypeById(typeId: number): Promise<JoueurTransactionTypeOption> {
@@ -677,8 +673,8 @@ export async function getJoueurTransactionOptions(_idJoueur: string | number): P
 
 /**
  * Validated TRANSAC values of a transaction payload, in the column order of the INSERT ('create',
- * IDJOUEUR included) or of the UPDATE SET clause ('update'). INDEMNITES is stored as given
- * (-1 = no known fee, 0 = unknown): it is never normalized here.
+ * IDJOUEUR included) or of the UPDATE SET clause ('update'). Values are stored as sent (after trim and
+ * parsing) or rejected: 400 for a bad format, 422 for a business rule. INDEMNITES -1 = no known fee, 0 = unknown.
  */
 async function buildTransactionValues(
   joueurId: string,
@@ -686,42 +682,57 @@ async function buildTransactionValues(
   mode: 'create' | 'update',
 ): Promise<unknown[]> {
   const date = normalizeDayDate(payload.date, { required: true, field: 'de la transaction' });
-  const season = seasonFromDate(date);
+  // The season is the one sent by the client (the front proposes it from the date); it is never recomputed here.
+  const season = normalizeSaison(requireText(payload.saison, 'La saison est requise.'));
   const typeId = Number(payload.type);
   if (!Number.isInteger(typeId) || typeId <= 0) {
     throw new AppError(400, 'Type de transaction invalide.');
   }
 
   const transactionType = await getTransactionTypeById(typeId);
-  const statut = resolveTransactionStatut(transactionType, payload.statut);
+  const statut = normalizeTransactionStatut(payload.statut);
+
+  // Fields the type does not use must arrive empty: a value is rejected (422), never silently dropped.
+  const usesClub = Number(transactionType.TYT_CLUB) !== 0;
+  const usesSalaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0;
+  const usesIndemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0;
+  const usesEcheance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0;
 
   const clubId = normalizeOptionalClubId(payload.idClub);
-  if (Number(transactionType.TYT_CLUB) !== 0) {
+  if (usesClub) {
     if (!clubId) {
       throw new AppError(422, 'Le club est requis pour ce type de transaction.');
     }
     await ensureClubExists(clubId);
+  } else if (clubId) {
+    throw new AppError(422, "Le club n'est pas applicable à ce type de transaction.");
   }
+  // An empty club is stored as sent: NULL for null/absent, '' for an empty string (858 historical rows).
+  const storedClubId = clubId ?? (payload.idClub == null ? null : '');
 
   const deviseId = await resolveDeviseId(payload.deviseId);
   await ensureDeviseExists(deviseId);
 
-  const salaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0
-    ? normalizeMoney(payload.salaire, 'Salaire', true)
-    : null;
+  // Salary: empty -> NULL. On a type without salary, only empty or 0 (historical value of 2 275 rows) is accepted.
+  const salaire = normalizeMoney(payload.salaire, 'Salaire', true);
+  if (!usesSalaire && salaire !== null && salaire !== 0) {
+    throw new AppError(422, "Le salaire n'est pas applicable à ce type de transaction.");
+  }
 
-  const indemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0
-    ? normalizeMoney(payload.indemnites, 'Indemnites', false, true) ?? 0
-    : 0;
+  // Fees: empty -> 0 (unknown), -1 = no known fee. On a type without fees, only empty or 0 (unknown) is accepted.
+  const indemnites = normalizeMoney(payload.indemnites, 'Indemnites', false, true) ?? 0;
+  if (!usesIndemnites && indemnites !== 0) {
+    throw new AppError(422, "Les indemnités ne sont pas applicables à ce type de transaction.");
+  }
 
-  const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
-    ? normalizeDayDate(payload.echeance, { field: "d'échéance" })
-    : '';
+  const echeance = normalizeDayDate(payload.echeance, { field: "d'échéance" });
+  if (!usesEcheance && echeance) {
+    throw new AppError(422, "L'échéance n'est pas applicable à ce type de transaction.");
+  }
 
-  const transactionClubId = Number(transactionType.TYT_CLUB) !== 0 ? clubId : null;
   return mode === 'create'
-    ? [date, typeId, salaire, transactionClubId, season, joueurId, statut, indemnites, deviseId, echeance]
-    : [date, typeId, salaire, transactionClubId, season, statut, indemnites, deviseId, echeance];
+    ? [date, typeId, salaire, storedClubId, season, joueurId, statut, indemnites, deviseId, echeance]
+    : [date, typeId, salaire, storedClubId, season, statut, indemnites, deviseId, echeance];
 }
 
 export async function createJoueurTransactionById(
