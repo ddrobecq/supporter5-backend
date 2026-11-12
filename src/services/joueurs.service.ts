@@ -1003,7 +1003,7 @@ export async function getJoueurMatchesForSeason(
      FROM (
        SELECT
          r.RECLEUNIK,
-         REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+         COALESCE(r.DATE, '') AS DATE,
          r.DOMICILE,
          r.EXTERIEUR,
          COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,
@@ -1033,7 +1033,7 @@ export async function getJoueurMatchesForSeason(
        UNION ALL
        SELECT
          r.RECLEUNIK,
-         REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+         COALESCE(r.DATE, '') AS DATE,
          r.DOMICILE,
          r.EXTERIEUR,
          COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,

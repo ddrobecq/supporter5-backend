@@ -383,7 +383,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
   }>[number]>(
     `SELECT
        r.RECLEUNIK,
-       REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+       COALESCE(r.DATE, '') AS DATE,
          COALESCE(r.HEURE, '') AS HEURE,
        COALESCE(r.TUCLEUNIK, 0) AS TUCLEUNIK,
       COALESCE(te.STADE, '') AS TERRAIN_NOM,
@@ -411,7 +411,7 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
      LEFT JOIN CLUB cd ON cd.IDCLUB = r.DOMICILE
      LEFT JOIN CLUB ce ON ce.IDCLUB = r.EXTERIEUR
      WHERE r.DOMICILE = ? OR r.EXTERIEUR = ?
-     ORDER BY REPLACE(COALESCE(r.DATE, ''), '-', '') DESC, COALESCE(r.HEURE, '') DESC, r.RECLEUNIK DESC`,
+     ORDER BY COALESCE(r.DATE, '') DESC, COALESCE(r.HEURE, '') DESC, r.RECLEUNIK DESC`,
     [clubId, clubId],
   );
 
@@ -895,7 +895,7 @@ export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
        co.COCLEUNIK,
        CASE
          WHEN COALESCE(co.CO_ANNEE, 0) = 1 THEN (
-           SELECT MAX(SUBSTR(REPLACE(COALESCE(r2.DATE, ''), '-', ''), 1, 4))
+           SELECT MAX(SUBSTR(COALESCE(r2.DATE, ''), 1, 4))
            FROM TOUR t2
            JOIN RENCO r2 ON r2.TUCLEUNIK = t2.TUCLEUNIK
            WHERE t2.COCLEUNIK = co.COCLEUNIK AND COALESCE(t2.TU_FINAL, 0) = 1

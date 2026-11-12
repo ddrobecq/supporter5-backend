@@ -47,7 +47,7 @@ export async function buildCircCompletResolver(rows: CircCompletSourceRow[]): Pr
     const finals = await dbAll<{ COCLEUNIK: number; FINAL_YEAR: string | null }>(
       `SELECT
          t.COCLEUNIK,
-         MAX(SUBSTR(REPLACE(COALESCE(r.DATE, ''), '-', ''), 1, 4)) AS FINAL_YEAR
+         MAX(SUBSTR(COALESCE(r.DATE, ''), 1, 4)) AS FINAL_YEAR
        FROM TOUR t
        INNER JOIN RENCO r ON r.TUCLEUNIK = t.TUCLEUNIK
        WHERE COALESCE(t.TU_FINAL, 0) = 1

@@ -64,7 +64,7 @@ export function supportedMatchesSql(options: {
 }): string {
   return `SELECT
        r.RECLEUNIK,
-       REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+       COALESCE(r.DATE, '') AS DATE,
        r.DOMICILE,
        r.EXTERIEUR,
        COALESCE(cd.CLUB, r.DOMICILE, '') AS DOMICILE_NOM,

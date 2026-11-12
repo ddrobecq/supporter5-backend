@@ -34,7 +34,7 @@ export async function getRencontreSeries(metric: RencontreSerieMetric, scope?: n
     `WITH matches AS (
       SELECT
         r.RECLEUNIK,
-        REPLACE(COALESCE(r.DATE, ''), '-', '') AS DATE,
+        COALESCE(r.DATE, '') AS DATE,
         CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTDOM, 0) ELSE COALESCE(r.BUTEXT, 0) END AS BUT_POUR,
         CASE WHEN r.DOMICILE = ? THEN COALESCE(r.BUTEXT, 0) ELSE COALESCE(r.BUTDOM, 0) END AS BUT_CONTRE
       FROM RENCO r

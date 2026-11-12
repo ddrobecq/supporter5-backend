@@ -22,7 +22,7 @@ export function getLatestTerrainForClub(clubId: unknown): ClubLatestTerrainRow |
      LEFT JOIN "VILLE" v ON v."VICLEUNIK" = t."IDVILLE"
      WHERE ct."IDCLUB" = ?
        AND NULLIF(TRIM(CAST(ct."TECLEUNIK" AS TEXT)), '') IS NOT NULL
-     ORDER BY REPLACE(COALESCE(ct."DATE", ''), '-', '') DESC, ct."CT_CLEUNIK" DESC
+     ORDER BY COALESCE(ct."DATE", '') DESC, ct."CT_CLEUNIK" DESC
      LIMIT 1`,
   ).get(normalizedClubId) as Record<string, unknown> | undefined;
 

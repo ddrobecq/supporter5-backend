@@ -215,10 +215,10 @@ function clubNameAtMatchDateSql(clubRef: string): string {
         WHERE cn.IDCLUB = ${clubRef}
           AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
           AND (
-            REPLACE(COALESCE(r.DATE, ''), '-', '') = ''
-            OR REPLACE(COALESCE(cn.DATE, ''), '-', '') <= REPLACE(COALESCE(r.DATE, ''), '-', '')
+            COALESCE(r.DATE, '') = ''
+            OR COALESCE(cn.DATE, '') <= COALESCE(r.DATE, '')
           )
-        ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
+        ORDER BY COALESCE(cn.DATE, '') DESC, cn.IDCLUB_NOM DESC
         LIMIT 1
       )`;
 }
@@ -2661,7 +2661,7 @@ export async function getOnThisDayMatch(referenceDate: Date = new Date()): Promi
 
     return {
       RECLEUNIK: toInt(candidate.RECLEUNIK),
-      DATE: toText(candidate.DATE).replace(/-/g, ''),
+      DATE: toText(candidate.DATE),
       HEURE: toText(candidate.HEURE),
       ETAT: toInt(candidate.ETAT),
       DOMICILE: toText(candidate.DOMICILE),
