@@ -206,6 +206,22 @@ function normalizeOptionalText(value: unknown): string | null {
   return text === '' ? null : text;
 }
 
+/** Name of club `clubRef` valid at the date of rencontre `r` (latest CLUB_NOM not after it, disappearances excluded). */
+function clubNameAtMatchDateSql(clubRef: string): string {
+  return `(
+        SELECT cn.CN_NOM
+        FROM CLUB_NOM cn
+        WHERE cn.IDCLUB = ${clubRef}
+          AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
+          AND (
+            REPLACE(COALESCE(r.DATE, ''), '-', '') = ''
+            OR REPLACE(COALESCE(cn.DATE, ''), '-', '') <= REPLACE(COALESCE(r.DATE, ''), '-', '')
+          )
+        ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
+        LIMIT 1
+      )`;
+}
+
 const statementCache = new Map<string, Statement<unknown[]>>();
 
 /** Statement prepared once and reused: for the lookups run per participant / per source during propagation. */
@@ -2295,30 +2311,8 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
       cd.TEXTE AS DOMICILE_TEXTE,
       ce.FOND AS EXTERIEUR_FOND,
       ce.TEXTE AS EXTERIEUR_TEXTE,
-      COALESCE((
-        SELECT cn.CN_NOM
-        FROM CLUB_NOM cn
-        WHERE cn.IDCLUB = r.DOMICILE
-          AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
-          AND (
-            REPLACE(COALESCE(r.DATE, ''), '-', '') = ''
-            OR REPLACE(COALESCE(cn.DATE, ''), '-', '') <= REPLACE(COALESCE(r.DATE, ''), '-', '')
-          )
-        ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
-        LIMIT 1
-      ), COALESCE(cd.CLUB, ''), '') AS DOMICILE_NOM_COMPLET,
-      COALESCE((
-        SELECT cn.CN_NOM
-        FROM CLUB_NOM cn
-        WHERE cn.IDCLUB = r.EXTERIEUR
-          AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
-          AND (
-            REPLACE(COALESCE(r.DATE, ''), '-', '') = ''
-            OR REPLACE(COALESCE(cn.DATE, ''), '-', '') <= REPLACE(COALESCE(r.DATE, ''), '-', '')
-          )
-        ORDER BY REPLACE(COALESCE(cn.DATE, ''), '-', '') DESC, cn.IDCLUB_NOM DESC
-        LIMIT 1
-      ), COALESCE(ce.CLUB, ''), '') AS EXTERIEUR_NOM_COMPLET,
+      COALESCE(${clubNameAtMatchDateSql('r.DOMICILE')}, COALESCE(cd.CLUB, ''), '') AS DOMICILE_NOM_COMPLET,
+      COALESCE(${clubNameAtMatchDateSql('r.EXTERIEUR')}, COALESCE(ce.CLUB, ''), '') AS EXTERIEUR_NOM_COMPLET,
       NULLIF(TRIM(COALESCE(m.IDARBITRE, '')), '') AS IDARBITRE,
       COALESCE(a.NOM, '') AS ARBITRE_NOM,
       COALESCE(a.PRENOM, '') AS ARBITRE_PRENOM,

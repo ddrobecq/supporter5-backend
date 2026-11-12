@@ -9,6 +9,16 @@ import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError } from '../types';
 
+/** Latest valid name of club `c` (CLUB_NOM, disappearances CN_ACTION = 3 excluded), '' when none. */
+const LATEST_CLUB_NAME_SQL = `COALESCE((
+         SELECT cn.CN_NOM
+         FROM CLUB_NOM cn
+         WHERE cn.IDCLUB = c.IDCLUB
+           AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
+         ORDER BY cn.DATE DESC
+         LIMIT 1
+       ), '')`;
+
 /** CLUB_NOM = historique des noms de clubs */
 export interface ClubGridRow {
   IDCLUB: string;
@@ -266,14 +276,7 @@ export async function getClubsGrid(search: string, pagination?: GridPagination):
     `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
-       COALESCE((
-         SELECT cn.CN_NOM
-         FROM CLUB_NOM cn
-         WHERE cn.IDCLUB = c.IDCLUB
-           AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
-         ORDER BY cn.DATE DESC
-         LIMIT 1
-       ), '') AS CLUB_NOM_COMPLET,
+       ${LATEST_CLUB_NAME_SQL} AS CLUB_NOM_COMPLET,
        COALESCE(v.NOM, '') AS VILLE_NOM
      FROM CLUB c
      LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
@@ -304,14 +307,7 @@ export async function getClubGridById(id: string): Promise<ClubGridRow | undefin
     `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
-       COALESCE((
-         SELECT cn.CN_NOM
-         FROM CLUB_NOM cn
-         WHERE cn.IDCLUB = c.IDCLUB
-           AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
-         ORDER BY cn.DATE DESC
-         LIMIT 1
-       ), '') AS CLUB_NOM_COMPLET,
+       ${LATEST_CLUB_NAME_SQL} AS CLUB_NOM_COMPLET,
        COALESCE(v.NOM, '') AS VILLE_NOM
      FROM CLUB c
      LEFT JOIN VILLE v ON v.VICLEUNIK = c.IDVILLE
@@ -445,6 +441,33 @@ export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
   }));
 }
 
+/** CLUB_TERRAIN row of the club, with the stadium name. */
+function readClubTerrainById(ctCleunik: number, clubId: string): Promise<ClubTerrainHistoryRow | undefined> {
+  return dbGet<ClubTerrainHistoryRow>(
+    `SELECT
+       ct.CT_CLEUNIK,
+       ct.TECLEUNIK,
+       ct.DATE,
+       COALESCE(t.STADE, '') AS STADE
+     FROM CLUB_TERRAIN ct
+     LEFT JOIN TERRAIN t ON t.TECLEUNIK = ct.TECLEUNIK
+     WHERE ct.CT_CLEUNIK = ? AND ct.IDCLUB = ?
+     LIMIT 1`,
+    [ctCleunik, clubId],
+  );
+}
+
+/** CLUB_NOM row of the club. */
+function readClubNomById(idClubNom: number, clubId: string): Promise<ClubNameHistoryRow | undefined> {
+  return dbGet<ClubNameHistoryRow>(
+    `SELECT IDCLUB_NOM, DATE, COALESCE(CN_ACTION, 0) AS CN_ACTION, CN_NOM
+     FROM CLUB_NOM
+     WHERE IDCLUB_NOM = ? AND IDCLUB = ?
+     LIMIT 1`,
+    [idClubNom, clubId],
+  );
+}
+
 export async function createClubTerrainHistoryById(
   id: string,
   payload: { date?: string | null; terrainId: string | number },
@@ -459,25 +482,13 @@ export async function createClubTerrainHistoryById(
   const normalizedDate = normalizeDayDate(payload.date);
   const terrainId = normalizeTerrainId(payload.terrainId);
 
-  await dbRun(
+  const inserted = await dbRun(
     `INSERT INTO CLUB_TERRAIN (IDCLUB, TECLEUNIK, DATE)
      VALUES (?, ?, ?)`,
     [clubId, terrainId, normalizedDate],
   );
 
-  return dbGet<ClubTerrainHistoryRow>(
-    `SELECT
-       ct.CT_CLEUNIK,
-       ct.TECLEUNIK,
-       ct.DATE,
-       COALESCE(t.STADE, '') AS STADE
-     FROM CLUB_TERRAIN ct
-     LEFT JOIN TERRAIN t ON t.TECLEUNIK = ct.TECLEUNIK
-     WHERE ct.IDCLUB = ?
-     ORDER BY ct.CT_CLEUNIK DESC
-     LIMIT 1`,
-    [clubId],
-  );
+  return readClubTerrainById(Number(inserted.lastInsertRowid), clubId);
 }
 
 export async function updateClubTerrainHistoryById(
@@ -506,18 +517,7 @@ export async function updateClubTerrainHistoryById(
     [terrainId, normalizedDate, historyNumericId, clubId],
   );
 
-  return dbGet<ClubTerrainHistoryRow>(
-    `SELECT
-       ct.CT_CLEUNIK,
-       ct.TECLEUNIK,
-       ct.DATE,
-       COALESCE(t.STADE, '') AS STADE
-     FROM CLUB_TERRAIN ct
-     LEFT JOIN TERRAIN t ON t.TECLEUNIK = ct.TECLEUNIK
-     WHERE ct.CT_CLEUNIK = ? AND ct.IDCLUB = ?
-     LIMIT 1`,
-    [historyNumericId, clubId],
-  );
+  return readClubTerrainById(historyNumericId, clubId);
 }
 
 export async function deleteClubTerrainHistoryById(id: string, terrainHistoryId: string): Promise<boolean> {
@@ -550,20 +550,13 @@ export async function createClubNameHistoryById(
     throw new AppError(400, 'Le nom est requis.');
   }
 
-  await dbRun(
+  const inserted = await dbRun(
     `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
      VALUES (?, ?, ?, ?)`,
     [name.slice(0, 200), clubId, normalizedDate, eventType],
   );
 
-  return dbGet<ClubNameHistoryRow>(
-    `SELECT IDCLUB_NOM, DATE, COALESCE(CN_ACTION, 0) AS CN_ACTION, CN_NOM
-     FROM CLUB_NOM
-     WHERE IDCLUB = ?
-     ORDER BY IDCLUB_NOM DESC
-     LIMIT 1`,
-    [clubId],
-  );
+  return readClubNomById(Number(inserted.lastInsertRowid), clubId);
 }
 
 export async function updateClubNameHistoryById(
@@ -596,13 +589,7 @@ export async function updateClubNameHistoryById(
     [name.slice(0, 200), normalizedDate, eventType, historyNumericId, clubId],
   );
 
-  return dbGet<ClubNameHistoryRow>(
-    `SELECT IDCLUB_NOM, DATE, COALESCE(CN_ACTION, 0) AS CN_ACTION, CN_NOM
-     FROM CLUB_NOM
-     WHERE IDCLUB_NOM = ? AND IDCLUB = ?
-     LIMIT 1`,
-    [historyNumericId, clubId],
-  );
+  return readClubNomById(historyNumericId, clubId);
 }
 
 export async function deleteClubNameHistoryById(id: string, historyId: string): Promise<boolean> {
@@ -676,14 +663,7 @@ export async function getClubSuggestions(search: string, limit = 12): Promise<Cl
     `SELECT
        c.IDCLUB,
        c.CLUB AS CLUB_ABREGE,
-       COALESCE((
-         SELECT cn.CN_NOM
-         FROM CLUB_NOM cn
-         WHERE cn.IDCLUB = c.IDCLUB
-           AND (cn.CN_ACTION IS NULL OR cn.CN_ACTION <> 3)
-         ORDER BY cn.DATE DESC
-         LIMIT 1
-       ), '') AS CLUB_NOM_COMPLET
+       ${LATEST_CLUB_NAME_SQL} AS CLUB_NOM_COMPLET
        ,COALESCE((
          SELECT GROUP_CONCAT(hist.CN_NOM, '|||')
          FROM (

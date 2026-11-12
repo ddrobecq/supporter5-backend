@@ -514,7 +514,7 @@ async function addTourParticipant(
       };
     }
 
-    await dbRun(
+    const insertedRow = await dbRun(
       `INSERT INTO "PARTICIP" (
         "IDCLUB",
         "TUCLEUNIK",
@@ -557,12 +557,8 @@ async function addTourParticipant(
          COALESCE(p."PASource", '') AS "PASource"
        FROM "PARTICIP" p
        LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
-       WHERE p."TUCLEUNIK" = ?
-         AND COALESCE(p."PASource", '') = ?
-         AND (p."IDCLUB" IS NULL OR TRIM(COALESCE(p."IDCLUB", '')) = '')
-       ORDER BY p."PACLEUNIK" DESC
-       LIMIT 1`,
-      [tourIdValue, paSource],
+       WHERE p."PACLEUNIK" = ?`,
+      [insertedRow.lastInsertRowid],
     );
 
     if (!insertedProgrammed) {

@@ -328,6 +328,31 @@ export async function getJoueurByIdWithVille(id: string | number): Promise<Recor
   );
 }
 
+/** Display name of player `jr` (JOUEURRG): nickname, otherwise "NOM Prenom". */
+const PLAYER_DISPLAY_NAME_SQL = `COALESCE(
+        NULLIF(TRIM(jr.SURNOM), ''),
+        TRIM(UPPER(COALESCE(jr.NOM, '')) || ' ' || COALESCE(jr.PRENOM, ''))
+      )`;
+
+/**
+ * Latest TRANSAC row of each player (by DATE then TNCLEUNIK), as `t1` with the given columns.
+ * `latestFilter` restricts the transactions considered (WHERE clause on TRANSAC).
+ */
+function latestTransactionSql(columns: string, latestFilter = ''): string {
+  return `
+       SELECT ${columns}
+       FROM TRANSAC t1
+       INNER JOIN (
+         SELECT IDJOUEUR, MAX(DATE || '-' || printf('%010d', TNCLEUNIK)) AS latest_key
+         FROM TRANSAC
+         ${latestFilter}
+         GROUP BY IDJOUEUR
+       ) latest
+         ON latest.IDJOUEUR = t1.IDJOUEUR
+        AND (t1.DATE || '-' || printf('%010d', t1.TNCLEUNIK)) = latest.latest_key
+     `;
+}
+
 /** Hard row limit of the unpaginated players grid (75 rows max per season in the dev database, 2026-11). */
 const JOUEURS_GRID_MAX_ROWS = 2_000;
 
@@ -346,10 +371,7 @@ export async function getJoueursGridBySeason(
       j.IDJOUEUR,
       j.SAISON,
       j.POSTE,
-      COALESCE(
-        NULLIF(TRIM(jr.SURNOM), ''),
-        TRIM(UPPER(COALESCE(jr.NOM, '')) || ' ' || COALESCE(jr.PRENOM, ''))
-      ) AS JOUEUR_NOM,
+      ${PLAYER_DISPLAY_NAME_SQL} AS JOUEUR_NOM,
       p.POS_NOM AS POSTE_NOM,
       tx.SAISON AS LAST_TRANSAC_SAISON,
       tx.STATUT AS LAST_TRANSAC_STATUT,
@@ -357,17 +379,7 @@ export async function getJoueursGridBySeason(
      FROM JOUEUR j
      INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = j.IDJOUEUR
      INNER JOIN Poste p ON p.POS_ID = j.POSTE
-     LEFT JOIN (
-       SELECT t1.IDJOUEUR, t1.SAISON, t1.STATUT, t1.TYPE
-       FROM TRANSAC t1
-       INNER JOIN (
-         SELECT IDJOUEUR, MAX(DATE || '-' || printf('%010d', TNCLEUNIK)) AS latest_key
-         FROM TRANSAC
-         GROUP BY IDJOUEUR
-       ) latest
-         ON latest.IDJOUEUR = t1.IDJOUEUR
-        AND (t1.DATE || '-' || printf('%010d', t1.TNCLEUNIK)) = latest.latest_key
-     ) tx ON tx.IDJOUEUR = j.IDJOUEUR
+     LEFT JOIN (${latestTransactionSql('t1.IDJOUEUR, t1.SAISON, t1.STATUT, t1.TYPE')}) tx ON tx.IDJOUEUR = j.IDJOUEUR
      WHERE j.SAISON = ?
        AND p.POS_TYPE = ?
        AND (
@@ -409,27 +421,14 @@ export async function getJoueurRosterForSeasonWizard(season: string): Promise<Jo
       jr.PRENOM,
       jr.SURNOM,
       jr.IDNATIO,
-      COALESCE(
-        NULLIF(TRIM(jr.SURNOM), ''),
-        TRIM(UPPER(COALESCE(jr.NOM, '')) || ' ' || COALESCE(jr.PRENOM, ''))
-      ) AS JOUEUR_NOM,
+      ${PLAYER_DISPLAY_NAME_SQL} AS JOUEUR_NOM,
       j.POSTE,
       p.POS_NOM AS POSTE_NOM,
       tx.TN_ECHEANCE AS CONTRAT_FIN
      FROM JOUEUR j
      INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = j.IDJOUEUR
      INNER JOIN Poste p ON p.POS_ID = j.POSTE
-     LEFT JOIN (
-       SELECT t1.IDJOUEUR, t1.TN_ECHEANCE
-       FROM TRANSAC t1
-       INNER JOIN (
-         SELECT IDJOUEUR, MAX(DATE || '-' || printf('%010d', TNCLEUNIK)) AS latest_key
-         FROM TRANSAC
-         WHERE TN_ECHEANCE IS NOT NULL AND TRIM(TN_ECHEANCE) <> ''
-         GROUP BY IDJOUEUR
-       ) latest ON latest.IDJOUEUR = t1.IDJOUEUR
-        AND (t1.DATE || '-' || printf('%010d', t1.TNCLEUNIK)) = latest.latest_key
-     ) tx ON tx.IDJOUEUR = j.IDJOUEUR
+     LEFT JOIN (${latestTransactionSql('t1.IDJOUEUR, t1.TN_ECHEANCE', "WHERE TN_ECHEANCE IS NOT NULL AND TRIM(TN_ECHEANCE) <> ''")}) tx ON tx.IDJOUEUR = j.IDJOUEUR
      WHERE j.SAISON = ?
        AND p.POS_TYPE = 1
      ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
@@ -670,13 +669,16 @@ export async function getJoueurTransactionOptions(_idJoueur: string | number): P
   };
 }
 
-export async function createJoueurTransactionById(
-  idJoueur: string | number,
+/**
+ * Validated TRANSAC values of a transaction payload, in the column order of the INSERT ('create',
+ * IDJOUEUR included) or of the UPDATE SET clause ('update'). INDEMNITES is stored as given
+ * (-1 = no known fee, 0 = unknown): it is never normalized here.
+ */
+async function buildTransactionValues(
+  joueurId: string,
   payload: JoueurTransactionUpsertPayload,
-): Promise<JoueurTransactionRow> {
-  const joueurId = normalizeJoueurId(idJoueur);
-  await ensureJoueurExists(joueurId);
-
+  mode: 'create' | 'update',
+): Promise<unknown[]> {
   const date = normalizeDayDate(payload.date, { required: true, field: 'de la transaction' });
   const season = seasonFromDate(date);
   const typeId = Number(payload.type);
@@ -710,38 +712,34 @@ export async function createJoueurTransactionById(
     ? normalizeDayDate(payload.echeance, { field: "d'échéance" })
     : '';
 
-  await dbRun(
+  const transactionClubId = Number(transactionType.TYT_CLUB) !== 0 ? clubId : null;
+  return mode === 'create'
+    ? [date, typeId, salaire, transactionClubId, season, joueurId, statut, indemnites, deviseId, echeance]
+    : [date, typeId, salaire, transactionClubId, season, statut, indemnites, deviseId, echeance];
+}
+
+export async function createJoueurTransactionById(
+  idJoueur: string | number,
+  payload: JoueurTransactionUpsertPayload,
+): Promise<JoueurTransactionRow> {
+  const joueurId = normalizeJoueurId(idJoueur);
+  await ensureJoueurExists(joueurId);
+
+  const values = await buildTransactionValues(joueurId, payload, 'create');
+
+  // TNCLEUNIK is the INTEGER PRIMARY KEY (rowid alias): the inserted id is lastInsertRowid.
+  const inserted = await dbRun(
     `INSERT INTO TRANSAC (
       DATE, TYPE, SALAIRE, IDCLUB, SAISON, IDJOUEUR, STATUT, INDEMNITES, DVCLEUNIK, TN_ECHEANCE
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      date,
-      typeId,
-      salaire,
-      Number(transactionType.TYT_CLUB) !== 0 ? clubId : null,
-      season,
-      joueurId,
-      statut,
-      indemnites,
-      deviseId,
-      echeance,
-    ],
+    values,
   );
 
-  const inserted = await dbGet<{ TNCLEUNIK: number }>(
-    `SELECT TNCLEUNIK
-     FROM TRANSAC
-     WHERE IDJOUEUR = ?
-     ORDER BY TNCLEUNIK DESC
-     LIMIT 1`,
-    [joueurId],
-  );
-
-  if (!inserted) {
+  if (inserted.lastInsertRowid === undefined) {
     throw new AppError(500, 'Création de transaction échouée.');
   }
 
-  const row = await getJoueurTransactionById(joueurId, inserted.TNCLEUNIK);
+  const row = await getJoueurTransactionById(joueurId, Number(inserted.lastInsertRowid));
   if (!row) {
     throw new AppError(500, 'Transaction créée mais introuvable.');
   }
@@ -765,56 +763,13 @@ export async function updateJoueurTransactionById(
     return undefined;
   }
 
-  const date = normalizeDayDate(payload.date, { required: true, field: 'de la transaction' });
-  const season = seasonFromDate(date);
-  const typeId = Number(payload.type);
-  if (!Number.isInteger(typeId) || typeId <= 0) {
-    throw new AppError(400, 'Type de transaction invalide.');
-  }
-
-  const transactionType = await getTransactionTypeById(typeId);
-  const statut = resolveTransactionStatut(transactionType, payload.statut);
-
-  const clubId = normalizeOptionalClubId(payload.idClub);
-  if (Number(transactionType.TYT_CLUB) !== 0) {
-    if (!clubId) {
-      throw new AppError(422, 'Le club est requis pour ce type de transaction.');
-    }
-    await ensureClubExists(clubId);
-  }
-
-  const deviseId = await resolveDeviseId(payload.deviseId);
-  await ensureDeviseExists(deviseId);
-
-  const salaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0
-    ? normalizeMoney(payload.salaire, 'Salaire', true)
-    : null;
-
-  const indemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0
-    ? normalizeMoney(payload.indemnites, 'Indemnites', false) ?? 0
-    : 0;
-
-  const echeance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0
-    ? normalizeDayDate(payload.echeance, { field: "d'échéance" })
-    : '';
+  const values = await buildTransactionValues(joueurId, payload, 'update');
 
   await dbRun(
     `UPDATE TRANSAC
      SET DATE = ?, TYPE = ?, SALAIRE = ?, IDCLUB = ?, SAISON = ?, STATUT = ?, INDEMNITES = ?, DVCLEUNIK = ?, TN_ECHEANCE = ?
      WHERE IDJOUEUR = ? AND TNCLEUNIK = ?`,
-    [
-      date,
-      typeId,
-      salaire,
-      Number(transactionType.TYT_CLUB) !== 0 ? clubId : null,
-      season,
-      statut,
-      indemnites,
-      deviseId,
-      echeance,
-      joueurId,
-      rowId,
-    ],
+    [...values, joueurId, rowId],
   );
 
   return getJoueurTransactionById(joueurId, rowId);
@@ -826,6 +781,28 @@ export async function deleteJoueurTransactionById(idJoueur: string | number, tra
 
   const result = await dbRun('DELETE FROM TRANSAC WHERE IDJOUEUR = ? AND TNCLEUNIK = ?', [joueurId, rowId]);
   return result.changes > 0;
+}
+
+/** JOUEUR (season history) row of the player, with the position name. */
+function readJoueurHistoryById(jocleunik: number, joueurId: string): Promise<JoueurHistoryRow | undefined> {
+  return dbGet<JoueurHistoryRow>(
+    `SELECT
+      j.JOCLEUNIK,
+      j.SAISON,
+      j.POSTE,
+      COALESCE(p.POS_NOM, '') AS POSTE_NOM,
+      COALESCE(j.TITULAIRETOTAL, 0) AS TITULAIRETOTAL,
+      COALESCE(j.REMPTOTAL, 0) AS REMPTOTAL,
+      COALESCE(j.BUTTOTAL, 0) AS BUTTOTAL,
+      COALESCE(j.PASSETOTAL, 0) AS PASSETOTAL,
+      COALESCE(j.JAUNETOTAL, 0) AS JAUNETOTAL,
+      COALESCE(j.ROUGETOTAL, 0) AS ROUGETOTAL
+     FROM JOUEUR j
+     LEFT JOIN Poste p ON p.POS_ID = j.POSTE
+     WHERE j.JOCLEUNIK = ? AND j.IDJOUEUR = ?
+     LIMIT 1`,
+    [jocleunik, joueurId],
+  );
 }
 
 export async function createJoueurHistoryById(
@@ -850,7 +827,7 @@ export async function createJoueurHistoryById(
     throw new AppError(422, 'Une ligne existe deja pour cette saison.');
   }
 
-  await dbRun(
+  const inserted = await dbRun(
     `INSERT INTO JOUEUR (
       IDJOUEUR, SAISON, INTERNATIONAL, BUTTOTAL, POSTE, PASSETOTAL,
       JAUNETOTAL, ROUGETOTAL, TITULAIRETOTAL, REMPTOTAL, TEMPSTOTAL
@@ -858,25 +835,7 @@ export async function createJoueurHistoryById(
     [joueurId, saison, posteId],
   );
 
-  return dbGet<JoueurHistoryRow>(
-    `SELECT
-      j.JOCLEUNIK,
-      j.SAISON,
-      j.POSTE,
-      COALESCE(p.POS_NOM, '') AS POSTE_NOM,
-      COALESCE(j.TITULAIRETOTAL, 0) AS TITULAIRETOTAL,
-      COALESCE(j.REMPTOTAL, 0) AS REMPTOTAL,
-      COALESCE(j.BUTTOTAL, 0) AS BUTTOTAL,
-      COALESCE(j.PASSETOTAL, 0) AS PASSETOTAL,
-      COALESCE(j.JAUNETOTAL, 0) AS JAUNETOTAL,
-      COALESCE(j.ROUGETOTAL, 0) AS ROUGETOTAL
-     FROM JOUEUR j
-     LEFT JOIN Poste p ON p.POS_ID = j.POSTE
-     WHERE j.IDJOUEUR = ? AND j.SAISON = ?
-     ORDER BY j.JOCLEUNIK DESC
-     LIMIT 1`,
-    [joueurId, saison],
-  );
+  return readJoueurHistoryById(Number(inserted.lastInsertRowid), joueurId);
 }
 
 export async function updateJoueurHistoryById(
@@ -913,24 +872,7 @@ export async function updateJoueurHistoryById(
     [saison, posteId, rowId, joueurId],
   );
 
-  return dbGet<JoueurHistoryRow>(
-    `SELECT
-      j.JOCLEUNIK,
-      j.SAISON,
-      j.POSTE,
-      COALESCE(p.POS_NOM, '') AS POSTE_NOM,
-      COALESCE(j.TITULAIRETOTAL, 0) AS TITULAIRETOTAL,
-      COALESCE(j.REMPTOTAL, 0) AS REMPTOTAL,
-      COALESCE(j.BUTTOTAL, 0) AS BUTTOTAL,
-      COALESCE(j.PASSETOTAL, 0) AS PASSETOTAL,
-      COALESCE(j.JAUNETOTAL, 0) AS JAUNETOTAL,
-      COALESCE(j.ROUGETOTAL, 0) AS ROUGETOTAL
-     FROM JOUEUR j
-     LEFT JOIN Poste p ON p.POS_ID = j.POSTE
-     WHERE j.JOCLEUNIK = ? AND j.IDJOUEUR = ?
-     LIMIT 1`,
-    [rowId, joueurId],
-  );
+  return readJoueurHistoryById(rowId, joueurId);
 }
 
 export async function deleteJoueurHistoryById(idJoueur: string | number, historyId: string): Promise<boolean> {
@@ -939,10 +881,6 @@ export async function deleteJoueurHistoryById(idJoueur: string | number, history
 
   const result = await dbRun('DELETE FROM JOUEUR WHERE JOCLEUNIK = ? AND IDJOUEUR = ?', [rowId, joueurId]);
   return result.changes > 0;
-}
-
-function normalizeText(value: unknown): string {
-  return String(value ?? '').trim();
 }
 
 async function normalizePosteJoueur(value: unknown): Promise<number> {
