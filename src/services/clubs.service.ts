@@ -1,6 +1,6 @@
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { cached } from '../lib/statsCache';
-import { requirePositiveInt, requireText, toText as normalizeText } from '../lib/coerce';
+import { parseFlag, requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode, toText as normalizeText } from '../lib/coerce';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -553,7 +553,7 @@ export async function createClubNameHistoryById(
   const inserted = await dbRun(
     `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
      VALUES (?, ?, ?, ?)`,
-    [name.slice(0, 200), clubId, normalizedDate, eventType],
+    [requireMaxLength(name, 200, 'Nom'), clubId, normalizedDate, eventType],
   );
 
   return readClubNomById(Number(inserted.lastInsertRowid), clubId);
@@ -586,7 +586,7 @@ export async function updateClubNameHistoryById(
     `UPDATE CLUB_NOM
      SET CN_NOM = ?, DATE = ?, CN_ACTION = ?
      WHERE IDCLUB_NOM = ? AND IDCLUB = ?`,
-    [name.slice(0, 200), normalizedDate, eventType, historyNumericId, clubId],
+    [requireMaxLength(name, 200, 'Nom'), normalizedDate, eventType, historyNumericId, clubId],
   );
 
   return readClubNomById(historyNumericId, clubId);
@@ -622,8 +622,8 @@ export async function updateClubProfileById(
   payload: { name: string; natioId: string; villeId?: string | number | null; fond?: string | number | null; texte?: string | number | null },
 ): Promise<ClubProfileRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
-  const name = normalizeText(payload.name);
-  const natioId = normalizeText(payload.natioId).toUpperCase();
+  const name = requireMaxLength(normalizeText(payload.name), 100, 'Nom du club');
+  const natioId = normalizeText(payload.natioId);
 
   if (!name) {
     throw new AppError(400, 'Le nom du club est requis.');
@@ -631,6 +631,7 @@ export async function updateClubProfileById(
   if (!natioId) {
     throw new AppError(400, 'Le pays est requis.');
   }
+  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
 
   const current = await getClubProfileById(clubId);
   if (!current) {
@@ -642,11 +643,11 @@ export async function updateClubProfileById(
     throw new AppError(422, 'Le pays selectionne est introuvable.');
   }
 
-  const villeId = await resolveVilleIdForClub(natioId, payload.villeId ?? current.IDVILLE ?? undefined);
+  const villeId = await resolveExplicitVilleId(payload.villeId ?? current.IDVILLE ?? undefined);
 
   await dbRun(
     'UPDATE CLUB SET CLUB = ?, IDNATIO = ?, IDVILLE = ?, FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
-    [name.slice(0, 100), natioId, villeId, payload.fond ?? null, payload.texte ?? null, clubId],
+    [name, natioId, villeId, payload.fond ?? null, payload.texte ?? null, clubId],
   );
 
   return getClubProfileById(clubId);
@@ -789,8 +790,9 @@ function normalizeTerrainId(value: unknown): number {
   return terrainId;
 }
 
+/** CL_SELECTION: strict 0/1 flag. Absent, it keeps its historical default 0 (nothing was sent). */
 function toSelectionFlag(value: unknown): 0 | 1 {
-  return value ? 1 : 0;
+  return value === undefined ? 0 : parseFlag(value, 'isSelection');
 }
 
 async function resolveNextClubId(): Promise<string> {
@@ -804,29 +806,13 @@ async function resolveNextClubId(): Promise<string> {
   return String(nextNumericId).padStart(4, '0');
 }
 
-async function resolveVilleIdForClub(natioId: string, villeId?: string | number): Promise<number> {
+/**
+ * CLUB.IDVILLE as sent. CLUB.IDVILLE is NOT NULL: "no city" is 0 (244 clubs in the dev database), so an
+ * empty value or 0 is stored as 0; never replaced by a city chosen here. Any other value must exist (422).
+ */
+async function resolveExplicitVilleId(villeId?: string | number | null): Promise<number> {
   const explicit = normalizeText(villeId);
-  if (explicit) {
-    const found = await dbGet<{ VICLEUNIK: number }>('SELECT VICLEUNIK FROM VILLE WHERE VICLEUNIK = ?', [explicit]);
-    if (!found) {
-      throw new AppError(422, 'La ville selectionnee est introuvable.');
-    }
-    return Number(found.VICLEUNIK);
-  }
-
-  const fallback = await dbGet<{ VICLEUNIK: number }>(
-    'SELECT VICLEUNIK FROM VILLE WHERE IDNATIO = ? ORDER BY NOM ASC, VICLEUNIK ASC LIMIT 1',
-    [natioId],
-  );
-  if (!fallback) {
-    throw new AppError(422, 'Aucune ville disponible pour ce pays. Selectionnez une ville.');
-  }
-  return Number(fallback.VICLEUNIK);
-}
-
-async function resolveExplicitVilleId(villeId?: string | number): Promise<number> {
-  const explicit = normalizeText(villeId);
-  if (!explicit) {
+  if (!explicit || explicit === '0') {
     return 0;
   }
 
@@ -838,9 +824,9 @@ async function resolveExplicitVilleId(villeId?: string | number): Promise<number
 }
 
 export async function createClubWithWizard(payload: CreateClubWizardPayload): Promise<ClubGridRow> {
-  const name = normalizeText(payload.name);
-  const natioId = normalizeText(payload.natioId).toUpperCase();
-  const isSelection = Boolean(payload.isSelection);
+  const name = requireMaxLength(normalizeText(payload.name), 100, 'Nom du club');
+  const natioId = normalizeText(payload.natioId);
+  const selection = toSelectionFlag(payload.isSelection);
   const creationDate = normalizeDayDate(payload.creationDate, { field: 'de création' });
 
   if (!name) {
@@ -849,6 +835,7 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   if (!natioId) {
     throw new AppError(400, 'Le pays est requis.');
   }
+  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
   if (!country) {
@@ -864,13 +851,13 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
     await dbRun(
       `INSERT INTO CLUB (IDCLUB, CLUB, IDNATIO, FOND, TEXTE, IDVILLE, CL_SELECTION)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [nextIdClub, name.slice(0, 100), natioId, -1, -1, idVille, toSelectionFlag(isSelection)],
+      [nextIdClub, name, natioId, -1, -1, idVille, selection],
     );
 
     await dbRun(
       `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
        VALUES (?, ?, ?, ?)`,
-      [name.slice(0, 200), nextIdClub, creationDate, 1],
+      [name, nextIdClub, creationDate, 1],
     );
     return nextIdClub;
   });

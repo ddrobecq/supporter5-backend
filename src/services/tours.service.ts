@@ -200,34 +200,14 @@ function mapTourType(typeId: number): string {
   return `Type ${Number(typeId)}`;
 }
 
-async function resolveTourDefKeyFromType(typeId: number): Promise<number> {
-  const normalizedType = Number(typeId);
-  if (![1, 2].includes(normalizedType)) {
-    throw new AppError(400, 'Type de tour invalide.');
+/** TDCLEUNIK is stored as sent: it must be an existing TOURDEF key (never a type marker converted here). */
+async function assertTourDefExists(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  if (body.TDCLEUNIK === undefined) return body;
+  const row = await dbGet<{ TDCLEUNIK: number }>('SELECT "TDCLEUNIK" FROM "TOURDEF" WHERE "TDCLEUNIK" = ?', [body.TDCLEUNIK]);
+  if (!row) {
+    throw new AppError(422, 'Définition de tour introuvable.');
   }
-
-  const row = await dbGet<{ TDCLEUNIK: number }>(
-    'SELECT "TDCLEUNIK" FROM "TOURDEF" WHERE "TDTYPETOUR" = ? ORDER BY "TDCLEUNIK" ASC LIMIT 1',
-    [normalizedType],
-  );
-
-  if (!row?.TDCLEUNIK) {
-    throw new AppError(422, 'Aucun TOURDEF disponible pour ce type de tour.');
-  }
-
-  return Number(row.TDCLEUNIK);
-}
-
-async function normalizeTourPayload(body: Record<string, unknown>): Promise<Record<string, unknown>> {
-  const normalized = { ...body };
-  const maybeTourDefKey = Number(normalized.TDCLEUNIK);
-
-  // Frontend can send 1/2 as logical type markers; resolve them to a real TOURDEF key.
-  if (Number.isInteger(maybeTourDefKey) && [1, 2].includes(maybeTourDefKey)) {
-    normalized.TDCLEUNIK = await resolveTourDefKeyFromType(maybeTourDefKey);
-  }
-
-  return normalized;
+  return body;
 }
 
 async function getTourByIdDetailed(tourId: string | number): Promise<Record<string, unknown> | undefined> {
@@ -783,8 +763,8 @@ async function getTourRencontres(tourId: string | number): Promise<TourRencontre
 
 export default {
   ...baseService,
-  create: async (body: Record<string, unknown>) => baseService.create(await normalizeTourPayload(body)),
-  update: async (id: string | number, body: Record<string, unknown>) => baseService.update(id, await normalizeTourPayload(body)),
+  create: async (body: Record<string, unknown>) => baseService.create(await assertTourDefExists(body)),
+  update: async (id: string | number, body: Record<string, unknown>) => baseService.update(id, await assertTourDefExists(body)),
   getTourByIdDetailed,
   getToursByCompetition,
   moveTour,

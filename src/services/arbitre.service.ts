@@ -1,6 +1,7 @@
 import { createEntityService } from '../lib/baseService';
 import { dbGet, dbAll } from '../config/database';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
+import { requireUpperCaseCode } from '../lib/coerce';
 import { AppError } from '../types';
 
 /** Generates IDARBITRE (MAX + 1, 4 digits) when missing, then checks the required fields. */
@@ -100,12 +101,14 @@ export async function getArbitreSuggestions(search: string, limit = 12): Promise
 }
 
 export async function createArbitreWithWizard(payload: { nom: string; prenom?: string; natioId: string }): Promise<Record<string, unknown> | undefined> {
-  const nom = String(payload.nom ?? '').trim().toUpperCase();
+  // Stored as sent (trimmed): the front writes NOM in upper case.
+  const nom = String(payload.nom ?? '').trim();
   const prenom = String(payload.prenom ?? '').trim();
-  const natioId = String(payload.natioId ?? '').trim().toUpperCase();
+  const natioId = String(payload.natioId ?? '').trim();
 
   if (!nom) throw new AppError(400, 'Nom requis.');
   if (!natioId) throw new AppError(400, 'Nationalite requise.');
+  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
 
   return baseService.create({
     NOM: nom,

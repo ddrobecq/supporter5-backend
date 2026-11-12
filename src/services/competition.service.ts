@@ -2,6 +2,7 @@ import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
+import { parseFlag } from '../lib/coerce';
 import { AppError } from '../types';
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
@@ -22,8 +23,9 @@ function sanitize(body: Record<string, unknown>): Record<string, unknown> {
   return clean;
 }
 
+/** CO_ANNEE: strict 0/1 flag. Absent on create, it keeps its historical default 0 (nothing was sent). */
 function normalizeFlag(value: unknown): number {
-  return value ? 1 : 0;
+  return value === undefined ? 0 : parseFlag(value, 'CO_ANNEE');
 }
 
 function normalizeHttpUrl(value: unknown): string {
@@ -41,7 +43,8 @@ function normalizeHttpUrl(value: unknown): string {
     throw new AppError(400, 'Le site officiel doit commencer par https://');
   }
 
-  return parsed.toString();
+  // Validation only: the trimmed string is stored as sent (no URL.toString() normalization).
+  return url;
 }
 
 async function assertEpreuveExists(epreuveId: number): Promise<void> {

@@ -35,7 +35,8 @@ function normalizeUrl(value: unknown): string {
     if (!['http:', 'https:'].includes(url.protocol)) {
       throw new Error('Unsupported protocol');
     }
-    return url.toString();
+    // Validation only: the trimmed string is stored as sent (no URL.toString() normalization).
+    return next;
   } catch {
     throw new AppError(400, 'RSSURL doit être une URL http(s) valide');
   }

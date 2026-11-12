@@ -1,7 +1,7 @@
 import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
-import { requirePositiveInt, toInt, toNum, toText } from '../lib/coerce';
+import { parseFlag, requirePositiveInt, toInt, toNum, toText } from '../lib/coerce';
 import { parsePaSource, type PaSourceRef } from '../lib/paSource';
 import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
 import { officialMatchSql, playedMatchSql } from '../lib/supportedMatches';
@@ -3187,8 +3187,8 @@ export interface RencontreMatchMetaPayload {
   TECLEUNIK?: string | null;
   NBSPECT?: number;
   LIEU?: string | null;
-  EXTRATIME?: number | boolean;
-  PENALTY?: number | boolean;
+  EXTRATIME?: number | boolean | string;
+  PENALTY?: number | boolean | string;
 }
 
 function clubHasTerrain(clubId: string, tecleunik: string): boolean {
@@ -3205,34 +3205,15 @@ function clubHasTerrain(clubId: string, tecleunik: string): boolean {
   return !!row;
 }
 
-function resolveMatchLieuFromTerrain(recleunik: number, tecleunik: string | null): 'D' | 'E' | 'N' {
-  if (!tecleunik) return 'N';
+const MATCH_LIEUX = new Set(['D', 'E', 'N']);
 
-  const rencontre = db.prepare(
-    `SELECT "DOMICILE", "EXTERIEUR"
-     FROM "RENCO"
-     WHERE "RECLEUNIK" = ?
-     LIMIT 1`,
-  ).get(recleunik) as Record<string, unknown> | undefined;
-
-  if (!rencontre) return 'N';
-
-  const domicile = toText(rencontre.DOMICILE);
-  const exterieur = toText(rencontre.EXTERIEUR);
-  const supportedClubId = getSupportedClubIdFromEnv();
-  const supportedSide = resolveSupportedClubSide(domicile, exterieur, supportedClubId);
-
-  if (supportedSide === 'none') return 'N';
-
-  const opponentClubId = supportedSide === 'home' ? exterieur : domicile;
-
-  if (clubHasTerrain(supportedClubId, tecleunik)) {
-    return 'D';
+/** MATCH.LIEU as sent: 'D' (domicile), 'E' (exterieur) or 'N' (neutre); never recomputed from the terrain. */
+function parseMatchLieu(value: unknown): string {
+  const lieu = toText(value);
+  if (!MATCH_LIEUX.has(lieu)) {
+    throw new AppError(400, "LIEU invalide ('D', 'E' ou 'N' attendu).");
   }
-  if (clubHasTerrain(opponentClubId, tecleunik)) {
-    return 'E';
-  }
-  return 'N';
+  return lieu;
 }
 
 export async function upsertMatchMetaForRencontre(rencontreId: string | number, payload: RencontreMatchMetaPayload): Promise<void> {
@@ -3244,15 +3225,17 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
     const normalizedTerrain = payload.TECLEUNIK == null ? null : (String(payload.TECLEUNIK).trim() || null);
     const rawNbSpect = toInt(payload.NBSPECT, 0);
     const normalizedNbSpect = rawNbSpect === -1 ? -1 : Math.max(0, rawNbSpect);
-    const normalizedLieu = resolveMatchLieuFromTerrain(recleunik, normalizedTerrain);
-    const normalizedExtratime = payload.EXTRATIME ? 1 : 0;
-    const normalizedPenalty = payload.PENALTY ? 1 : 0;
+    // LIEU, EXTRATIME and PENALTY are written only when sent (validated, stored as received).
+    const optional: Array<[string, unknown]> = [];
+    if (payload.LIEU !== undefined) optional.push(['LIEU', parseMatchLieu(payload.LIEU)]);
+    if (payload.EXTRATIME !== undefined) optional.push(['EXTRATIME', parseFlag(payload.EXTRATIME, 'EXTRATIME')]);
+    if (payload.PENALTY !== undefined) optional.push(['PENALTY', parseFlag(payload.PENALTY, 'PENALTY')]);
 
     db.prepare(
       `UPDATE "MATCH"
-       SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?, "LIEU" = ?, "EXTRATIME" = ?, "PENALTY" = ?
+       SET "IDARBITRE" = ?, "TECLEUNIK" = ?, "NBSPECT" = ?${optional.map(([col]) => `, "${col}" = ?`).join('')}
        WHERE "MACLEUNIK" = ?`,
-    ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, normalizedLieu, normalizedExtratime, normalizedPenalty, macleunik);
+    ).run(normalizedArbitre, normalizedTerrain, normalizedNbSpect, ...optional.map(([, value]) => value), macleunik);
 
     recomputeSupportedClubStatsForRencontreIds([recleunik]);
   });

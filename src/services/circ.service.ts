@@ -1,4 +1,5 @@
 import { createEntityService } from '../lib/baseService';
+import { requireUpperCaseCode } from '../lib/coerce';
 import { AppError } from '../types';
 
 function normalizeTypeTour(value: unknown): number {
@@ -13,7 +14,8 @@ function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'):
   const clean = { ...body };
 
   if (typeof clean.IDCIRC === 'string') {
-    clean.IDCIRC = clean.IDCIRC.trim().toUpperCase();
+    // Join key of RENCO.IDCIRC (case-sensitive comparison): validated, never converted.
+    clean.IDCIRC = requireUpperCaseCode(clean.IDCIRC.trim(), 'IDCIRC doit être en majuscules.');
   }
   if (typeof clean.CIRC === 'string') {
     clean.CIRC = clean.CIRC.trim();

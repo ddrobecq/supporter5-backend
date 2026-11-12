@@ -1,5 +1,5 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
-import { requirePositiveInt, requireText } from '../lib/coerce';
+import { requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode } from '../lib/coerce';
 import { createEntityService } from '../lib/baseService';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
@@ -251,15 +251,17 @@ async function resolveNextJoueurId(): Promise<string> {
 }
 
 export async function createJoueurWithWizard(payload: { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string }): Promise<Record<string, unknown> | undefined> {
-  const nom = String(payload.nom ?? '').trim().toUpperCase();
-  const prenom = String(payload.prenom ?? '').trim();
-  const alias = String(payload.alias ?? '').trim();
-  const natioId = String(payload.natioId ?? '').trim().toUpperCase();
+  // Stored as sent (trimmed): the front writes NOM in upper case; too long values are rejected, never truncated.
+  const nom = requireMaxLength(String(payload.nom ?? '').trim(), 30, 'Nom');
+  const prenom = requireMaxLength(String(payload.prenom ?? '').trim(), 20, 'Prénom');
+  const alias = requireMaxLength(String(payload.alias ?? '').trim(), 20, 'Alias');
+  const natioId = String(payload.natioId ?? '').trim();
   const posteId = Number(payload.posteId);
   const naissance = normalizeDayDate(payload.naissance, { field: 'de naissance' });
 
   if (!nom) throw new AppError(400, 'Nom requis.');
   if (!natioId) throw new AppError(400, 'Nationalite requise.');
+  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
   if (!Number.isInteger(posteId) || posteId <= 0) throw new AppError(400, 'Poste requis.');
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
@@ -281,8 +283,8 @@ export async function createJoueurWithWizard(payload: { nom: string; prenom?: st
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       idJoueur,
-      nom.slice(0, 30),
-      prenom.slice(0, 20),
+      nom,
+      prenom,
       naissance,
       natioId,
       posteId,
@@ -292,7 +294,7 @@ export async function createJoueurWithWizard(payload: { nom: string; prenom?: st
       0,
       0,
       0,
-      alias.slice(0, 20),
+      alias,
       '',
       0,
       0,

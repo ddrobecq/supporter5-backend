@@ -1,10 +1,12 @@
 import { createEntityService } from '../lib/baseService';
 import { dbAll } from '../config/database';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
+import { parseFlag } from '../lib/coerce';
 import { AppError } from '../types';
 
-function normalizeFlag(value: unknown): number {
-  return value ? 1 : 0;
+/** Strict 0/1 flag (OFFICIELLE, EPR_PAYS). Absent on create, it keeps its historical default 0 (nothing was sent). */
+function normalizeFlag(value: unknown, field: string): number {
+  return value === undefined ? 0 : parseFlag(value, field);
 }
 
 function normalizeScope(value: unknown): number {
@@ -26,8 +28,8 @@ function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'):
 
   if (mode === 'update') {
     if ('SCOPE' in clean) clean.SCOPE = normalizeScope(clean.SCOPE);
-    if ('OFFICIELLE' in clean) clean.OFFICIELLE = normalizeFlag(clean.OFFICIELLE);
-    if ('EPR_PAYS' in clean) clean.EPR_PAYS = normalizeFlag(clean.EPR_PAYS);
+    if ('OFFICIELLE' in clean) clean.OFFICIELLE = normalizeFlag(clean.OFFICIELLE, 'OFFICIELLE');
+    if ('EPR_PAYS' in clean) clean.EPR_PAYS = normalizeFlag(clean.EPR_PAYS, 'EPR_PAYS');
     return clean;
   }
 
@@ -36,8 +38,8 @@ function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'):
   }
 
   clean.SCOPE = normalizeScope(clean.SCOPE);
-  clean.OFFICIELLE = normalizeFlag(clean.OFFICIELLE);
-  clean.EPR_PAYS = normalizeFlag(clean.EPR_PAYS);
+  clean.OFFICIELLE = normalizeFlag(clean.OFFICIELLE, 'OFFICIELLE');
+  clean.EPR_PAYS = normalizeFlag(clean.EPR_PAYS, 'EPR_PAYS');
   if (!('EPR_WEB' in clean)) {
     clean.EPR_WEB = '';
   }

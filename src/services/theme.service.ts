@@ -21,7 +21,7 @@ export async function updateTheme(code: string, backgroundColor: string, textCol
   if (!THEME_CODES.has(normalizedCode) || !COLOR_PATTERN.test(backgroundColor) || !COLOR_PATTERN.test(textColor)) {
     throw new AppError(400, 'Code de theme ou couleur invalide.');
   }
-  await dbRun('UPDATE APP_THEME SET BACKGROUND_COLOR = ?, TEXT_COLOR = ?, UPDATED_AT = CURRENT_TIMESTAMP WHERE CODE = ?', [backgroundColor.toUpperCase(), textColor.toUpperCase(), normalizedCode]);
+  await dbRun('UPDATE APP_THEME SET BACKGROUND_COLOR = ?, TEXT_COLOR = ?, UPDATED_AT = CURRENT_TIMESTAMP WHERE CODE = ?', [backgroundColor, textColor, normalizedCode]);
   const themes = await listThemes();
   const updated = themes.find((theme) => theme.CODE === normalizedCode);
   if (!updated) throw new AppError(404, 'Theme introuvable.');
