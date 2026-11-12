@@ -1,6 +1,6 @@
 import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { AppError, QueryParams, PaginatedResult } from '../types';
-import { sanitizeSort, buildWhere } from './queryBuilder';
+import { sanitizeSort, buildWhere, parsePageParams } from './queryBuilder';
 import { normalizeDayDateFields } from './dates';
 import { sanitizeImageFields } from './imageUpload';
 import { normalizeSearchText, rowMatchesSearch } from './searchUtils';
@@ -150,15 +150,16 @@ export function createEntityService(config: EntityConfig) {
   }
 
   async function getAll(params: QueryParams): Promise<PaginatedResult> {
-    const page   = Math.max(1, Number(params.page)  || 1);
-    const limit  = Math.min(200, Math.max(1, Number(params.limit) || 20));
+    const { page, size: limit } = parsePageParams(params.page, params.limit, {
+      sizeName: 'limit', defaultSize: 20, maxSize: 200, invalid: 'fallback',
+    });
     const offset = (page - 1) * limit;
     const sort   = sanitizeSort(params.sort, allowedSortCols, pk);
     const order  = params.order?.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     const searchValue = typeof params.search === 'string' ? normalizeSearchText(params.search) : '';
 
     if (searchStrategy === 'backend-memory' && searchValue) {
-      const { where, bindings } = buildWhere({ ...params, search: undefined }, searchCols, filterCols);
+      const { where, bindings } = buildWhere({ ...params, search: undefined }, searchCols, filterCols, tableAlias);
       const allRows = await dbAll<Record<string, unknown>>(
         `SELECT ${selectClause} FROM ${tableSql} ${where} ORDER BY ${colPrefix}"${sort}" ${order}`,
         bindings,
@@ -170,7 +171,7 @@ export function createEntityService(config: EntityConfig) {
       return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
     }
 
-    const { where, bindings } = buildWhere(params, searchCols, filterCols);
+    const { where, bindings } = buildWhere(params, searchCols, filterCols, tableAlias);
     const row   = await dbGet<{ total: number }>(`SELECT COUNT(*) AS total FROM ${tableSql} ${where}`, bindings);
     const total = row?.total ?? 0;
     const data  = await dbAll(`SELECT ${selectClause} FROM ${tableSql} ${where} ORDER BY ${colPrefix}"${sort}" ${order} LIMIT ? OFFSET ?`, [...bindings, limit, offset]);

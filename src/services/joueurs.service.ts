@@ -1,4 +1,5 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
+import { requirePositiveInt, requireText } from '../lib/coerce';
 import { createEntityService } from '../lib/baseService';
 import { levenshteinDistance, normalizeSearchText } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
@@ -240,7 +241,7 @@ async function resolveNextJoueurId(): Promise<string> {
   const row = await dbGet<{ maxId: number | null }>('SELECT MAX(CAST(IDJOUEUR AS INTEGER)) AS maxId FROM JOUEURRG');
   const nextId = Math.max(0, Number(row?.maxId ?? 0)) + 1;
   if (nextId > 9999) {
-    throw new AppError(400, 'Impossible de generer un identifiant joueur (limite 9999 atteinte).');
+    throw new AppError(422, 'Impossible de generer un identifiant joueur (limite 9999 atteinte).');
   }
   return String(nextId).padStart(4, '0');
 }
@@ -259,12 +260,12 @@ export async function createJoueurWithWizard(payload: { nom: string; prenom?: st
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
   if (!country) {
-    throw new AppError(400, 'Le pays selectionne est introuvable.');
+    throw new AppError(422, 'Le pays selectionne est introuvable.');
   }
 
   const poste = await dbGet<{ POS_ID: number }>('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1', [posteId]);
   if (!poste) {
-    throw new AppError(400, 'Le poste selectionne est introuvable.');
+    throw new AppError(422, 'Le poste selectionne est introuvable.');
   }
 
   const idJoueur = await resolveNextJoueurId();
@@ -458,10 +459,7 @@ export async function getJoueurHistoryById(idJoueur: string | number): Promise<J
 }
 
 export async function getJoueurTransactionsById(idJoueur: string | number): Promise<JoueurTransactionRow[]> {
-  const joueurId = String(idJoueur ?? '').trim();
-  if (!joueurId) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
+  const joueurId = requireText(idJoueur, 'Identifiant joueur invalide.');
 
   return dbAll<JoueurTransactionRow>(
     `SELECT
@@ -495,19 +493,11 @@ export async function getJoueurTransactionsById(idJoueur: string | number): Prom
 }
 
 function normalizeJoueurId(idJoueur: string | number): string {
-  const joueurId = String(idJoueur ?? '').trim();
-  if (!joueurId) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
-  return joueurId;
+  return requireText(idJoueur, 'Identifiant joueur invalide.');
 }
 
 function normalizeTransactionId(transactionId: string | number): number {
-  const rowId = Number(transactionId);
-  if (!Number.isInteger(rowId) || rowId <= 0) {
-    throw new AppError(400, 'Identifiant transaction invalide.');
-  }
-  return rowId;
+  return requirePositiveInt(transactionId, 'Identifiant transaction invalide.');
 }
 
 function seasonFromDate(isoDate: string): string {
@@ -572,7 +562,7 @@ async function getTransactionTypeById(typeId: number): Promise<JoueurTransaction
     [typeId],
   );
   if (!type) {
-    throw new AppError(400, 'Type de transaction introuvable.');
+    throw new AppError(422, 'Type de transaction introuvable.');
   }
   return type;
 }
@@ -587,14 +577,14 @@ async function ensureJoueurExists(joueurId: string): Promise<void> {
 async function ensureClubExists(clubId: string): Promise<void> {
   const club = await dbGet<{ IDCLUB: string }>('SELECT IDCLUB FROM CLUB WHERE IDCLUB = ?', [clubId]);
   if (!club) {
-    throw new AppError(400, 'Club introuvable.');
+    throw new AppError(422, 'Club introuvable.');
   }
 }
 
 async function ensureDeviseExists(deviseId: number): Promise<void> {
   const devise = await dbGet<{ DVCLEUNIK: number }>('SELECT DVCLEUNIK FROM DEVISE WHERE DVCLEUNIK = ?', [deviseId]);
   if (!devise) {
-    throw new AppError(400, 'Devise introuvable.');
+    throw new AppError(422, 'Devise introuvable.');
   }
 }
 
@@ -612,7 +602,7 @@ async function getDefaultDeviseId(): Promise<number | null> {
 async function resolveDeviseId(value: unknown): Promise<number> {
   const deviseId = normalizeDeviseId(value) ?? await getDefaultDeviseId();
   if (deviseId === null) {
-    throw new AppError(400, 'La devise est requise.');
+    throw new AppError(422, 'La devise est requise.');
   }
   return deviseId;
 }
@@ -700,7 +690,7 @@ export async function createJoueurTransactionById(
   const clubId = normalizeOptionalClubId(payload.idClub);
   if (Number(transactionType.TYT_CLUB) !== 0) {
     if (!clubId) {
-      throw new AppError(400, 'Le club est requis pour ce type de transaction.');
+      throw new AppError(422, 'Le club est requis pour ce type de transaction.');
     }
     await ensureClubExists(clubId);
   }
@@ -788,7 +778,7 @@ export async function updateJoueurTransactionById(
   const clubId = normalizeOptionalClubId(payload.idClub);
   if (Number(transactionType.TYT_CLUB) !== 0) {
     if (!clubId) {
-      throw new AppError(400, 'Le club est requis pour ce type de transaction.');
+      throw new AppError(422, 'Le club est requis pour ce type de transaction.');
     }
     await ensureClubExists(clubId);
   }
@@ -842,10 +832,7 @@ export async function createJoueurHistoryById(
   idJoueur: string | number,
   payload: { saison: string; poste: number | string },
 ): Promise<JoueurHistoryRow | undefined> {
-  const joueurId = String(idJoueur ?? '').trim();
-  if (!joueurId) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
+  const joueurId = requireText(idJoueur, 'Identifiant joueur invalide.');
 
   const joueur = await dbGet<{ IDJOUEUR: string }>('SELECT IDJOUEUR FROM JOUEURRG WHERE IDJOUEUR = ?', [joueurId]);
   if (!joueur) {
@@ -860,7 +847,7 @@ export async function createJoueurHistoryById(
     [joueurId, saison],
   );
   if (existing) {
-    throw new AppError(400, 'Une ligne existe deja pour cette saison.');
+    throw new AppError(422, 'Une ligne existe deja pour cette saison.');
   }
 
   await dbRun(
@@ -897,15 +884,8 @@ export async function updateJoueurHistoryById(
   historyId: string,
   payload: { saison: string; poste: number | string },
 ): Promise<JoueurHistoryRow | undefined> {
-  const joueurId = String(idJoueur ?? '').trim();
-  const rowId = Number(historyId);
-
-  if (!joueurId) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
-  if (!Number.isInteger(rowId) || rowId <= 0) {
-    throw new AppError(400, 'Identifiant historique invalide.');
-  }
+  const joueurId = requireText(idJoueur, 'Identifiant joueur invalide.');
+  const rowId = requirePositiveInt(historyId, 'Identifiant historique invalide.');
 
   const existing = await dbGet<{ JOCLEUNIK: number }>(
     'SELECT JOCLEUNIK FROM JOUEUR WHERE JOCLEUNIK = ? AND IDJOUEUR = ? LIMIT 1',
@@ -923,7 +903,7 @@ export async function updateJoueurHistoryById(
     [joueurId, saison, rowId],
   );
   if (duplicate) {
-    throw new AppError(400, 'Une ligne existe deja pour cette saison.');
+    throw new AppError(422, 'Une ligne existe deja pour cette saison.');
   }
 
   await dbRun(
@@ -954,15 +934,8 @@ export async function updateJoueurHistoryById(
 }
 
 export async function deleteJoueurHistoryById(idJoueur: string | number, historyId: string): Promise<boolean> {
-  const joueurId = String(idJoueur ?? '').trim();
-  const rowId = Number(historyId);
-
-  if (!joueurId) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
-  if (!Number.isInteger(rowId) || rowId <= 0) {
-    throw new AppError(400, 'Identifiant historique invalide.');
-  }
+  const joueurId = requireText(idJoueur, 'Identifiant joueur invalide.');
+  const rowId = requirePositiveInt(historyId, 'Identifiant historique invalide.');
 
   const result = await dbRun('DELETE FROM JOUEUR WHERE JOCLEUNIK = ? AND IDJOUEUR = ?', [rowId, joueurId]);
   return result.changes > 0;
@@ -980,16 +953,13 @@ async function normalizePosteJoueur(value: unknown): Promise<number> {
 
   const poste = await dbGet<{ POS_ID: number }>('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1', [posteId]);
   if (!poste) {
-    throw new AppError(400, 'Le poste selectionne est introuvable.');
+    throw new AppError(422, 'Le poste selectionne est introuvable.');
   }
   return posteId;
 }
 
 export async function getJoueurSeasonsByPlayedMatches(joueurId: string): Promise<string[]> {
-  const id = normalizeText(joueurId);
-  if (!id) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
+  const id = requireText(joueurId, 'Identifiant joueur invalide.');
 
   // Get seasons from player history (JOUEUR table)
   const rows = await dbAll<{ SAISON: string }>(
@@ -1008,12 +978,8 @@ export async function getJoueurMatchesForSeason(
   joueurId: string,
   saison: string,
 ): Promise<JoueurMatchRow[]> {
-  const id = normalizeText(joueurId);
   const season = normalizeSaison(saison);
-
-  if (!id) {
-    throw new AppError(400, 'Identifiant joueur invalide.');
-  }
+  const id = requireText(joueurId, 'Identifiant joueur invalide.');
 
   // EQUIPE has one column per position (GOAL, DLG, ..., AVC) - no IDJOUEUR column
   const POS_COLS = 'e.GOAL=? OR e.DLG=? OR e.DLD=? OR e.DCG=? OR e.DCD=? OR e.LIB=? OR e.STO=? OR e.MDLD=? OR e.MDLG=? OR e.MDCD=? OR e.MDCG=? OR e.MOLD=? OR e.MOLG=? OR e.MOCD=? OR e.MOCG=? OR e.MOCC=? OR e.MDCC=? OR e.ALD=? OR e.ALG=? OR e.ACD=? OR e.ACG=? OR e.AVC=?';

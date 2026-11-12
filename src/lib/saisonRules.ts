@@ -1,10 +1,10 @@
 import { AppError } from '../types';
 
 /** Regle metier partagee: une saison doit etre au format "xxxx-yyyy" (ex: "2024-2025"). */
-export function normalizeSaison(value: unknown): string {
+export function normalizeSaison(value: unknown, message = 'Saison invalide (format xxxx-yyyy).'): string {
   const saison = String(value ?? '').trim();
   if (!/^\d{4}-\d{4}$/.test(saison)) {
-    throw new AppError(400, 'Saison invalide (format xxxx-yyyy).');
+    throw new AppError(400, message);
   }
   return saison;
 }

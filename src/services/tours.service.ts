@@ -1,4 +1,6 @@
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
+import { requirePositiveInt } from '../lib/coerce';
+import { parsePaSource } from '../lib/paSource';
 import { AppError } from '../types';
 import { createEntityService } from '../lib/baseService';
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
@@ -185,19 +187,11 @@ const baseService = createEntityService({
 });
 
 function normalizeTourId(value: string | number): number {
-  const numericId = Number(value);
-  if (!Number.isInteger(numericId) || numericId <= 0) {
-    throw new AppError(400, 'Identifiant de tour invalide.');
-  }
-  return numericId;
+  return requirePositiveInt(value, 'Identifiant de tour invalide.');
 }
 
 function normalizeCompetitionId(value: string | number): number {
-  const numericId = Number(value);
-  if (!Number.isInteger(numericId) || numericId <= 0) {
-    throw new AppError(400, 'Identifiant de competition invalide.');
-  }
-  return numericId;
+  return requirePositiveInt(value, 'Identifiant de competition invalide.');
 }
 
 function mapTourType(typeId: number): string {
@@ -218,7 +212,7 @@ async function resolveTourDefKeyFromType(typeId: number): Promise<number> {
   );
 
   if (!row?.TDCLEUNIK) {
-    throw new AppError(400, 'Aucun TOURDEF disponible pour ce type de tour.');
+    throw new AppError(422, 'Aucun TOURDEF disponible pour ce type de tour.');
   }
 
   return Number(row.TDCLEUNIK);
@@ -438,16 +432,6 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
   })), id);
 }
 
-function isValidPaSource(value: string): boolean {
-  const parts = value.split(',').map((part) => part.trim());
-  if (parts.length !== 3) {
-    return false;
-  }
-
-  const [tourId, , rank] = parts;
-  return /^\d+$/.test(tourId) && /^\d+$/.test(rank);
-}
-
 async function addTourParticipant(
   tourId: string | number,
   clubIdInput: string,
@@ -468,10 +452,10 @@ async function addTourParticipant(
   }
 
   if (clubId && paSource) {
-    throw new AppError(400, 'Utilisez soit clubId, soit paSource, pas les deux.');
+    throw new AppError(422, 'Utilisez soit clubId, soit paSource, pas les deux.');
   }
 
-  if (paSource && !isValidPaSource(paSource)) {
+  if (paSource && !parsePaSource(paSource)) {
     throw new AppError(400, 'Format paSource invalide (TUCLEUNIK,GROUPE,CLASSEMENT).');
   }
 

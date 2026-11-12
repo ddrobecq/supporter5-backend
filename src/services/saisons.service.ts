@@ -38,12 +38,12 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
   const saFin = normalizeDayDate(payload.saFin, { required: true, field: 'de fin' });
 
   if (saFin < saDebut) {
-    throw new AppError(400, 'La date de fin doit etre posterieure ou egale a la date de debut.');
+    throw new AppError(422, 'La date de fin doit etre posterieure ou egale a la date de debut.');
   }
 
   const existing = await dbGet<{ SAISON: string }>('SELECT SAISON FROM SAISON WHERE SAISON = ?', [saison]);
   if (existing) {
-    throw new AppError(400, 'Cette saison existe deja.');
+    throw new AppError(422, 'Cette saison existe deja.');
   }
 
   const joueurEntries = Array.isArray(payload.joueurs) ? payload.joueurs : [];
@@ -61,11 +61,11 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
 
     const joueurRg = findJoueurRg.get(idJoueur);
     if (!joueurRg) {
-      throw new AppError(400, `Joueur ${idJoueur} introuvable.`);
+      throw new AppError(422, `Joueur ${idJoueur} introuvable.`);
     }
     const posteRow = findPlayerPoste.get(poste);
     if (!posteRow) {
-      throw new AppError(400, `Poste invalide pour le joueur ${idJoueur}.`);
+      throw new AppError(422, `Poste invalide pour le joueur ${idJoueur}.`);
     }
 
     seenJoueurs.add(idJoueur);

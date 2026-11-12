@@ -1,6 +1,6 @@
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { cached } from '../lib/statsCache';
-import { toText as normalizeText } from '../lib/coerce';
+import { requirePositiveInt, requireText, toText as normalizeText } from '../lib/coerce';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -370,10 +370,7 @@ export async function getClubTerrainHistoryById(id: string): Promise<ClubTerrain
 }
 
 export async function getClubMatchesById(id: string): Promise<ClubMatchRow[]> {
-  const clubId = normalizeText(id);
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
 
   const rows = await dbAll<Array<ClubMatchRow & {
     HEURE: string;
@@ -452,10 +449,7 @@ export async function createClubTerrainHistoryById(
   id: string,
   payload: { date?: string | null; terrainId: string | number },
 ): Promise<ClubTerrainHistoryRow | undefined> {
-  const clubId = normalizeText(id);
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
 
   const club = await dbGet<{ IDCLUB: string }>('SELECT IDCLUB FROM CLUB WHERE IDCLUB = ?', [clubId]);
   if (!club) {
@@ -491,15 +485,8 @@ export async function updateClubTerrainHistoryById(
   terrainHistoryId: string,
   payload: { date?: string | null; terrainId: string | number },
 ): Promise<ClubTerrainHistoryRow | undefined> {
-  const clubId = normalizeText(id);
-  const historyNumericId = Number(terrainHistoryId);
-
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
-  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
-    throw new AppError(400, 'Identifiant de stade club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
+  const historyNumericId = requirePositiveInt(terrainHistoryId, 'Identifiant de stade club invalide.');
 
   const existing = await dbGet<{ CT_CLEUNIK: number }>(
     'SELECT CT_CLEUNIK FROM CLUB_TERRAIN WHERE CT_CLEUNIK = ? AND IDCLUB = ?',
@@ -534,15 +521,8 @@ export async function updateClubTerrainHistoryById(
 }
 
 export async function deleteClubTerrainHistoryById(id: string, terrainHistoryId: string): Promise<boolean> {
-  const clubId = normalizeText(id);
-  const historyNumericId = Number(terrainHistoryId);
-
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
-  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
-    throw new AppError(400, 'Identifiant de stade club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
+  const historyNumericId = requirePositiveInt(terrainHistoryId, 'Identifiant de stade club invalide.');
 
   const result = await dbRun(
     'DELETE FROM CLUB_TERRAIN WHERE CT_CLEUNIK = ? AND IDCLUB = ?',
@@ -555,10 +535,7 @@ export async function createClubNameHistoryById(
   id: string,
   payload: { date?: string | null; eventType: number | string; name: string },
 ): Promise<ClubNameHistoryRow | undefined> {
-  const clubId = normalizeText(id);
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
 
   const club = await dbGet<{ IDCLUB: string }>('SELECT IDCLUB FROM CLUB WHERE IDCLUB = ?', [clubId]);
   if (!club) {
@@ -594,15 +571,8 @@ export async function updateClubNameHistoryById(
   historyId: string,
   payload: { date?: string | null; eventType: number | string; name: string },
 ): Promise<ClubNameHistoryRow | undefined> {
-  const clubId = normalizeText(id);
-  const historyNumericId = Number(historyId);
-
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
-  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
-    throw new AppError(400, 'Identifiant de nom club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
+  const historyNumericId = requirePositiveInt(historyId, 'Identifiant de nom club invalide.');
 
   const existing = await dbGet<{ IDCLUB_NOM: number }>(
     'SELECT IDCLUB_NOM FROM CLUB_NOM WHERE IDCLUB_NOM = ? AND IDCLUB = ?',
@@ -636,15 +606,8 @@ export async function updateClubNameHistoryById(
 }
 
 export async function deleteClubNameHistoryById(id: string, historyId: string): Promise<boolean> {
-  const clubId = normalizeText(id);
-  const historyNumericId = Number(historyId);
-
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
-  if (!Number.isInteger(historyNumericId) || historyNumericId <= 0) {
-    throw new AppError(400, 'Identifiant de nom club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
+  const historyNumericId = requirePositiveInt(historyId, 'Identifiant de nom club invalide.');
 
   const result = await dbRun(
     'DELETE FROM CLUB_NOM WHERE IDCLUB_NOM = ? AND IDCLUB = ?',
@@ -657,10 +620,7 @@ export async function updateClubColorsById(
   id: string,
   payload: { fond: string | number | null; texte: string | number | null },
 ): Promise<ClubProfileRow | undefined> {
-  const clubId = normalizeText(id);
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
+  const clubId = requireText(id, 'Identifiant de club invalide.');
 
   await dbRun(
     'UPDATE CLUB SET FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
@@ -674,13 +634,10 @@ export async function updateClubProfileById(
   id: string,
   payload: { name: string; natioId: string; villeId?: string | number | null; fond?: string | number | null; texte?: string | number | null },
 ): Promise<ClubProfileRow | undefined> {
-  const clubId = normalizeText(id);
+  const clubId = requireText(id, 'Identifiant de club invalide.');
   const name = normalizeText(payload.name);
   const natioId = normalizeText(payload.natioId).toUpperCase();
 
-  if (!clubId) {
-    throw new AppError(400, 'Identifiant de club invalide.');
-  }
   if (!name) {
     throw new AppError(400, 'Le nom du club est requis.');
   }
@@ -695,7 +652,7 @@ export async function updateClubProfileById(
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
   if (!country) {
-    throw new AppError(400, 'Le pays selectionne est introuvable.');
+    throw new AppError(422, 'Le pays selectionne est introuvable.');
   }
 
   const villeId = await resolveVilleIdForClub(natioId, payload.villeId ?? current.IDVILLE ?? undefined);
@@ -801,7 +758,7 @@ export async function mergeClubs(sourceIdInput: unknown, targetIdInput: unknown)
     throw new AppError(400, 'Le club source et le club cible sont obligatoires.');
   }
   if (sourceId === targetId) {
-    throw new AppError(400, 'Le club source et le club cible doivent etre differents.');
+    throw new AppError(422, 'Le club source et le club cible doivent etre differents.');
   }
 
   const source = await dbGet<{ IDCLUB: string }>('SELECT "IDCLUB" FROM "CLUB" WHERE "IDCLUB" = ?', [sourceId]);
@@ -867,7 +824,7 @@ async function resolveNextClubId(): Promise<string> {
   );
   const nextNumericId = Math.max(0, Number(row?.maxId ?? 0)) + 1;
   if (nextNumericId > 9999) {
-    throw new AppError(400, 'Impossible de generer un identifiant club (limite 9999 atteinte).');
+    throw new AppError(422, 'Impossible de generer un identifiant club (limite 9999 atteinte).');
   }
   return String(nextNumericId).padStart(4, '0');
 }
@@ -877,7 +834,7 @@ async function resolveVilleIdForClub(natioId: string, villeId?: string | number)
   if (explicit) {
     const found = await dbGet<{ VICLEUNIK: number }>('SELECT VICLEUNIK FROM VILLE WHERE VICLEUNIK = ?', [explicit]);
     if (!found) {
-      throw new AppError(400, 'La ville selectionnee est introuvable.');
+      throw new AppError(422, 'La ville selectionnee est introuvable.');
     }
     return Number(found.VICLEUNIK);
   }
@@ -887,7 +844,7 @@ async function resolveVilleIdForClub(natioId: string, villeId?: string | number)
     [natioId],
   );
   if (!fallback) {
-    throw new AppError(400, 'Aucune ville disponible pour ce pays. Selectionnez une ville.');
+    throw new AppError(422, 'Aucune ville disponible pour ce pays. Selectionnez une ville.');
   }
   return Number(fallback.VICLEUNIK);
 }
@@ -900,7 +857,7 @@ async function resolveExplicitVilleId(villeId?: string | number): Promise<number
 
   const found = await dbGet<{ VICLEUNIK: number }>('SELECT VICLEUNIK FROM VILLE WHERE VICLEUNIK = ?', [explicit]);
   if (!found) {
-    throw new AppError(400, 'La ville selectionnee est introuvable.');
+    throw new AppError(422, 'La ville selectionnee est introuvable.');
   }
   return Number(found.VICLEUNIK);
 }
@@ -920,7 +877,7 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
   if (!country) {
-    throw new AppError(400, 'Le pays selectionne est introuvable.');
+    throw new AppError(422, 'Le pays selectionne est introuvable.');
   }
 
   const idVille = await resolveExplicitVilleId(payload.villeId);
@@ -951,8 +908,7 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
 }
 
 export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
-  const clubId = normalizeText(id);
-  if (!clubId) throw new AppError(400, 'Identifiant de club invalide.');
+  const clubId = requireText(id, 'Identifiant de club invalide.');
 
   const rows = await dbAll<{ IDEPREUVE: number; EPREUVE: string; OFFICIELLE: number; SCOPE: number; COCLEUNIK: number; ANNEE: string | null }>(
     `SELECT

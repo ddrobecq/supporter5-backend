@@ -75,7 +75,7 @@ function validatePayload(body: Record<string, unknown>, isCreate: boolean): Reco
   const min = clean.CLASS_MinRang as number | undefined;
   const max = clean.CLASS_MaxRang as number | undefined;
   if (min !== undefined && max !== undefined && max < min) {
-    throw new AppError(400, 'CLASS_MaxRang doit etre superieur ou egal a CLASS_MinRang');
+    throw new AppError(422, 'CLASS_MaxRang doit etre superieur ou egal a CLASS_MinRang');
   }
 
   return clean;

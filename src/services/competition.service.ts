@@ -47,7 +47,7 @@ function normalizeHttpUrl(value: unknown): string {
 async function assertEpreuveExists(epreuveId: number): Promise<void> {
   const row = await dbGet<{ IDEPREUVE: number }>('SELECT IDEPREUVE FROM EPREUVE WHERE IDEPREUVE = ?', [epreuveId]);
   if (!row) {
-    throw new AppError(400, 'Épreuve introuvable.');
+    throw new AppError(422, 'Épreuve introuvable.');
   }
 }
 

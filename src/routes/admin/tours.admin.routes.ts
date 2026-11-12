@@ -2,7 +2,6 @@ import { Router } from 'express';
 import ctrl, {
 	integrityChecker,
 	addTourParticipant,
-	getTourByIdDetailed,
 	getTourParticipants,
 	getTourRencontres,
 	getToursByCompetition,
@@ -15,8 +14,8 @@ import { bindCanDeleteRoute } from './canDeleteRoute';
 
 const router = Router();
 
+// GET routes kept here are called by the admin screens (same handlers as the public router).
 router.get('/competition/:competitionId', getToursByCompetition);
-router.get('/:id/detail', getTourByIdDetailed);
 router.get('/:id/participants', getTourParticipants);
 router.get('/:id/rencontres', getTourRencontres);
 router.post('/',       ctrl.create);

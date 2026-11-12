@@ -1,7 +1,8 @@
 import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
-import { toInt, toNum, toText } from '../lib/coerce';
+import { requirePositiveInt, toInt, toNum, toText } from '../lib/coerce';
+import { parsePaSource, type PaSourceRef } from '../lib/paSource';
 import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
 import { officialMatchSql, playedMatchSql } from '../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
@@ -137,12 +138,6 @@ interface ParticipantDbRow {
   GROUPE: string;
 }
 
-interface PaSourceRef {
-  tourId: number;
-  groupName: string;
-  rank: number;
-}
-
 interface SourceTourMeta {
   typeId: number;
   allerRetour: number;
@@ -209,31 +204,6 @@ function normalizeOptionalText(value: unknown): string | null {
   }
   const text = toText(value);
   return text === '' ? null : text;
-}
-
-function parsePaSource(value: unknown): PaSourceRef | null {
-  const raw = toText(value);
-  if (!raw) {
-    return null;
-  }
-
-  const parts = raw.split(',');
-  if (parts.length !== 3) {
-    return null;
-  }
-
-  const tourId = toInt(parts[0], 0);
-  const groupName = String(parts[1] ?? '').trim();
-  const rank = toInt(parts[2], 0);
-
-  if (!Number.isInteger(tourId) || tourId <= 0) {
-    return null;
-  }
-  if (!Number.isInteger(rank) || rank <= 0) {
-    return null;
-  }
-
-  return { tourId, groupName, rank };
 }
 
 const statementCache = new Map<string, Statement<unknown[]>>();
@@ -813,7 +783,7 @@ function readTourDefRulesByTourId(tourId: number): TourDefRules {
   ).get(tourId) as Record<string, unknown> | undefined;
 
   if (!row) {
-    throw new AppError(400, 'TourDef introuvable pour ce tour.');
+    throw new AppError(422, 'TourDef introuvable pour ce tour.');
   }
 
   return {
@@ -1950,11 +1920,11 @@ function assertValidRencontreBody(body: Record<string, unknown>): void {
   }
 
   if (domicile && exterieur && domicile === exterieur) {
-    throw new AppError(400, 'DOMICILE et EXTERIEUR doivent etre differents.');
+    throw new AppError(422, 'DOMICILE et EXTERIEUR doivent etre differents.');
   }
 
   if (paDomSource && paExtSource && paDomSource === paExtSource) {
-    throw new AppError(400, 'PADOMSource et PAEXTSource doivent etre differents.');
+    throw new AppError(422, 'PADOMSource et PAEXTSource doivent etre differents.');
   }
 
   if (!Number.isInteger(tourId) || tourId < 0) {
@@ -2012,10 +1982,7 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
 }
 
 async function updateWithImpact(id: string | number, body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
-  const rencontreId = toInt(id);
-  if (!Number.isInteger(rencontreId) || rencontreId <= 0) {
-    throw new AppError(400, 'Identifiant de rencontre invalide.');
-  }
+  const rencontreId = requirePositiveInt(id, 'Identifiant de rencontre invalide.');
 
   const normalizedBody = normalizeDayDateFields('RENCO', baseService.pickWritableFields(body, { allowPk: false }));
   if (Object.prototype.hasOwnProperty.call(normalizedBody, 'IDCIRC')) {
@@ -2065,10 +2032,7 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
 }
 
 async function removeWithImpact(id: string | number): Promise<boolean> {
-  const rencontreId = toInt(id);
-  if (!Number.isInteger(rencontreId) || rencontreId <= 0) {
-    throw new AppError(400, 'Identifiant de rencontre invalide.');
-  }
+  const rencontreId = requirePositiveInt(id, 'Identifiant de rencontre invalide.');
 
   const transaction = db.transaction(() => {
     const row = readRencontreRowById(rencontreId);
@@ -2161,10 +2125,10 @@ export async function importRencontresForTour(
     const domicile = toText(row.DOMICILE);
     const exterieur = toText(row.EXTERIEUR);
     if (!domicile || !exterieur) {
-      throw new AppError(400, `Ligne ${index + 1}: club domicile ou exterieur non associe.`);
+      throw new AppError(422, `Ligne ${index + 1}: club domicile ou exterieur non associe.`);
     }
     if (domicile === exterieur) {
-      throw new AppError(400, `Ligne ${index + 1}: le club domicile et le club exterieur sont identiques.`);
+      throw new AppError(422, `Ligne ${index + 1}: le club domicile et le club exterieur sont identiques.`);
     }
 
     const butDom = toInt(row.BUTDOM);
@@ -2454,10 +2418,7 @@ export async function getRencontreDetailById(id: string | number): Promise<Renco
 }
 
 export async function getRencontreHighlightsById(id: string | number): Promise<RencontreHighlightsRow | undefined> {
-  const recleunik = toInt(id);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) {
-    throw new AppError(400, 'Identifiant de rencontre invalide.');
-  }
+  const recleunik = requirePositiveInt(id, 'Identifiant de rencontre invalide.');
 
   const baseRow = db.prepare(
     `SELECT
@@ -2745,10 +2706,7 @@ export interface TourMatchWithNamesRow {
 }
 
 export async function getTourMatchesForRencontre(id: string | number): Promise<TourMatchWithNamesRow[]> {
-  const recleunik = toInt(id);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) {
-    throw new AppError(400, 'Identifiant de rencontre invalide.');
-  }
+  const recleunik = requirePositiveInt(id, 'Identifiant de rencontre invalide.');
 
   const rows = db.prepare(
     `SELECT
@@ -3216,8 +3174,7 @@ export function recomputeStatsForRencontreId(recleunik: string | number | null |
 }
 
 export async function upsertArbitreForRencontre(rencontreId: string | number, idarbitre: string | null): Promise<void> {
-  const recleunik = toInt(rencontreId);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
+  const recleunik = requirePositiveInt(rencontreId, 'Identifiant de rencontre invalide.');
 
   const normalizedArbitre = idarbitre ? String(idarbitre).trim() || null : null;
 
@@ -3283,8 +3240,7 @@ function resolveMatchLieuFromTerrain(recleunik: number, tecleunik: string | null
 }
 
 export async function upsertMatchMetaForRencontre(rencontreId: string | number, payload: RencontreMatchMetaPayload): Promise<void> {
-  const recleunik = toInt(rencontreId);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant de rencontre invalide.');
+  const recleunik = requirePositiveInt(rencontreId, 'Identifiant de rencontre invalide.');
 
   await runInTransaction(() => {
     const { macleunik } = ensureMatchRowForRencontre(recleunik);
@@ -3307,8 +3263,7 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
 }
 
 export async function getCompositionForRencontre(id: string | number): Promise<CompositionRow | null> {
-  const recleunik = toInt(id);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+  const recleunik = requirePositiveInt(id, 'Identifiant invalide.');
 
   const row = db.prepare(
     `SELECT e."EQCLEUNIK", ${ALL_SLOTS.map((slot) => `e."${slot}"`).join(', ')}, e."ENTRAINEUR", e."MACLEUNIK",
@@ -3328,8 +3283,7 @@ export async function upsertCompositionForRencontre(
   id: string | number,
   payload: Record<string, unknown>,
 ): Promise<(CompositionRow & { warnings: string[] }) | null> {
-  const recleunik = toInt(id);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+  const recleunik = requirePositiveInt(id, 'Identifiant invalide.');
 
   const matchRow = db.prepare(
     `SELECT m."MACLEUNIK"
@@ -3396,8 +3350,7 @@ export interface SquadPlayerRow {
 }
 
 export async function getSquadForRencontre(id: string | number): Promise<SquadPlayerRow[]> {
-  const recleunik = toInt(id);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+  const recleunik = requirePositiveInt(id, 'Identifiant invalide.');
 
   const rencoRow = db.prepare(
     `SELECT "SAISON", "DATE" FROM "RENCO" WHERE "RECLEUNIK" = ? LIMIT 1`,
@@ -3532,11 +3485,8 @@ function assertEventBusinessRules(payload: EventPayload): void {
 
 /** Event id and MACLEUNIK; 404 when the event does not exist or belongs to another rencontre. */
 function readEventOfRencontre(rencontreId: string | number, evcleunik: string | number): { id: number; macleunik: number } {
-  const recleunik = toInt(rencontreId);
-  const id = toInt(evcleunik);
-  if (!Number.isInteger(recleunik) || recleunik <= 0 || !Number.isInteger(id) || id <= 0) {
-    throw new AppError(400, 'Identifiant invalide.');
-  }
+  const recleunik = requirePositiveInt(rencontreId, 'Identifiant invalide.');
+  const id = requirePositiveInt(evcleunik, 'Identifiant invalide.');
   const row = db.prepare(
     `SELECT e."MACLEUNIK" FROM "EVENT" e INNER JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
      WHERE e."EVCLEUNIK" = ? AND m."RECLEUNIK" = ? LIMIT 1`,
@@ -3551,7 +3501,7 @@ function validateAdditionalTimeEvent(payload: EventPayload, macleunik: number, e
   if (payload.typeEvent !== 10) return;
 
   if (payload.periode < 1 || payload.periode > 4) {
-    throw new AppError(400, "Le temps additionnel ne peut concerner que le temps reglementaire ou la prolongation, pas les tirs au but.");
+    throw new AppError(422, "Le temps additionnel ne peut concerner que le temps reglementaire ou la prolongation, pas les tirs au but.");
   }
 
   if (payload.periode === 3 || payload.periode === 4) {
@@ -3559,13 +3509,13 @@ function validateAdditionalTimeEvent(payload: EventPayload, macleunik: number, e
       `SELECT "EXTRATIME" FROM "MATCH" WHERE "MACLEUNIK" = ? LIMIT 1`,
     ).get(macleunik) as Record<string, unknown> | undefined;
     if (toInt(matchRow?.EXTRATIME) !== 1) {
-      throw new AppError(400, "Ce match n'a pas de prolongation : impossible d'ajouter du temps additionnel pour cette periode.");
+      throw new AppError(422, "Ce match n'a pas de prolongation : impossible d'ajouter du temps additionnel pour cette periode.");
     }
   }
 
   const minutes = parseInt(toText(payload.comment), 10);
   if (!Number.isInteger(minutes) || minutes < 1) {
-    throw new AppError(400, 'Le temps additionnel doit etre un nombre entier de minutes superieur a 0.');
+    throw new AppError(422, 'Le temps additionnel doit etre un nombre entier de minutes superieur a 0.');
   }
 
   const duplicate = db.prepare(
@@ -3579,8 +3529,7 @@ function validateAdditionalTimeEvent(payload: EventPayload, macleunik: number, e
 }
 
 export async function createEventForRencontre(rencontreId: string | number, body: unknown): Promise<void> {
-  const recleunik = toInt(rencontreId);
-  if (!Number.isInteger(recleunik) || recleunik <= 0) throw new AppError(400, 'Identifiant invalide.');
+  const recleunik = requirePositiveInt(rencontreId, 'Identifiant invalide.');
   const payload = parseEventPayload(body);
   assertEventBusinessRules(payload);
 

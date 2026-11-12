@@ -3,6 +3,7 @@ import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
+import { normalizeSaison } from '../lib/saisonRules';
 import joueursService from '../services/joueurs.service';
 import { AppError } from '../types';
 
@@ -25,10 +26,7 @@ type HistoryPayload = { saison: string; poste: number | string };
 type JoueurWizardPayload = { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string };
 
 export const getJoueursGrid = jsonHandler((req) => {
-	const season = String(req.query.season ?? '').trim();
-	if (!/^\d{4}-\d{4}$/.test(season)) {
-		throw new AppError(400, 'Parametre season invalide (xxxx-yyyy attendu)');
-	}
+	const season = normalizeSaison(req.query.season, 'Parametre season invalide (xxxx-yyyy attendu)');
 
 	const search = String(req.query.search ?? '').trim();
 	const posTypeRaw = req.query.posType;
@@ -40,10 +38,7 @@ export const getJoueursGrid = jsonHandler((req) => {
 });
 
 export const getJoueurSeasonRoster = dataHandler((req) => {
-	const season = String(req.params.saison ?? '').trim();
-	if (!/^\d{4}-\d{4}$/.test(season)) {
-		throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu)');
-	}
+	const season = normalizeSaison(req.params.saison, 'Parametre saison invalide (xxxx-yyyy attendu)');
 	return joueursService.getJoueurRosterForSeasonWizard(season);
 });
 
@@ -98,10 +93,7 @@ export const getJoueurSeasonsByPlayedMatches = dataHandler(
 );
 
 export const getJoueurMatches = dataHandler((req) => {
-	const saison = String(req.params.saison ?? '').trim();
-	if (!/^\d{4}-\d{4}$/.test(saison)) {
-		throw new AppError(400, 'Parametre saison invalide (xxxx-yyyy attendu).');
-	}
+	const saison = normalizeSaison(req.params.saison, 'Parametre saison invalide (xxxx-yyyy attendu).');
 	return joueursService.getJoueurMatchesForSeason(req.params.id, saison);
 });
 

@@ -1,6 +1,6 @@
 import type { Request } from 'express';
 import { dbAll, dbGet } from '../config/database';
-import { AppError } from '../types';
+import { parsePageParams } from './queryBuilder';
 
 const DEFAULT_GRID_PAGE_SIZE = 100;
 const MAX_GRID_PAGE_SIZE = 500;
@@ -23,15 +23,6 @@ export interface GridPageMeta {
 
 export type GridPageResult<T> = { data: T[] } & GridPageMeta;
 
-function parsePositiveInteger(value: unknown, name: string, max: number): number {
-  const raw = typeof value === 'string' ? value.trim() : '';
-  const parsed = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
-  if (!Number.isSafeInteger(parsed) || parsed < 1 || parsed > max) {
-    throw new AppError(400, `Parametre ${name} invalide (entier entre 1 et ${max} attendu)`);
-  }
-  return parsed;
-}
-
 /**
  * Optional `page` / `pageSize` query parameters. Returns undefined when neither is given,
  * which keeps the historical "all rows" behavior (bounded by a hard row limit).
@@ -40,12 +31,10 @@ export function parseGridPagination(query: Request['query']): GridPagination | u
   if (query.page === undefined && query.pageSize === undefined) {
     return undefined;
   }
-  return {
-    page: query.page === undefined ? 1 : parsePositiveInteger(query.page, 'page', Number.MAX_SAFE_INTEGER),
-    pageSize: query.pageSize === undefined
-      ? DEFAULT_GRID_PAGE_SIZE
-      : parsePositiveInteger(query.pageSize, 'pageSize', MAX_GRID_PAGE_SIZE),
-  };
+  const { page, size } = parsePageParams(query.page, query.pageSize, {
+    sizeName: 'pageSize', defaultSize: DEFAULT_GRID_PAGE_SIZE, maxSize: MAX_GRID_PAGE_SIZE, invalid: 'reject',
+  });
+  return { page, pageSize: size };
 }
 
 async function countRows(baseSql: string, params: unknown[]): Promise<number> {

@@ -1,3 +1,4 @@
+import { requireText } from '../lib/coerce';
 import { createEntityController } from '../lib/controllerFactory';
 import { asyncHandler, dataHandler, jsonHandler } from '../lib/responseHelpers';
 import rencontresService from '../services/rencontres.service';
@@ -8,9 +9,7 @@ const baseController = createEntityController(rencontresService);
 
 /** Trimmed `:id` route parameter, or AppError 400 when empty. */
 function requireRencontreId(req: Request): string {
-	const id = String(req.params.id ?? '').trim();
-	if (!id) throw new AppError(400, 'Identifiant de rencontre invalide.');
-	return id;
+	return requireText(req.params.id, 'Identifiant de rencontre invalide.');
 }
 
 export const getCalendar = dataHandler((req) => {
@@ -102,10 +101,10 @@ export const createEvent = jsonHandler(async (req) => {
 
 /** Route ids of an event, or AppError 400 'Identifiant invalide.' when one of them is empty. */
 function requireEventIds(req: Request): { rencontreId: string; evcleunik: string } {
-	const rencontreId = String(req.params.id ?? '').trim();
-	const evcleunik = String(req.params.evid ?? '').trim();
-	if (!rencontreId || !evcleunik) throw new AppError(400, 'Identifiant invalide.');
-	return { rencontreId, evcleunik };
+	return {
+		rencontreId: requireText(req.params.id, 'Identifiant invalide.'),
+		evcleunik: requireText(req.params.evid, 'Identifiant invalide.'),
+	};
 }
 
 export const updateEvent = jsonHandler(async (req) => {

@@ -1,6 +1,7 @@
 import type { Request } from 'express';
 import { cachedDataHandler } from '../../lib/statsCache';
-import { AppError } from '../../types';
+import { requireText } from '../../lib/coerce';
+import { normalizeSaison } from '../../lib/saisonRules';
 import { getSaisonClassement, getSaisonsDisponibles, type SaisonClassementMetric } from '../../services/stats/saison/classements.service';
 import { getEquipeType } from '../../services/stats/saison/equipeType.service';
 import { getSaisonComposition, type CompositionMetric } from '../../services/stats/saison/composition.service';
@@ -9,13 +10,9 @@ import { getSaisonButsEquipe, type ButsEquipeMetric } from '../../services/stats
 import { getSaisonSanctionsEquipe, type SanctionEquipeMetric } from '../../services/stats/saison/sanctionsEquipe.service';
 import { getSaisonTransferts, type TransfertEquipeMetric } from '../../services/stats/saison/transfertsEquipe.service';
 
-/** Required `saison` query parameter (trimmed), or AppError 400. */
+/** Required `saison` query parameter (trimmed, xxxx-yyyy), or AppError 400. */
 function requireSaison(req: Request): string {
-  const saison = String(req.query.saison ?? '').trim();
-  if (!saison) {
-    throw new AppError(400, 'Le parametre saison est requis.');
-  }
-  return saison;
+  return normalizeSaison(requireText(req.query.saison, 'Le parametre saison est requis.'));
 }
 
 export const getSaisonsStat = cachedDataHandler(() => getSaisonsDisponibles());

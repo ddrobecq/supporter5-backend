@@ -10,7 +10,5 @@ router.put('/:id', ctrl.update);
 bindCanDeleteRoute(router, integrityChecker);
 
 router.delete('/:id', ctrl.remove);
-router.get('/', ctrl.getAll);
-router.get('/:id', ctrl.getById);
 
 export default router;
