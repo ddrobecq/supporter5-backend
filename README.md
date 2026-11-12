@@ -179,16 +179,19 @@ Pattern commun:
 POST   /api/admin/{entite}
 PUT    /api/admin/{entite}/:id
 DELETE /api/admin/{entite}/:id
-
-PATCH  /api/admin/{entite}/bulk
-DELETE /api/admin/{entite}/bulk
 ```
 
-Exceptions (suppression en cascade obligatoire via `DELETE /api/admin/rencontres/:id`):
-- `/api/admin/rencontres` : ni `PATCH /bulk` ni `DELETE /bulk`.
-- `/api/admin/matchs` : ni `DELETE /:id` ni `DELETE /bulk`.
+Pas de routes de modification en masse (bulk) : une écriture = un enregistrement.
+
+Exception (suppression en cascade obligatoire via `DELETE /api/admin/rencontres/:id`) :
+- `/api/admin/matchs` : pas de `DELETE /:id`.
 
 Note: les lectures `GET` passent par les routes publiques `/api/...`.
+
+### Conventions
+- **Pagination des listes** : `page` (entier ≥ 1, défaut 1) et `pageSize` (entier 1–500, défaut 100). Toute autre valeur → 400. Les grilles `/clubs/grid` et `/joueurs/grid` sans paramètre ne sont pas paginées.
+- **Codes d'erreur** : 400 = requête mal formée (champ manquant, type ou format invalide) ; 422 = règle métier violée ; 409 = conflit (suppression d'un enregistrement encore référencé, contrainte) ; 404 = ressource introuvable.
+- **Le back enregistre ce qu'il reçoit** : il valide et refuse (400/422/409), mais ne recalcule ni ne réécrit jamais une valeur envoyée. Les valeurs par défaut sont proposées par le front.
 
 ### Endpoints admin spécifiques
 ```
@@ -231,23 +234,6 @@ POST /api/admin/rencontres
 }
 ```
 
-**Bulk Update** (PATCH)
-```bash
-PATCH /api/admin/joueurs/bulk
-{
-  "ids": ["IDJOUEUR1", "IDJOUEUR2"],
-  "data": {"POSTE":2}
-}
-```
-
-**Bulk Delete** (DELETE)
-```bash
-DELETE /api/admin/joueurs/bulk
-{
-  "ids": ["IDJOUEUR1", "IDJOUEUR2"]
-}
-```
-
 ---
 
 ## 🛠️ Scripts npm
@@ -269,7 +255,7 @@ back/
     config/
       database.ts         # Connexion SQLite + helpers (dbAll, dbGet, dbRun)
     lib/
-      baseService.ts      # Factory pour CRUD + bulk ops
+      baseService.ts      # Factory pour CRUD générique
       controllerFactory.ts # Factory pour controllers génériques
       queryBuilder.ts     # Sanitization + WHERE builder
     middlewares/
@@ -329,20 +315,6 @@ back/
 
 ---
 
-## 📊 Opérations en masse
-
-```bash
-# Bulk Update : modifier plusieurs enregistrements
-PATCH /api/admin/joueurs/bulk
-{ "ids": ["0001", "0002"], "data": { "POSTE": 2 } }
-
-# Bulk Delete : supprimer plusieurs enregistrements
-DELETE /api/admin/joueurs/bulk
-{ "ids": ["0001", "0002"] }
-```
-
----
-
 ## 🚀 Déploiement (Render.com + SQLite)
 
 1. Créer un Web Service sur Render.com lié au repo Git
@@ -369,6 +341,4 @@ Une collection Bruno sera créée dans l'étape suivante pour tester :
 - ✅ POST créer entité
 - ✅ PUT modifier entité
 - ✅ DELETE supprimer entité
-- ✅ PATCH bulk update
-- ✅ DELETE bulk delete
-- ✅ Erreurs (401, 404, 400)
+- ✅ Erreurs (400, 401, 404, 409, 422)

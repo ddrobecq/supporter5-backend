@@ -51,13 +51,13 @@ app.use((req, res, next) => {
 // Santé
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
-// Référencement : contenu généré et mis en cache côté serveur pendant 24 h.
+// Référencement : contenu reconstruit après chaque écriture admin (TTL serveur 24 h), cache HTTP 1 h.
 app.get('/sitemap.xml', async (_req, res, next) => {
   try {
     const xml = await getSitemapXml();
     res
       .type('application/xml')
-      .set('Cache-Control', 'public, max-age=86400')
+      .set('Cache-Control', 'public, max-age=3600')
       .send(xml);
   } catch (error) {
     next(error);
