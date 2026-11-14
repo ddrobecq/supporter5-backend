@@ -359,9 +359,14 @@ function latestTransactionSql(columns: string, latestFilter = ''): string {
      `;
 }
 
-/** Hard row limit of the unpaginated players grid (75 rows max per season in the dev database, 2026-11). */
+/** Hard row limit of the unpaginated players grid (75 rows max per season, ~1200 players across all seasons in the dev database, 2026-11). */
 const JOUEURS_GRID_MAX_ROWS = 2_000;
 
+/**
+ * Players grid. `season` ('xxxx-yyyy') lists the JOUEUR rows of that season; an empty `season` searches across
+ * all seasons and returns one row per player: their JOUEUR row of the latest SAISON whose Poste has POS_TYPE
+ * `posType` (tie-break on highest JOCLEUNIK).
+ */
 export async function getJoueursGridBySeason(
   season: string,
   search: string,
@@ -370,6 +375,18 @@ export async function getJoueursGridBySeason(
 ): Promise<GridPageResult<JoueurGridRow>> {
   const normalizedSearch = normalizeSearchText(search);
   const likeSearch = `%${normalizedSearch}%`;
+  const allSeasons = season === '';
+
+  const joueurSource = allSeasons
+    ? `(
+         SELECT j0.*, ROW_NUMBER() OVER (PARTITION BY j0.IDJOUEUR ORDER BY j0.SAISON DESC, j0.JOCLEUNIK DESC) AS RN
+         FROM JOUEUR j0
+         INNER JOIN Poste p0 ON p0.POS_ID = j0.POSTE
+         WHERE p0.POS_TYPE = ?
+       ) j`
+    : 'JOUEUR j';
+  const seasonFilter = allSeasons ? 'j.RN = 1' : 'j.SAISON = ?';
+  const scopeParams: unknown[] = allSeasons ? [posType] : [season];
 
   return fetchGridPage<JoueurGridRow>(
     `SELECT
@@ -382,11 +399,11 @@ export async function getJoueursGridBySeason(
       tx.SAISON AS LAST_TRANSAC_SAISON,
       tx.STATUT AS LAST_TRANSAC_STATUT,
       tx.TYPE AS LAST_TRANSAC_TYPE
-     FROM JOUEUR j
+     FROM ${joueurSource}
      INNER JOIN JOUEURRG jr ON jr.IDJOUEUR = j.IDJOUEUR
      INNER JOIN Poste p ON p.POS_ID = j.POSTE
      LEFT JOIN (${latestTransactionSql('t1.IDJOUEUR, t1.SAISON, t1.STATUT, t1.TYPE')}) tx ON tx.IDJOUEUR = j.IDJOUEUR
-     WHERE j.SAISON = ?
+     WHERE ${seasonFilter}
        AND p.POS_TYPE = ?
        AND (
          ? = ''
@@ -396,7 +413,7 @@ export async function getJoueursGridBySeason(
          OR fold(p.POS_NOM) LIKE ?
        )
      ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
-    [season, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
+    [...scopeParams, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
     pagination,
     JOUEURS_GRID_MAX_ROWS,
   );

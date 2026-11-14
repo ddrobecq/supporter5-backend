@@ -26,7 +26,9 @@ type HistoryPayload = { saison: string; poste: number | string };
 type JoueurWizardPayload = { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string };
 
 export const getJoueursGrid = jsonHandler((req) => {
-	const season = normalizeSaison(req.query.season, 'Parametre season invalide (xxxx-yyyy attendu)');
+	// Absent or empty season: search across all seasons (one row per player).
+	const seasonRaw = String(req.query.season ?? '').trim();
+	const season = seasonRaw === '' ? '' : normalizeSaison(seasonRaw, 'Parametre season invalide (xxxx-yyyy attendu)');
 
 	const search = String(req.query.search ?? '').trim();
 	const posTypeRaw = req.query.posType;
