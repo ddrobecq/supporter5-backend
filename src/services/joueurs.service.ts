@@ -710,21 +710,20 @@ async function buildTransactionValues(
   const statut = normalizeTransactionStatut(payload.statut);
 
   // Fields the type does not use must arrive empty: a value is rejected (422), never silently dropped.
+  // Fields the type uses stay optional (e.g. the club may be unknown or absent, as for a free agent on trial).
   const usesClub = Number(transactionType.TYT_CLUB) !== 0;
   const usesSalaire = Number(transactionType.TYT_SALAIRE ?? 0) !== 0;
   const usesIndemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0;
   const usesEcheance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0;
 
   const clubId = normalizeOptionalClubId(payload.idClub);
-  if (usesClub) {
-    if (!clubId) {
-      throw new AppError(422, 'Le club est requis pour ce type de transaction.');
+  if (clubId) {
+    if (!usesClub) {
+      throw new AppError(422, "Le club n'est pas applicable à ce type de transaction.");
     }
     await ensureClubExists(clubId);
-  } else if (clubId) {
-    throw new AppError(422, "Le club n'est pas applicable à ce type de transaction.");
   }
-  // An empty club is stored as sent: NULL for null/absent, '' for an empty string (858 historical rows).
+  // An empty club is stored as sent: NULL for null/absent, '' for an empty string.
   const storedClubId = clubId ?? (payload.idClub == null ? null : '');
 
   const deviseId = await resolveDeviseId(payload.deviseId);
