@@ -141,7 +141,47 @@ function isSafeAttributeValue(name: string, value: string): boolean {
   return true;
 }
 
-function sanitizeAttributes(rawAttributes: unknown): XmlNode | undefined {
+/** Namespace prefix -> URI bindings in scope for an element. */
+type NamespaceScope = ReadonlyMap<string, string>;
+
+/** Adds the `xmlns:prefix` declarations of an element to the inherited scope. */
+function extendScope(rawAttributes: unknown, parentScope: NamespaceScope): NamespaceScope {
+  if (!rawAttributes || typeof rawAttributes !== 'object') {
+    return parentScope;
+  }
+  let scope: Map<string, string> | null = null;
+  for (const [key, rawValue] of Object.entries(rawAttributes as XmlNode)) {
+    if (!key.startsWith(`${ATTR_PREFIX}xmlns:`) || typeof rawValue !== 'string') {
+      continue;
+    }
+    scope ??= new Map(parentScope);
+    scope.set(key.slice(ATTR_PREFIX.length + 'xmlns:'.length), decodeXmlEntities(rawValue).trim());
+  }
+  return scope ?? parentScope;
+}
+
+/**
+ * Maps a prefixed name to its canonical form: a prefix bound to the SVG namespace is dropped
+ * ("ns0:svg" -> "svg") and a prefix bound to XLink becomes "xlink" ("x:href" -> "xlink:href").
+ * Unprefixed names and other prefixes are returned unchanged.
+ */
+function canonicalName(rawName: string, scope: NamespaceScope): string {
+  const colon = rawName.indexOf(':');
+  if (colon <= 0) {
+    return rawName;
+  }
+  const uri = scope.get(rawName.slice(0, colon));
+  const localName = rawName.slice(colon + 1);
+  if (uri === SVG_NS) {
+    return localName;
+  }
+  if (uri === XLINK_NS) {
+    return `xlink:${localName}`;
+  }
+  return rawName;
+}
+
+function sanitizeAttributes(rawAttributes: unknown, scope: NamespaceScope): XmlNode | undefined {
   if (!rawAttributes || typeof rawAttributes !== 'object') {
     return undefined;
   }
@@ -151,7 +191,8 @@ function sanitizeAttributes(rawAttributes: unknown): XmlNode | undefined {
     if (!key.startsWith(ATTR_PREFIX) || typeof rawValue !== 'string') {
       continue;
     }
-    const name = key.slice(ATTR_PREFIX.length);
+    const rawName = key.slice(ATTR_PREFIX.length);
+    const name = rawName.startsWith('xmlns:') ? rawName : canonicalName(rawName, scope);
     if (name.toLowerCase().startsWith('on') || !ALLOWED_ATTRIBUTES.has(name) || NAMESPACE_ATTRIBUTES.has(name)) {
       continue;
     }
@@ -159,7 +200,7 @@ function sanitizeAttributes(rawAttributes: unknown): XmlNode | undefined {
     if (!isSafeAttributeValue(name, value)) {
       continue;
     }
-    clean[key] = value;
+    clean[`${ATTR_PREFIX}${name}`] = value;
   }
 
   return Object.keys(clean).length ? clean : undefined;
@@ -175,7 +216,7 @@ function elementName(node: XmlNode): string | null {
   return null;
 }
 
-function sanitizeNodes(nodes: unknown): XmlNode[] {
+function sanitizeNodes(nodes: unknown, parentScope: NamespaceScope): XmlNode[] {
   if (!Array.isArray(nodes)) {
     return [];
   }
@@ -194,13 +235,18 @@ function sanitizeNodes(nodes: unknown): XmlNode[] {
       continue;
     }
 
-    const name = elementName(node);
-    if (!name || !ALLOWED_ELEMENTS.has(name)) {
+    const rawName = elementName(node);
+    if (!rawName) {
+      continue;
+    }
+    const scope = extendScope(node[ATTRS_KEY], parentScope);
+    const name = canonicalName(rawName, scope);
+    if (!ALLOWED_ELEMENTS.has(name)) {
       continue;
     }
 
-    const cleanNode: XmlNode = { [name]: sanitizeNodes(node[name]) };
-    const attributes = sanitizeAttributes(node[ATTRS_KEY]);
+    const cleanNode: XmlNode = { [name]: sanitizeNodes(node[rawName], scope) };
+    const attributes = sanitizeAttributes(node[ATTRS_KEY], scope);
     if (attributes) {
       cleanNode[ATTRS_KEY] = attributes;
     }
@@ -233,11 +279,13 @@ export function sanitizeSvg(input: string): string {
 
   const topLevel = Array.isArray(parsed) ? (parsed as XmlNode[]) : [];
   const elements = topLevel.filter((node) => node && typeof node === 'object' && elementName(node) !== null);
-  if (elements.length !== 1 || elementName(elements[0]) !== 'svg') {
+  const rootName = elements.length === 1 ? elementName(elements[0]) : null;
+  const rootScope = elements.length === 1 ? extendScope(elements[0][ATTRS_KEY], new Map()) : new Map<string, string>();
+  if (!rootName || canonicalName(rootName, rootScope) !== 'svg') {
     throw new AppError(400, 'Image SVG invalide : l\'élément racine doit être <svg>.');
   }
 
-  const [root] = sanitizeNodes(elements);
+  const [root] = sanitizeNodes(elements, new Map());
   // Canonical namespaces (an entity-based xmlns such as Illustrator's "&ns_svg;" is not expanded).
   const usesXlink = JSON.stringify(root).includes(`"${ATTR_PREFIX}xlink:href"`);
   root[ATTRS_KEY] = {
