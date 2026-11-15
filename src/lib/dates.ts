@@ -113,3 +113,17 @@ export function normalizeDayDateFields(table: string, body: Record<string, unkno
 
   return result;
 }
+
+/**
+ * Shifts a normalized day date ("YYYY-MM-DD") by `years` years; '' stays ''.
+ * Same overflow rule as SQLite date(x, '+N years'): 29 February on a non-leap target year becomes 1 March.
+ */
+export function addYearsToDayDate(value: string, years: number): string {
+  const parts = parseDayDate(value);
+  if (!parts) {
+    return value;
+  }
+
+  const date = new Date(Date.UTC(parts.year + years, parts.month - 1, parts.day));
+  return formatDayDate({ year: date.getUTCFullYear(), month: date.getUTCMonth() + 1, day: date.getUTCDate() });
+}

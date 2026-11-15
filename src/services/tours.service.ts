@@ -231,7 +231,11 @@ async function getTourByIdDetailed(tourId: string | number): Promise<Record<stri
        t."TU_SELECTION",
        t."TU_COMMENT",
        t."NB_MATCH",
-       td."TDTYPETOUR" AS "TDTYPETOUR"
+       td."TDTYPETOUR" AS "TDTYPETOUR",
+       -- 1 when the tour dates are derived from its matches (recomputeTourDates): the form shows them read-only.
+       CASE WHEN EXISTS (
+         SELECT 1 FROM "RENCO" r WHERE r."TUCLEUNIK" = t."TUCLEUNIK" AND COALESCE(r."DATE", '') <> ''
+       ) THEN 1 ELSE 0 END AS "HAS_RENCONTRES_DATEES"
      FROM "TOUR" t
      LEFT JOIN "TOURDEF" td ON td."TDCLEUNIK" = t."TDCLEUNIK"
      WHERE t."TUCLEUNIK" = ?`,

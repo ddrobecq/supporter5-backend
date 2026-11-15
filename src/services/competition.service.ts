@@ -1,7 +1,7 @@
 import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
-import { normalizeDayDate } from '../lib/dates';
+import { addYearsToDayDate, normalizeDayDate } from '../lib/dates';
 import { parseFlag, requireBodyObject, requirePositiveInt, toText } from '../lib/coerce';
 import { AppError } from '../types';
 
@@ -308,14 +308,14 @@ export async function clonePreviousCompetition(
         previousTour.NB_PARTICIPANTS ?? 0,
         newCompetitionId,
         previousTour.NOM ?? '',
-        normalizeDayDate(previousTour.DATE_DEBUT),
-        normalizeDayDate(previousTour.DATE_FIN),
+        addYearsToDayDate(normalizeDayDate(previousTour.DATE_DEBUT), 1),
+        addYearsToDayDate(normalizeDayDate(previousTour.DATE_FIN), 1),
         previousTour.TUHEURE ?? null,
         previousTour.NB_EQUIPE ?? 0,
         previousTour.NB_GROUPE ?? 0,
         previousTour.TU_ORDRE ?? 0,
         previousTour.TU_FINAL ?? 0,
-        normalizeDayDate(previousTour.TU_DATETIRAGE),
+        addYearsToDayDate(normalizeDayDate(previousTour.TU_DATETIRAGE), 1),
         previousTour.TU_HEURETIRAGE ?? null,
         previousTour.TU_SELECTION ?? 0,
         previousTour.TU_COMMENT ?? null,

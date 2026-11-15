@@ -12,6 +12,7 @@ import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import { buildCircCompletResolver, type CircCompletSourceRow } from '../lib/circComplet';
 import { OWN_GOAL_PLAYER_CODE } from '../lib/matchEvents';
+import { recomputeTourDates } from '../lib/tourDates';
 
 export interface CalendarMatchRow {
   RECLEUNIK: string | number;
@@ -2004,6 +2005,7 @@ async function createWithImpact(body: Record<string, unknown>): Promise<Record<s
 
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(insertedRow.TUCLEUNIK);
+    recomputeTourDates([insertedRow.TUCLEUNIK]);
     recomputeSupportedClubPlayerStatsForSeasons([supportedClubStatsSeason(insertedRow)]);
 
     return insertedId;
@@ -2049,6 +2051,7 @@ async function updateWithImpact(id: string | number, body: Record<string, unknow
     impactedTours.forEach((tourId) => {
       recomputeAllGroupsForTour(tourId);
     });
+    recomputeTourDates([...impactedTours]);
 
     propagateProgrammedParticipantsAndMatches();
     recomputeSupportedClubPlayerStatsForSeasons([beforeStatsSeason, supportedClubStatsSeason(afterRow)]);
@@ -2091,6 +2094,7 @@ async function removeWithImpact(id: string | number): Promise<boolean> {
     );
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(row.TUCLEUNIK);
+    recomputeTourDates([row.TUCLEUNIK]);
     recomputeSupportedClubPlayerStatsForSeasons([statsSeason]);
     return true;
   });
@@ -2202,6 +2206,7 @@ export async function importRencontresForTour(
 
     propagateProgrammedParticipantsAndMatches();
     recomputeAllGroupsForTour(tourId);
+    recomputeTourDates([tourId]);
   });
 
   transaction();
