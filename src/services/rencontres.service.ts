@@ -695,8 +695,13 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
   const joueur2 = resolvePlayerDisplayName(eventRow.J2_PRENOM, eventRow.J2_NOM, eventRow.J2_SURNOM, eventRow.JOUEUR2);
 
   let baseText: string;
-  if (typeEvent === 1) {
-    const scorer = toText(eventRow.JOUEUR1) === OWN_GOAL_PLAYER_CODE ? 'But contre son camp' : `But de ${joueur1}`;
+  if (typeEvent === 1 && toText(eventRow.JOUEUR1) === OWN_GOAL_PLAYER_CODE) {
+    // Own goal: COMMENT holds the opponent scorer's name and is consumed here, not appended below.
+    const ownGoalScorer = comment.trim().replace(/^de\s+/i, '');
+    const scorer = ownGoalScorer ? `But de ${ownGoalScorer} contre son camp` : 'But contre son camp';
+    return joueur2 ? `${scorer} sur une passe de ${joueur2}` : scorer;
+  } else if (typeEvent === 1) {
+    const scorer = `But de ${joueur1}`;
     baseText = joueur2 ? `${scorer} sur une passe de ${joueur2}` : scorer;
   } else if (typeEvent === 2) {
     baseText = `${joueur2} remplace ${joueur1}`;
