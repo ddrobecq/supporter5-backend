@@ -6,6 +6,7 @@ import { parsePaSource, type PaSourceRef } from '../lib/paSource';
 import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
 import { officialMatchSql, playedMatchSql } from '../lib/supportedMatches';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
+import { reassignTransactionSeasonsAround } from '../lib/transactionSeason';
 import { AppError } from '../types';
 import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
@@ -3644,18 +3645,24 @@ export async function deleteEventForRencontre(rencontreId: string | number, evcl
   // Pas de recalcul ici : les stats sont recalculees explicitement quand l'utilisateur clique sur "Enregistrer".
 }
 
-/** Outils > Statistiques : rejoue, saison par saison, le meme recalcul que lors de l'enregistrement d'un match. */
-export async function recomputePlayerStatsForSeasons(seasons: string[]): Promise<{ saisons: string[] }> {
+/**
+ * Outils > Statistiques : rejoue, saison par saison, le meme recalcul que lors de l'enregistrement d'un match,
+ * puis reaffecte TRANSAC.SAISON autour de chaque saison (lib/transactionSeason). Tout ou rien.
+ */
+export async function recomputePlayerStatsForSeasons(
+  seasons: string[],
+): Promise<{ saisons: string[]; transactionsReaffectees: number }> {
   const normalized = Array.from(new Set(
     (Array.isArray(seasons) ? seasons : []).map((season) => toText(season)).filter(Boolean),
   ));
   if (normalized.length === 0) throw new AppError(400, 'Aucune saison selectionnee.');
 
-  db.transaction(() => {
+  const transactionsReaffectees = db.transaction(() => {
     normalized.forEach((season) => recomputeSupportedClubPlayerStatsForSeason(season));
+    return normalized.reduce((total, season) => total + reassignTransactionSeasonsAround(season), 0);
   })();
 
-  return { saisons: normalized };
+  return { saisons: normalized, transactionsReaffectees };
 }
 
 export default {

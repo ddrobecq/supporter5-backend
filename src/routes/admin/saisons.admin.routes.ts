@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import ctrl, { createSaisonWithWizard, integrityChecker } from '../../controllers/saisons.controller';
+import ctrl, { createSaisonWithWizard, getTransactionSeason, integrityChecker } from '../../controllers/saisons.controller';
 import { bindCanDeleteRoute } from './canDeleteRoute';
 const router = Router();
+router.get('/transaction-season', getTransactionSeason);
 router.post('/',       ctrl.create);
 router.post('/wizard-create', createSaisonWithWizard);
 router.put('/:id',    ctrl.update);

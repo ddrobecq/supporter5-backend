@@ -4,6 +4,7 @@ import { createEntityService } from '../lib/baseService';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
+import { resolveTransactionSeason } from '../lib/transactionSeason';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError } from '../types';
 
@@ -166,7 +167,7 @@ export interface JoueurMatchRow {
  */
 export interface JoueurTransactionPayload {
   date: string;
-  /** Sent by the client (the front proposes it from the date); never recomputed. */
+  /** Sent by the client (the front proposes it from the date); never recomputed, but must match the date (422). */
   saison: string;
   typeId: number;
   /** 1, 2 or 3. */
@@ -760,6 +761,12 @@ async function buildTransactionValues(
 ): Promise<unknown[]> {
   const { date, saison: season, typeId, statut, salaire, indemnites, echeance } = payload;
   const transactionType = await getTransactionTypeById(typeId);
+
+  // The season is stored as sent, but must be the season of movements covering the date (lib/transactionSeason).
+  const expectedSeason = resolveTransactionSeason(date);
+  if (season !== expectedSeason) {
+    throw new AppError(422, `La saison ${season} ne correspond pas à la date ${date} : saison attendue ${expectedSeason}.`);
+  }
 
   // Fields the type does not use must arrive empty: a value is rejected (422), never silently dropped.
   // Fields the type uses stay optional (e.g. the club may be unknown or absent, as for a free agent on trial).
