@@ -10,6 +10,7 @@ import { AppError } from '../types';
 import { normalizeDayDate, normalizeDayDateFields } from '../lib/dates';
 import { getLatestTerrainForClub } from '../lib/clubTerrain';
 import { buildCircCompletResolver, type CircCompletSourceRow } from '../lib/circComplet';
+import { OWN_GOAL_PLAYER_CODE } from '../lib/matchEvents';
 
 export interface CalendarMatchRow {
   RECLEUNIK: string | number;
@@ -695,7 +696,8 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
 
   let baseText: string;
   if (typeEvent === 1) {
-    baseText = joueur2 ? `But de ${joueur1} sur une passe de ${joueur2}` : `But de ${joueur1}`;
+    const scorer = toText(eventRow.JOUEUR1) === OWN_GOAL_PLAYER_CODE ? 'But contre son camp' : `But de ${joueur1}`;
+    baseText = joueur2 ? `${scorer} sur une passe de ${joueur2}` : scorer;
   } else if (typeEvent === 2) {
     baseText = `${joueur2} remplace ${joueur1}`;
   } else if (typeEvent === 3) {

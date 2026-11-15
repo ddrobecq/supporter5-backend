@@ -3,6 +3,7 @@ import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { STARTER_SLOTS, SUB_SLOTS } from '../lib/compo';
 import { officialMatchSql } from '../lib/supportedMatches';
 import { toText } from '../lib/coerce';
+import { OWN_GOAL_PLAYER_CODE } from '../lib/matchEvents';
 
 export interface JoueurIncompletRow {
   IDJOUEUR: string;
@@ -216,8 +217,6 @@ const SUBSTITUTION_EVENT_TYPE = 2;
 const EVENT_TYPES_WITHOUT_PLAYER = new Set([6, 10]);
 /** Buts (1) et penaltys (7): JOUEUR2 designe le passeur. */
 const EVENT_TYPES_WITH_ASSIST = new Set([1, 7]);
-/** Code joueur reserve au but contre son camp. */
-const OWN_GOAL_PLAYER_CODE = '0000';
 
 interface MatchEventRow {
   MACLEUNIK: number | null;
