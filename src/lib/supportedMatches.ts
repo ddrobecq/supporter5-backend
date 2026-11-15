@@ -1,6 +1,7 @@
 import { CIRC_COMPLET_JOINS, CIRC_COMPLET_SELECT, type CircCompletResolver, type CircCompletSourceRow } from './circComplet';
 import { getLatestTerrainForClub } from './clubTerrain';
 import { scopeFilterClause, scopeFilterJoins } from './matchScopeFilter';
+import { toRawText } from './coerce';
 
 /**
  * Match OFFICIEL : rencontre non amicale (TUCLEUNIK <> 0) dont la competition appartient a une EPREUVE
@@ -91,7 +92,7 @@ export function supportedMatchesSql(options: {
 export function createLatestTerrainNameResolver(): (clubId: unknown) => string {
   const cache = new Map<string, string>();
   return (clubId) => {
-    const key = String(clubId ?? '');
+    const key = toRawText(clubId);
     let name = cache.get(key);
     if (name === undefined) {
       name = getLatestTerrainForClub(clubId)?.TERRAIN_NOM ?? '';

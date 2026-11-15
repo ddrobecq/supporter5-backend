@@ -52,7 +52,7 @@ function logServerError(req: Request, err: Error, status: number, isConstraintEr
       url: req.originalUrl,
       params: req.params,
       query: req.query,
-      body: req.body,
+      body: req.body as unknown,
     },
     error: {
       name: err.name,
@@ -70,7 +70,6 @@ export function errorMiddleware(
   err: unknown,
   req: Request,
   res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   _next: NextFunction,
 ): void {
   // Internal error details are only exposed in explicit development/debug environments.

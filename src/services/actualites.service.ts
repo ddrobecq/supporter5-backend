@@ -52,7 +52,7 @@ function readText(value: unknown): string {
   if (typeof value === 'string' || typeof value === 'number') return String(value).trim();
   if (!value || typeof value !== 'object') return '';
   const record = value as Record<string, unknown>;
-  return String(record['#text'] ?? record.__cdata ?? '').trim();
+  return readText(record['#text'] ?? record.__cdata);
 }
 
 function decodeHtmlEntities(value: string): string {
@@ -63,9 +63,9 @@ function decodeHtmlEntities(value: string): string {
     agrave: 'à', acirc: 'â', ugrave: 'ù', icirc: 'î', ocirc: 'ô', ccedil: 'ç',
   };
 
-  return value.replace(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));/gi, (match, decimal, hexadecimal, named) => {
+  return value.replace(/&(?:#(\d+)|#x([\da-f]+)|([a-z]+));/gi, (match: string, decimal: string | undefined, hexadecimal: string | undefined, named: string | undefined) => {
     if (decimal || hexadecimal) {
-      const codePoint = Number.parseInt(decimal || hexadecimal, hexadecimal ? 16 : 10);
+      const codePoint = Number.parseInt(decimal ?? hexadecimal ?? '', hexadecimal ? 16 : 10);
       try {
         return String.fromCodePoint(codePoint);
       } catch {
@@ -91,8 +91,8 @@ function readAtomLink(value: unknown): string {
     if (typeof link === 'string') return link.trim();
     if (link && typeof link === 'object') {
       const record = link as Record<string, unknown>;
-      const href = String(record['@_href'] ?? '').trim();
-      const rel = String(record['@_rel'] ?? '').trim();
+      const href = readText(record['@_href']);
+      const rel = readText(record['@_rel']);
       if (href && (!rel || rel === 'alternate')) return href;
     }
   }
@@ -104,8 +104,8 @@ function readImageUrl(item: Record<string, unknown>): string {
   for (const candidate of candidates) {
     if (!candidate || typeof candidate !== 'object') continue;
     const record = candidate as Record<string, unknown>;
-    const url = String(record['@_url'] ?? record['@_href'] ?? '').trim();
-    const mimeType = String(record['@_type'] ?? '').toLowerCase();
+    const url = readText(record['@_url'] ?? record['@_href']);
+    const mimeType = readText(record['@_type']).toLowerCase();
     if (isHttpUrl(url) && (!mimeType || mimeType.startsWith('image/'))) return url;
   }
   return '';

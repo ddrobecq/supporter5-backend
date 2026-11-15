@@ -2,6 +2,7 @@ import { dbAll } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { STARTER_SLOTS, SUB_SLOTS } from '../lib/compo';
 import { officialMatchSql } from '../lib/supportedMatches';
+import { toText } from '../lib/coerce';
 
 export interface JoueurIncompletRow {
   IDJOUEUR: string;
@@ -198,10 +199,10 @@ async function getCompoIssuesByMatch(): Promise<Map<number, boolean>> {
     if (!macleunik) return;
 
     const starters = COMPO_STARTER_FIELDS
-      .map((field) => String(row[field] ?? '').trim())
+      .map((field) => toText(row[field]))
       .filter(Boolean);
     const allPlayers = [...starters, ...COMPO_SUB_FIELDS
-      .map((field) => String(row[field] ?? '').trim())
+      .map((field) => toText(row[field]))
       .filter(Boolean)];
 
     const hasDuplicate = new Set(allPlayers).size !== allPlayers.length;
@@ -251,7 +252,7 @@ async function getEventIssuesByMatch(): Promise<Map<number, boolean>> {
     else eventsByMatch.set(macleunik, [event]);
   });
 
-  const readCode = (value: unknown): string => String(value ?? '').trim();
+  const readCode = toText;
   const issues = new Map<number, boolean>();
   compoRows.forEach((row) => {
     const macleunik = Number(row.MACLEUNIK ?? 0);

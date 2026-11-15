@@ -3,6 +3,7 @@ import { parseScopeParam } from '../../lib/matchScopeFilter';
 import { cachedDataHandler } from '../../lib/statsCache';
 import { getButeurs, getButeursParMatch, getButeursParSaison, getButsMultiplesParJoueur, getDernierMatch, getEfficaciteButeurs, getExclusionsRapides, getMeilleursGardiens, getNombreAnneesAuClub, getParSaison, getPerformances, getPhysique, getPlusSelectionnes, getPremierMatch, getSanctions, getSanctionsParSaison, getSeriesButeurs, getSeriesInviolabilite, getTransferts, type PhysiqueMetric, type TransfertMetric } from '../../services/stats/joueur/apparitions.service';
 import { getEquipeType } from '../../services/stats/saison/equipeType.service';
+import { toRawText } from '../../lib/coerce';
 
 const scopeOf = (req: Request) => parseScopeParam(req.query.scope);
 
@@ -81,7 +82,7 @@ export const getSeriesButeursStat = cachedDataHandler((req) => getSeriesButeurs(
 export const getSeriesPassesStat = cachedDataHandler((req) => getSeriesButeurs('passes', scopeOf(req)));
 
 export const getNombreAnneesAuClubStat = cachedDataHandler((req) => {
-  const playerOnly = String(req.query.playerOnly ?? '').toLowerCase() === 'true';
+  const playerOnly = toRawText(req.query.playerOnly).toLowerCase() === 'true';
   return getNombreAnneesAuClub(playerOnly);
 });
 

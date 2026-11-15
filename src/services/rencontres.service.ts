@@ -1,7 +1,7 @@
 import type { Statement } from 'better-sqlite3';
 import db, { dbAll, runInTransaction } from '../config/database';
 import { createEntityService } from '../lib/baseService';
-import { parseFlag, requirePositiveInt, toInt, toNum, toText } from '../lib/coerce';
+import { parseIntStrict, requirePositiveInt, toInt, toNum, toRawText, toText } from '../lib/coerce';
 import { parsePaSource, type PaSourceRef } from '../lib/paSource';
 import { ALL_SLOTS, STARTER_SLOTS } from '../lib/compo';
 import { officialMatchSql, playedMatchSql } from '../lib/supportedMatches';
@@ -693,7 +693,7 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
   const joueur1 = resolvePlayerDisplayName(eventRow.J1_PRENOM, eventRow.J1_NOM, eventRow.J1_SURNOM, eventRow.JOUEUR1);
   const joueur2 = resolvePlayerDisplayName(eventRow.J2_PRENOM, eventRow.J2_NOM, eventRow.J2_SURNOM, eventRow.JOUEUR2);
 
-  let baseText = '';
+  let baseText: string;
   if (typeEvent === 1) {
     baseText = joueur2 ? `But de ${joueur1} sur une passe de ${joueur2}` : `But de ${joueur1}`;
   } else if (typeEvent === 2) {
@@ -770,9 +770,9 @@ function readRencontreRowById(id: string | number): RencontresRow | undefined {
     HEURE: row.HEURE == null ? null : toText(row.HEURE),
     SAISON: toText(row.SAISON),
     READMIN: row['READMIN'] == null ? null : toInt(row['READMIN']),
-    COMMENT: row.COMMENT == null ? null : String(row.COMMENT),
-    PADOMSource: row.PADOMSource == null ? null : String(row.PADOMSource),
-    PAEXTSource: row.PAEXTSource == null ? null : String(row.PAEXTSource),
+    COMMENT: row.COMMENT == null ? null : toRawText(row.COMMENT),
+    PADOMSource: row.PADOMSource == null ? null : toRawText(row.PADOMSource),
+    PAEXTSource: row.PAEXTSource == null ? null : toRawText(row.PAEXTSource),
   };
 }
 
@@ -1863,9 +1863,9 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
     HEURE: row.HEURE == null ? null : toText(row.HEURE),
     SAISON: toText(row.SAISON),
     READMIN: row['READMIN'] == null ? null : toInt(row['READMIN']),
-    COMMENT: row.COMMENT == null ? null : String(row.COMMENT),
-    PADOMSource: row.PADOMSource == null ? null : String(row.PADOMSource),
-    PAEXTSource: row.PAEXTSource == null ? null : String(row.PAEXTSource),
+    COMMENT: row.COMMENT == null ? null : toRawText(row.COMMENT),
+    PADOMSource: row.PADOMSource == null ? null : toRawText(row.PADOMSource),
+    PAEXTSource: row.PAEXTSource == null ? null : toRawText(row.PAEXTSource),
   }));
 
   matchRows.forEach((row) => {
@@ -2495,7 +2495,7 @@ export async function getRencontreHighlightsById(id: string | number): Promise<R
       ADVERSAIRE: adversaire ? 1 : 0,
       JOUEUR1: row.JOUEUR1 == null ? null : toText(row.JOUEUR1),
       JOUEUR2: row.JOUEUR2 == null ? null : toText(row.JOUEUR2),
-      COMMENT: row.COMMENT == null ? null : String(row.COMMENT),
+      COMMENT: row.COMMENT == null ? null : toRawText(row.COMMENT),
       SIDE: side,
       TEXT: buildSupportedEventText(row),
     };
@@ -2921,7 +2921,7 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
     STARTER_SLOTS.forEach((field) => {
       const playerId = toText(row[field]);
       if (playerId) {
-        match!.starters.add(playerId);
+        match.starters.add(playerId);
       }
     });
     const coachId = toText(row.ENTRAINEUR);
@@ -3187,10 +3187,11 @@ export async function upsertArbitreForRencontre(rencontreId: string | number, id
 export interface RencontreMatchMetaPayload {
   IDARBITRE?: string | null;
   TECLEUNIK?: string | null;
-  NBSPECT?: number | string | null;
-  HUIS_CLOS?: number | boolean | string | null;
-  EXTRATIME?: number | boolean | string;
-  PENALTY?: number | boolean | string;
+  // Already validated by the caller (parseNbSpect / parseFlag); undefined = not sent, column left unchanged.
+  NBSPECT?: number;
+  HUIS_CLOS?: 0 | 1;
+  EXTRATIME?: 0 | 1;
+  PENALTY?: 0 | 1;
 }
 
 function clubHasTerrain(clubId: string, tecleunik: string): boolean {
@@ -3208,7 +3209,7 @@ function clubHasTerrain(clubId: string, tecleunik: string): boolean {
 }
 
 /** MATCH.NBSPECT as sent: integer >= 0 (number or digit string); -1 is no longer a closed-doors marker (HUIS_CLOS). */
-function parseNbSpect(value: unknown): number {
+export function parseNbSpect(value: unknown): number {
   const raw = typeof value === 'string' ? value.trim() : value;
   const numeric = typeof raw === 'number' || (typeof raw === 'string' && /^\d+$/.test(raw)) ? Number(raw) : Number.NaN;
   if (!Number.isSafeInteger(numeric) || numeric < 0) {
@@ -3224,14 +3225,13 @@ export async function upsertMatchMetaForRencontre(rencontreId: string | number, 
     const { macleunik } = ensureMatchRowForRencontre(recleunik);
     const normalizedArbitre = payload.IDARBITRE == null ? null : (String(payload.IDARBITRE).trim() || null);
     const normalizedTerrain = payload.TECLEUNIK == null ? null : (String(payload.TECLEUNIK).trim() || null);
-    // NBSPECT, HUIS_CLOS, EXTRATIME and PENALTY are written only when sent (validated, stored as received).
+    // NBSPECT, HUIS_CLOS, EXTRATIME and PENALTY are written only when sent (stored as received).
     const optional: Array<[string, unknown]> = [];
-    const nbSpect = payload.NBSPECT === undefined ? undefined : parseNbSpect(payload.NBSPECT);
-    const huisClos = payload.HUIS_CLOS === undefined ? undefined : parseFlag(payload.HUIS_CLOS, 'HUIS_CLOS');
+    const { NBSPECT: nbSpect, HUIS_CLOS: huisClos } = payload;
     if (nbSpect !== undefined) optional.push(['NBSPECT', nbSpect]);
     if (huisClos !== undefined) optional.push(['HUIS_CLOS', huisClos]);
-    if (payload.EXTRATIME !== undefined) optional.push(['EXTRATIME', parseFlag(payload.EXTRATIME, 'EXTRATIME')]);
-    if (payload.PENALTY !== undefined) optional.push(['PENALTY', parseFlag(payload.PENALTY, 'PENALTY')]);
+    if (payload.EXTRATIME !== undefined) optional.push(['EXTRATIME', payload.EXTRATIME]);
+    if (payload.PENALTY !== undefined) optional.push(['PENALTY', payload.PENALTY]);
 
     // Business rule on the resulting row (sent values, else stored ones): no spectators behind closed doors.
     const stored = db.prepare('SELECT "NBSPECT", "HUIS_CLOS" FROM "MATCH" WHERE "MACLEUNIK" = ?')
@@ -3302,7 +3302,7 @@ export async function upsertCompositionForRencontre(
 
   const macleunik = toInt(matchRow.MACLEUNIK);
   const opponentCompositionRaw = payload.MACOMPOADVERSAIRE;
-  const opponentComposition = opponentCompositionRaw == null ? null : String(opponentCompositionRaw);
+  const opponentComposition = opponentCompositionRaw == null ? null : toRawText(opponentCompositionRaw);
   const normalizedOpponentComposition = opponentComposition && opponentComposition.trim() ? opponentComposition : null;
 
   const fieldsToSave: string[] = [];
@@ -3424,13 +3424,6 @@ export interface EventPayload {
   comment: string | null;
 }
 
-/** Integer from a number or an integer string; NaN otherwise. */
-function strictInt(value: unknown): number {
-  if (typeof value === 'number') return Number.isInteger(value) ? value : Number.NaN;
-  if (typeof value === 'string' && /^-?\d+$/.test(value.trim())) return Number(value.trim());
-  return Number.NaN;
-}
-
 function optionalPlayerId(value: unknown, field: string): string | null {
   if (value == null || value === '') return null;
   if (typeof value !== 'string' && typeof value !== 'number') throw new AppError(400, `${field} invalide.`);
@@ -3445,19 +3438,19 @@ export function parseEventPayload(body: unknown): EventPayload {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new AppError(400, 'Événement invalide.');
   const raw = body as Record<string, unknown>;
 
-  const typeEvent = strictInt(raw.typeEvent);
+  const typeEvent = parseIntStrict(raw.typeEvent);
   if (!Number.isInteger(typeEvent) || typeEvent < 1 || typeEvent > 10) {
     throw new AppError(400, 'TYPE_EVENT invalide (entier de 1 à 10 attendu).');
   }
-  const periode = strictInt(raw.periode);
+  const periode = parseIntStrict(raw.periode);
   if (!Number.isInteger(periode) || periode < 1 || periode > 5) {
     throw new AppError(400, 'PERIODE invalide (entier de 1 à 5 attendu).');
   }
-  const minute = strictInt(raw.minute);
+  const minute = parseIntStrict(raw.minute);
   if (!Number.isInteger(minute) || minute < 0) {
     throw new AppError(400, 'MINUTE invalide (entier positif ou nul attendu).');
   }
-  const adversaire = typeof raw.adversaire === 'boolean' ? Number(raw.adversaire) : strictInt(raw.adversaire ?? 0);
+  const adversaire = typeof raw.adversaire === 'boolean' ? Number(raw.adversaire) : parseIntStrict(raw.adversaire ?? 0);
   if (adversaire !== 0 && adversaire !== 1) {
     throw new AppError(400, 'ADVERSAIRE invalide (0 ou 1 attendu).');
   }

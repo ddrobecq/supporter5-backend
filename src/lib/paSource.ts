@@ -1,3 +1,4 @@
+import { toText } from './coerce';
 /** Reference to a ranked participant of a previous tour (PARTICIP.PASource "TUCLEUNIK,Groupe,Classement"). */
 export interface PaSourceRef {
   tourId: number;
@@ -19,7 +20,7 @@ function positiveDigits(value: string): number | null {
  * Returns null when the value is empty or does not follow the rule.
  */
 export function parsePaSource(value: unknown): PaSourceRef | null {
-  const raw = String(value ?? '').trim();
+  const raw = toText(value);
   if (!raw) return null;
 
   const parts = raw.split(',').map((part) => part.trim());

@@ -24,7 +24,7 @@ function isLockedFileError(error: unknown): boolean {
     return false;
   }
 
-  const code = 'code' in error ? String((error as { code?: unknown }).code ?? '') : '';
+  const code = (error as { code?: unknown }).code;
   return code === 'EPERM' || code === 'EACCES' || code === 'EBUSY';
 }
 

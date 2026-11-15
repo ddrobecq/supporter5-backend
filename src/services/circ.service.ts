@@ -1,5 +1,5 @@
 import { createEntityService } from '../lib/baseService';
-import { requireUpperCaseCode } from '../lib/coerce';
+import { requireUpperCaseCode, toRawText, toText } from '../lib/coerce';
 import { AppError } from '../types';
 
 function normalizeTypeTour(value: unknown): number {
@@ -31,13 +31,13 @@ function prepareWrite(body: Record<string, unknown>, mode: 'create' | 'update'):
   if (!clean.IDCIRC || (typeof clean.IDCIRC === 'string' && !clean.IDCIRC.trim())) {
     throw new AppError(400, 'IDCIRC est requis');
   }
-  if (String(clean.IDCIRC).length > 5) {
+  if (toRawText(clean.IDCIRC).length > 5) {
     throw new AppError(400, 'IDCIRC doit contenir 5 caracteres max');
   }
   if (!clean.CIRC || (typeof clean.CIRC === 'string' && !clean.CIRC.trim())) {
     throw new AppError(400, 'CIRC est requis');
   }
-  if (String(clean.CIRC).trim().length < 12) {
+  if (toText(clean.CIRC).length < 12) {
     throw new AppError(400, 'CIRC doit contenir 12 caracteres minimum');
   }
 

@@ -1,6 +1,6 @@
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { cached } from '../lib/statsCache';
-import { parseFlag, parseHexColor, requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode, toText as normalizeText } from '../lib/coerce';
+import { parseFlag, parseHexColor, parseIntStrict, requireBodyObject, requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode, toText as normalizeText } from '../lib/coerce';
 import { buildCircCompletResolver } from '../lib/circComplet';
 import { createLatestTerrainNameResolver } from '../lib/supportedMatches';
 import db, { dbAll, dbGet, dbRun, runInTransaction } from '../config/database';
@@ -93,14 +93,99 @@ export interface ClubSuggestionRow {
   SCORE: number;
 }
 
-export interface CreateClubWizardPayload {
+/** Bodies once their format is validated (400); existence checks are done on write (404 / 422). */
+export interface ClubColorsPayload {
+  fond: string | null;
+  texte: string | null;
+}
+
+export interface ClubProfilePayload extends ClubColorsPayload {
   name: string;
   natioId: string;
-  isSelection: boolean;
-  creationDate?: string;
-  villeId?: string | number;
-  fond?: string | null;
-  texte?: string | null;
+  /** undefined = keep the current city; '' or '0' = no city. */
+  villeId?: string;
+}
+
+export interface ClubNamePayload {
+  /** '' = unknown date. */
+  date: string;
+  /** CN_ACTION 1..3. */
+  eventType: number;
+  name: string;
+}
+
+export interface ClubTerrainPayload {
+  /** '' = unknown date. */
+  date: string;
+  terrainId: number;
+}
+
+export interface CreateClubWizardPayload extends ClubColorsPayload {
+  name: string;
+  natioId: string;
+  isSelection: 0 | 1;
+  /** '' = unknown. */
+  creationDate: string;
+  /** '' or '0' = no city. */
+  villeId: string;
+}
+
+/** Name and country shared by the profile and the wizard: required, name <= 100, country code in upper case. */
+function parseClubIdentity(raw: Record<string, unknown>): { name: string; natioId: string } {
+  const name = requireMaxLength(normalizeText(raw.name), 100, 'Nom du club');
+  const natioId = normalizeText(raw.natioId);
+  if (!name) {
+    throw new AppError(400, 'Le nom du club est requis.');
+  }
+  if (!natioId) {
+    throw new AppError(400, 'Le pays est requis.');
+  }
+  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
+  return { name, natioId };
+}
+
+/** Profile and /colors must send both colour keys (absent -> 400). */
+export function parseClubColorsPayload(body: unknown): ClubColorsPayload {
+  const raw = requireBodyObject(body);
+  return { fond: parseClubColor(raw.fond), texte: parseClubColor(raw.texte) };
+}
+
+export function parseClubProfilePayload(body: unknown): ClubProfilePayload {
+  const raw = requireBodyObject(body);
+  return {
+    ...parseClubIdentity(raw),
+    villeId: raw.villeId == null ? undefined : normalizeText(raw.villeId),
+    ...parseClubColorsPayload(raw),
+  };
+}
+
+export function parseClubNamePayload(body: unknown): ClubNamePayload {
+  const raw = requireBodyObject(body);
+  const date = normalizeDayDate(raw.date);
+  const eventType = normalizeClubNameEventType(raw.eventType);
+  const name = normalizeText(raw.name);
+  if (!name) {
+    throw new AppError(400, 'Le nom est requis.');
+  }
+  return { date, eventType, name: requireMaxLength(name, 200, 'Nom') };
+}
+
+export function parseClubTerrainPayload(body: unknown): ClubTerrainPayload {
+  const raw = requireBodyObject(body);
+  return { date: normalizeDayDate(raw.date), terrainId: normalizeTerrainId(raw.terrainId) };
+}
+
+/** Wizard rule: a new club has no colours (NULL) unless the client sends them (validated, stored as sent). */
+export function parseCreateClubWizardPayload(body: unknown): CreateClubWizardPayload {
+  const raw = requireBodyObject(body);
+  return {
+    ...parseClubIdentity(raw),
+    isSelection: toSelectionFlag(raw.isSelection),
+    creationDate: normalizeDayDate(raw.creationDate, { field: 'de création' }),
+    villeId: normalizeText(raw.villeId),
+    fond: raw.fond === undefined ? null : parseClubColor(raw.fond),
+    texte: raw.texte === undefined ? null : parseClubColor(raw.texte),
+  };
 }
 
 interface ClubCandidateRow {
@@ -472,7 +557,7 @@ function readClubNomById(idClubNom: number, clubId: string): Promise<ClubNameHis
 
 export async function createClubTerrainHistoryById(
   id: string,
-  payload: { date?: string | null; terrainId: string | number },
+  payload: ClubTerrainPayload,
 ): Promise<ClubTerrainHistoryRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
 
@@ -481,8 +566,7 @@ export async function createClubTerrainHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeDayDate(payload.date);
-  const terrainId = normalizeTerrainId(payload.terrainId);
+  const { date: normalizedDate, terrainId } = payload;
 
   const inserted = await dbRun(
     `INSERT INTO CLUB_TERRAIN (IDCLUB, TECLEUNIK, DATE)
@@ -496,7 +580,7 @@ export async function createClubTerrainHistoryById(
 export async function updateClubTerrainHistoryById(
   id: string,
   terrainHistoryId: string,
-  payload: { date?: string | null; terrainId: string | number },
+  payload: ClubTerrainPayload,
 ): Promise<ClubTerrainHistoryRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
   const historyNumericId = requirePositiveInt(terrainHistoryId, 'Identifiant de stade club invalide.');
@@ -509,8 +593,7 @@ export async function updateClubTerrainHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeDayDate(payload.date);
-  const terrainId = normalizeTerrainId(payload.terrainId);
+  const { date: normalizedDate, terrainId } = payload;
 
   await dbRun(
     `UPDATE CLUB_TERRAIN
@@ -535,7 +618,7 @@ export async function deleteClubTerrainHistoryById(id: string, terrainHistoryId:
 
 export async function createClubNameHistoryById(
   id: string,
-  payload: { date?: string | null; eventType: number | string; name: string },
+  payload: ClubNamePayload,
 ): Promise<ClubNameHistoryRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
 
@@ -544,18 +627,12 @@ export async function createClubNameHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeDayDate(payload.date);
-  const eventType = normalizeClubNameEventType(payload.eventType);
-  const name = normalizeText(payload.name);
-
-  if (!name) {
-    throw new AppError(400, 'Le nom est requis.');
-  }
+  const { date: normalizedDate, eventType, name } = payload;
 
   const inserted = await dbRun(
     `INSERT INTO CLUB_NOM (CN_NOM, IDCLUB, DATE, CN_ACTION)
      VALUES (?, ?, ?, ?)`,
-    [requireMaxLength(name, 200, 'Nom'), clubId, normalizedDate, eventType],
+    [name, clubId, normalizedDate, eventType],
   );
 
   return readClubNomById(Number(inserted.lastInsertRowid), clubId);
@@ -564,7 +641,7 @@ export async function createClubNameHistoryById(
 export async function updateClubNameHistoryById(
   id: string,
   historyId: string,
-  payload: { date?: string | null; eventType: number | string; name: string },
+  payload: ClubNamePayload,
 ): Promise<ClubNameHistoryRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
   const historyNumericId = requirePositiveInt(historyId, 'Identifiant de nom club invalide.');
@@ -577,18 +654,13 @@ export async function updateClubNameHistoryById(
     return undefined;
   }
 
-  const normalizedDate = normalizeDayDate(payload.date);
-  const eventType = normalizeClubNameEventType(payload.eventType);
-  const name = normalizeText(payload.name);
-  if (!name) {
-    throw new AppError(400, 'Le nom est requis.');
-  }
+  const { date: normalizedDate, eventType, name } = payload;
 
   await dbRun(
     `UPDATE CLUB_NOM
      SET CN_NOM = ?, DATE = ?, CN_ACTION = ?
      WHERE IDCLUB_NOM = ? AND IDCLUB = ?`,
-    [requireMaxLength(name, 200, 'Nom'), normalizedDate, eventType, historyNumericId, clubId],
+    [name, normalizedDate, eventType, historyNumericId, clubId],
   );
 
   return readClubNomById(historyNumericId, clubId);
@@ -607,13 +679,13 @@ export async function deleteClubNameHistoryById(id: string, historyId: string): 
 
 export async function updateClubColorsById(
   id: string,
-  payload: { fond?: string | null; texte?: string | null },
+  payload: ClubColorsPayload,
 ): Promise<ClubProfileRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
 
   await dbRun(
     'UPDATE CLUB SET FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
-    [parseClubColor(payload.fond), parseClubColor(payload.texte), clubId],
+    [payload.fond, payload.texte, clubId],
   );
 
   return getClubProfileById(clubId);
@@ -621,19 +693,10 @@ export async function updateClubColorsById(
 
 export async function updateClubProfileById(
   id: string,
-  payload: { name: string; natioId: string; villeId?: string | number | null; fond?: string | null; texte?: string | null },
+  payload: ClubProfilePayload,
 ): Promise<ClubProfileRow | undefined> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
-  const name = requireMaxLength(normalizeText(payload.name), 100, 'Nom du club');
-  const natioId = normalizeText(payload.natioId);
-
-  if (!name) {
-    throw new AppError(400, 'Le nom du club est requis.');
-  }
-  if (!natioId) {
-    throw new AppError(400, 'Le pays est requis.');
-  }
-  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
+  const { name, natioId } = payload;
 
   const current = await getClubProfileById(clubId);
   if (!current) {
@@ -645,11 +708,11 @@ export async function updateClubProfileById(
     throw new AppError(422, 'Le pays selectionne est introuvable.');
   }
 
-  const villeId = await resolveExplicitVilleId(payload.villeId ?? current.IDVILLE ?? undefined);
+  const villeId = await resolveExplicitVilleId(payload.villeId ?? normalizeText(current.IDVILLE));
 
   await dbRun(
     'UPDATE CLUB SET CLUB = ?, IDNATIO = ?, IDVILLE = ?, FOND = ?, TEXTE = ? WHERE IDCLUB = ?',
-    [name, natioId, villeId, parseClubColor(payload.fond), parseClubColor(payload.texte), clubId],
+    [name, natioId, villeId, payload.fond, payload.texte, clubId],
   );
 
   return getClubProfileById(clubId);
@@ -777,7 +840,7 @@ export async function mergeClubs(sourceIdInput: unknown, targetIdInput: unknown)
 }
 
 function normalizeClubNameEventType(value: unknown): number {
-  const eventType = Number(value);
+  const eventType = parseIntStrict(value);
   if (!Number.isInteger(eventType) || eventType < 1 || eventType > 3) {
     throw new AppError(400, 'Le type d evenement est invalide.');
   }
@@ -785,7 +848,7 @@ function normalizeClubNameEventType(value: unknown): number {
 }
 
 function normalizeTerrainId(value: unknown): number {
-  const terrainId = Number(value);
+  const terrainId = parseIntStrict(value);
   if (!Number.isInteger(terrainId) || terrainId <= 0) {
     throw new AppError(400, 'Le stade selectionne est invalide.');
   }
@@ -821,8 +884,7 @@ async function resolveNextClubId(): Promise<string> {
  * CLUB.IDVILLE as sent. CLUB.IDVILLE is NOT NULL: "no city" is 0 (244 clubs in the dev database), so an
  * empty value or 0 is stored as 0; never replaced by a city chosen here. Any other value must exist (422).
  */
-async function resolveExplicitVilleId(villeId?: string | number | null): Promise<number> {
-  const explicit = normalizeText(villeId);
+async function resolveExplicitVilleId(explicit: string): Promise<number> {
   if (!explicit || explicit === '0') {
     return 0;
   }
@@ -835,18 +897,7 @@ async function resolveExplicitVilleId(villeId?: string | number | null): Promise
 }
 
 export async function createClubWithWizard(payload: CreateClubWizardPayload): Promise<ClubGridRow> {
-  const name = requireMaxLength(normalizeText(payload.name), 100, 'Nom du club');
-  const natioId = normalizeText(payload.natioId);
-  const selection = toSelectionFlag(payload.isSelection);
-  const creationDate = normalizeDayDate(payload.creationDate, { field: 'de création' });
-
-  if (!name) {
-    throw new AppError(400, 'Le nom du club est requis.');
-  }
-  if (!natioId) {
-    throw new AppError(400, 'Le pays est requis.');
-  }
-  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
+  const { name, natioId, isSelection: selection, creationDate, fond, texte } = payload;
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
   if (!country) {
@@ -854,9 +905,6 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   }
 
   const idVille = await resolveExplicitVilleId(payload.villeId);
-  // Wizard rule: a new club has no colours (NULL) unless the client sends them (validated, stored as sent).
-  const fond = payload.fond === undefined ? null : parseClubColor(payload.fond);
-  const texte = payload.texte === undefined ? null : parseClubColor(payload.texte);
 
   // CLUB and its first CLUB_NOM row are created together: all or nothing.
   const idClub = await runInTransaction(async () => {

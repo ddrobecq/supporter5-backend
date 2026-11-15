@@ -4,13 +4,14 @@ import path from 'node:path';
 import { dataHandler, jsonHandler } from '../lib/responseHelpers';
 import { getSqliteDatabaseDownloadInfo, getSupportedClubContext, scheduleBackendRestart, uploadSqliteDatabase } from '../services/system.service';
 import { listThemes, updateTheme } from '../services/theme.service';
+import { requireBodyObject, toRawText, toText } from '../lib/coerce';
 
 function readBackendVersion(): string {
   try {
     const packagePath = path.resolve(process.cwd(), 'package.json');
     const raw = fs.readFileSync(packagePath, 'utf-8');
     const parsed = JSON.parse(raw) as { version?: unknown };
-    const version = String(parsed.version ?? '').trim();
+    const version = toText(parsed.version);
     return version || 'unknown';
   } catch {
     return 'unknown';
@@ -22,19 +23,18 @@ export const uploadDatabaseHandler = jsonHandler(async (req) => ({
   ...(await uploadSqliteDatabase(req.file as Express.Multer.File)),
 }));
 
-export async function downloadDatabaseHandler(_req: Request, res: Response, next: NextFunction): Promise<void> {
-  try {
-    const { path: dbPath, fileName, cleanup } = await getSqliteDatabaseDownloadInfo();
-
-    res.download(dbPath, fileName, async (error) => {
-      await cleanup();
-      if (error) {
-        next(error);
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
+export function downloadDatabaseHandler(_req: Request, res: Response, next: NextFunction): void {
+  getSqliteDatabaseDownloadInfo()
+    .then(({ path: dbPath, fileName, cleanup }) => {
+      res.download(dbPath, fileName, (error) => {
+        // cleanup() never rejects (unlink errors are ignored in system.service)
+        void cleanup();
+        if (error) {
+          next(error);
+        }
+      });
+    })
+    .catch(next);
 }
 
 export const restartBackendHandler = jsonHandler(async () => {
@@ -55,8 +55,8 @@ export const contextHandler = jsonHandler(() => getSupportedClubContext());
 export const themesHandler = dataHandler(() => listThemes());
 
 export const updateThemeHandler = dataHandler((req) => {
-  const body = req.body as { backgroundColor?: string; textColor?: string };
-  return updateTheme(String(req.params.code ?? ''), String(body.backgroundColor ?? ''), String(body.textColor ?? ''));
+  const body = requireBodyObject(req.body);
+  return updateTheme(req.params.code, toRawText(body.backgroundColor), toRawText(body.textColor));
 });
 
 export default {

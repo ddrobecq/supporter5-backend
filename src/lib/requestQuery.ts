@@ -1,4 +1,5 @@
 import type { Request } from 'express';
+import { toText } from './coerce';
 
 const DEFAULT_SUGGEST_LIMIT = 12;
 const MIN_SUGGEST_LIMIT = 1;
@@ -11,7 +12,7 @@ function clampInteger(value: number, min: number, max: number): number {
 }
 
 export function parseSuggestQuery(req: Pick<Request, 'query'>): { search: string; limit: number } {
-  const search = String(req.query.search ?? '').trim().slice(0, MAX_SUGGEST_SEARCH_LENGTH).trim();
+  const search = toText(req.query.search).slice(0, MAX_SUGGEST_SEARCH_LENGTH).trim();
   const rawLimit = Number(req.query.limit ?? DEFAULT_SUGGEST_LIMIT);
   const limit = Number.isFinite(rawLimit)
     ? clampInteger(rawLimit, MIN_SUGGEST_LIMIT, MAX_SUGGEST_LIMIT)

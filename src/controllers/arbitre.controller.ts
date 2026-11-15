@@ -2,7 +2,7 @@ import { createEntityController } from '../lib/controllerFactory';
 import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { jsonHandler } from '../lib/responseHelpers';
-import arbitreService from '../services/arbitre.service';
+import arbitreService, { parseArbitreWizardPayload } from '../services/arbitre.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = integrityCheckerFor('arbitre');
@@ -15,7 +15,7 @@ export const getArbitreSuggestions = jsonHandler((req) => {
 });
 
 export const createArbitreWithWizard = jsonHandler(
-	(req) => arbitreService.createArbitreWithWizard(req.body as { nom: string; prenom?: string; natioId: string }),
+	(req) => arbitreService.createArbitreWithWizard(parseArbitreWizardPayload(req.body)),
 	201,
 );
 

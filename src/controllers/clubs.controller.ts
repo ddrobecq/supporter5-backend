@@ -2,31 +2,20 @@ import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
-import clubsService from '../services/clubs.service';
+import clubsService, {
+	parseClubColorsPayload,
+	parseClubNamePayload,
+	parseClubProfilePayload,
+	parseClubTerrainPayload,
+	parseCreateClubWizardPayload,
+} from '../services/clubs.service';
+import { toText } from '../lib/coerce';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = integrityCheckerFor('club');
 
-type ClubColorsPayload = { fond?: string | null; texte?: string | null };
-type ClubProfilePayload = {
-	name: string;
-	natioId: string;
-	villeId?: string | number | null;
-	fond?: string | null;
-	texte?: string | null;
-};
-type ClubNamePayload = { date?: string | null; eventType: number | string; name: string };
-type ClubTerrainPayload = { date?: string | null; terrainId: string | number };
-type ClubWizardPayload = {
-	name: string;
-	natioId: string;
-	isSelection: boolean;
-	creationDate?: string;
-	villeId?: string | number;
-};
-
 export const getClubsGrid = jsonHandler((req) => {
-	const search = String(req.query.search ?? '').trim();
+	const search = toText(req.query.search);
 	return clubsService.getClubsGrid(search, parseGridPagination(req.query));
 });
 
@@ -43,20 +32,20 @@ export const getClubMatches = dataHandler((req) => clubsService.getClubMatchesBy
 export const getClubPalmares = dataHandler((req) => clubsService.getClubPalmares(req.params.id));
 
 export const updateClubColors = rowOr404(
-	(req) => clubsService.updateClubColorsById(req.params.id, req.body as ClubColorsPayload),
+	(req) => clubsService.updateClubColorsById(req.params.id, parseClubColorsPayload(req.body)),
 );
 
 export const updateClubProfile = rowOr404(
-	(req) => clubsService.updateClubProfileById(req.params.id, req.body as ClubProfilePayload),
+	(req) => clubsService.updateClubProfileById(req.params.id, parseClubProfilePayload(req.body)),
 );
 
 export const createClubNameHistory = rowOr404(
-	(req) => clubsService.createClubNameHistoryById(req.params.id, req.body as ClubNamePayload),
+	(req) => clubsService.createClubNameHistoryById(req.params.id, parseClubNamePayload(req.body)),
 	201,
 );
 
 export const updateClubNameHistory = rowOr404(
-	(req) => clubsService.updateClubNameHistoryById(req.params.id, req.params.nameId, req.body as ClubNamePayload),
+	(req) => clubsService.updateClubNameHistoryById(req.params.id, req.params.nameId, parseClubNamePayload(req.body)),
 );
 
 export const deleteClubNameHistory = removedOr404(
@@ -64,12 +53,12 @@ export const deleteClubNameHistory = removedOr404(
 );
 
 export const createClubTerrainHistory = rowOr404(
-	(req) => clubsService.createClubTerrainHistoryById(req.params.id, req.body as ClubTerrainPayload),
+	(req) => clubsService.createClubTerrainHistoryById(req.params.id, parseClubTerrainPayload(req.body)),
 	201,
 );
 
 export const updateClubTerrainHistory = rowOr404(
-	(req) => clubsService.updateClubTerrainHistoryById(req.params.id, req.params.terrainId, req.body as ClubTerrainPayload),
+	(req) => clubsService.updateClubTerrainHistoryById(req.params.id, req.params.terrainId, parseClubTerrainPayload(req.body)),
 );
 
 export const deleteClubTerrainHistory = removedOr404(
@@ -82,7 +71,7 @@ export const getClubSuggestions = jsonHandler((req) => {
 });
 
 export const createClubWithWizard = jsonHandler(
-	(req) => clubsService.createClubWithWizard(req.body as ClubWizardPayload),
+	(req) => clubsService.createClubWithWizard(parseCreateClubWizardPayload(req.body)),
 	201,
 );
 

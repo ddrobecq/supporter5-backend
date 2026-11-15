@@ -1,7 +1,7 @@
 import { createEntityService } from '../lib/baseService';
 import { dbAll } from '../config/database';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
-import { parseFlag } from '../lib/coerce';
+import { parseFlag, requireBodyObject, toText } from '../lib/coerce';
 import { VALID_SCOPES } from '../lib/matchScopeFilter';
 import { AppError } from '../types';
 
@@ -105,12 +105,21 @@ export async function getEpreuveSuggestions(search: string, limit = 12): Promise
   return { data };
 }
 
-export async function createEpreuveWithWizard(payload: { name: string }): Promise<Record<string, unknown> | undefined> {
-  const name = String(payload.name ?? '').trim();
+export interface EpreuveWizardPayload {
+  name: string;
+}
+
+/** Wizard body (400 when malformed): non-empty name. */
+export function parseEpreuveWizardPayload(body: unknown): EpreuveWizardPayload {
+  const raw = requireBodyObject(body);
+  const name = toText(raw.name);
   if (!name) {
     throw new AppError(400, 'Nom de l epreuve requis');
   }
+  return { name };
+}
 
+export async function createEpreuveWithWizard({ name }: EpreuveWizardPayload): Promise<Record<string, unknown> | undefined> {
   return baseService.create({ EPREUVE: name, SCOPE: 1, OFFICIELLE: 0, EPR_PAYS: 0, EPR_WEB: '' });
 }
 

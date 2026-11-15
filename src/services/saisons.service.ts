@@ -3,6 +3,7 @@ import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
 import { clonePreviousCompetition, createCompetitionFromPrevious } from './competition.service';
+import { parseFlag, requireBodyObject, requirePositiveInt, requireText } from '../lib/coerce';
 import { AppError } from '../types';
 
 const baseService = createEntityService({
@@ -16,11 +17,11 @@ const baseService = createEntityService({
 
 export interface SaisonWizardJoueurInput {
   idJoueur: string;
-  poste: number | string;
+  poste: number;
 }
 
 export interface SaisonWizardCompetitionInput {
-  competitionId: number | string;
+  competitionId: number;
   idem: boolean;
 }
 
@@ -28,14 +29,54 @@ export interface SaisonWizardPayload {
   saison: string;
   saDebut: string;
   saFin: string;
-  joueurs?: SaisonWizardJoueurInput[];
-  competitions?: SaisonWizardCompetitionInput[];
+  /** Each idJoueur at most once. */
+  joueurs: SaisonWizardJoueurInput[];
+  /** Each competitionId at most once. */
+  competitions: SaisonWizardCompetitionInput[];
+}
+
+/** Optional list of the body: absent / null = empty, anything else than an array is a 400. */
+function parseEntryList(value: unknown, field: string): Record<string, unknown>[] {
+  if (value == null) return [];
+  if (!Array.isArray(value)) throw new AppError(400, `${field} invalide (tableau attendu).`);
+  return value.map((entry: unknown, index) => requireBodyObject(entry, `${field}[${index}] invalide (objet attendu).`));
+}
+
+/**
+ * Wizard body: every entry is either taken as sent or rejected (400), never skipped.
+ * A player or a competition sent twice is a 400 (the back does not choose between the two entries).
+ */
+export function parseSaisonWizardPayload(body: unknown): SaisonWizardPayload {
+  const raw = requireBodyObject(body);
+  const saison = normalizeSaison(raw.saison);
+  const saDebut = normalizeDayDate(raw.saDebut, { required: true, field: 'de debut' });
+  const saFin = normalizeDayDate(raw.saFin, { required: true, field: 'de fin' });
+
+  const joueurs: SaisonWizardJoueurInput[] = [];
+  const seenJoueurs = new Set<string>();
+  parseEntryList(raw.joueurs, 'joueurs').forEach((entry, index) => {
+    const idJoueur = requireText(entry.idJoueur, `joueurs[${index}] : idJoueur requis.`);
+    if (seenJoueurs.has(idJoueur)) throw new AppError(400, `Joueur ${idJoueur} envoyé deux fois.`);
+    const poste = requirePositiveInt(entry.poste, `Poste invalide pour le joueur ${idJoueur}.`);
+    seenJoueurs.add(idJoueur);
+    joueurs.push({ idJoueur, poste });
+  });
+
+  const competitions: SaisonWizardCompetitionInput[] = [];
+  const seenCompetitions = new Set<number>();
+  parseEntryList(raw.competitions, 'competitions').forEach((entry, index) => {
+    const competitionId = requirePositiveInt(entry.competitionId, `competitions[${index}] : competitionId invalide (entier positif attendu).`);
+    if (seenCompetitions.has(competitionId)) throw new AppError(400, `Compétition ${competitionId} envoyée deux fois.`);
+    const idem = entry.idem === undefined ? false : parseFlag(entry.idem, 'idem') === 1;
+    seenCompetitions.add(competitionId);
+    competitions.push({ competitionId, idem });
+  });
+
+  return { saison, saDebut, saFin, joueurs, competitions };
 }
 
 export async function createSaisonWithWizard(payload: SaisonWizardPayload): Promise<Record<string, unknown>> {
-  const saison = normalizeSaison(payload.saison);
-  const saDebut = normalizeDayDate(payload.saDebut, { required: true, field: 'de debut' });
-  const saFin = normalizeDayDate(payload.saFin, { required: true, field: 'de fin' });
+  const { saison, saDebut, saFin } = payload;
 
   if (saFin < saDebut) {
     throw new AppError(422, 'La date de fin doit etre posterieure ou egale a la date de debut.');
@@ -46,19 +87,9 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
     throw new AppError(422, 'Cette saison existe deja.');
   }
 
-  const joueurEntries = Array.isArray(payload.joueurs) ? payload.joueurs : [];
-  const joueurRows: Array<{ idJoueur: string; poste: number }> = [];
-  const seenJoueurs = new Set<string>();
   const findJoueurRg = db.prepare('SELECT IDJOUEUR FROM JOUEURRG WHERE IDJOUEUR = ?');
   const findPlayerPoste = db.prepare('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1');
-  for (const entry of joueurEntries) {
-    const idJoueur = String(entry?.idJoueur ?? '').trim();
-    const poste = Number(entry?.poste);
-    if (!idJoueur || seenJoueurs.has(idJoueur)) continue;
-    if (!Number.isInteger(poste) || poste <= 0) {
-      throw new AppError(400, `Poste invalide pour le joueur ${idJoueur}.`);
-    }
-
+  for (const { idJoueur, poste } of payload.joueurs) {
     const joueurRg = findJoueurRg.get(idJoueur);
     if (!joueurRg) {
       throw new AppError(422, `Joueur ${idJoueur} introuvable.`);
@@ -67,9 +98,6 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
     if (!posteRow) {
       throw new AppError(422, `Poste invalide pour le joueur ${idJoueur}.`);
     }
-
-    seenJoueurs.add(idJoueur);
-    joueurRows.push({ idJoueur, poste });
   }
 
   // La saison, son effectif de depart et ses competitions sont crees ensemble: tout ou rien
@@ -83,23 +111,15 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
         JAUNETOTAL, ROUGETOTAL, TITULAIRETOTAL, REMPTOTAL, TEMPSTOTAL
       ) VALUES (?, ?, 0, 0, ?, 0, 0, 0, 0, 0, 0)`,
     );
-    for (const row of joueurRows) {
+    for (const row of payload.joueurs) {
       insertJoueur.run(row.idJoueur, saison, row.poste);
     }
 
-    const competitionEntries = Array.isArray(payload.competitions) ? payload.competitions : [];
-    const seenCompetitions = new Set<number>();
     let createdCount = 0;
-    for (const entry of competitionEntries) {
-      const previousCompetitionId = Number(entry?.competitionId);
-      if (!Number.isInteger(previousCompetitionId) || previousCompetitionId <= 0 || seenCompetitions.has(previousCompetitionId)) {
-        continue;
-      }
-      seenCompetitions.add(previousCompetitionId);
-
-      const created = entry?.idem
-        ? await clonePreviousCompetition(previousCompetitionId, { saison })
-        : await createCompetitionFromPrevious(previousCompetitionId, { saison });
+    for (const { competitionId, idem } of payload.competitions) {
+      const created = idem
+        ? await clonePreviousCompetition(competitionId, { saison })
+        : await createCompetitionFromPrevious(competitionId, { saison });
       if (created) {
         createdCount += 1;
       }
@@ -114,7 +134,7 @@ export async function createSaisonWithWizard(payload: SaisonWizardPayload): Prom
 
   return {
     ...createdSaison,
-    joueursCount: joueurRows.length,
+    joueursCount: payload.joueurs.length,
     competitionsCount: competitionsCreated,
   };
 }

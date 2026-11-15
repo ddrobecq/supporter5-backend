@@ -1,11 +1,20 @@
-import { requireText } from '../lib/coerce';
+import { parseFlag, requireText, toText } from '../lib/coerce';
 import { createEntityController } from '../lib/controllerFactory';
 import { asyncHandler, dataHandler, jsonHandler } from '../lib/responseHelpers';
-import rencontresService from '../services/rencontres.service';
+import rencontresService, { parseNbSpect } from '../services/rencontres.service';
 import { AppError } from '../types';
 import type { Request } from 'express';
 
 const baseController = createEntityController(rencontresService);
+
+type MatchMetaBody = {
+	IDARBITRE?: unknown;
+	TECLEUNIK?: unknown;
+	NBSPECT?: unknown;
+	HUIS_CLOS?: unknown;
+	EXTRATIME?: unknown;
+	PENALTY?: unknown;
+} | undefined;
 
 /** Trimmed `:id` route parameter, or AppError 400 when empty. */
 function requireRencontreId(req: Request): string {
@@ -13,7 +22,7 @@ function requireRencontreId(req: Request): string {
 }
 
 export const getCalendar = dataHandler((req) => {
-	const date = String(req.query.date ?? '').trim();
+	const date = toText(req.query.date);
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
 		throw new AppError(400, 'Paramètre date invalide (YYYY-MM-DD attendu)');
 	}
@@ -51,7 +60,7 @@ export const saveComposition = jsonHandler(async (req) => {
 
 export const setArbitre = asyncHandler(async (req, res) => {
 	const id = requireRencontreId(req);
-	const idarbitre = req.body?.IDARBITRE === '' ? null : (String(req.body?.IDARBITRE ?? '').trim() || null);
+	const idarbitre = toText((req.body as MatchMetaBody)?.IDARBITRE) || null;
 	await rencontresService.upsertArbitreForRencontre(id, idarbitre);
 	res.status(204).send();
 });
@@ -59,13 +68,14 @@ export const setArbitre = asyncHandler(async (req, res) => {
 export const setMatchMeta = asyncHandler(async (req, res) => {
 	const id = requireRencontreId(req);
 
+	const body = req.body as MatchMetaBody;
 	await rencontresService.upsertMatchMetaForRencontre(id, {
-		IDARBITRE: req.body?.IDARBITRE === '' ? null : req.body?.IDARBITRE,
-		TECLEUNIK: req.body?.TECLEUNIK === '' ? null : req.body?.TECLEUNIK,
-		NBSPECT: req.body?.NBSPECT,
-		HUIS_CLOS: req.body?.HUIS_CLOS,
-		EXTRATIME: req.body?.EXTRATIME,
-		PENALTY: req.body?.PENALTY,
+		IDARBITRE: toText(body?.IDARBITRE) || null,
+		TECLEUNIK: toText(body?.TECLEUNIK) || null,
+		NBSPECT: body?.NBSPECT === undefined ? undefined : parseNbSpect(body.NBSPECT),
+		HUIS_CLOS: body?.HUIS_CLOS === undefined ? undefined : parseFlag(body.HUIS_CLOS, 'HUIS_CLOS'),
+		EXTRATIME: body?.EXTRATIME === undefined ? undefined : parseFlag(body.EXTRATIME, 'EXTRATIME'),
+		PENALTY: body?.PENALTY === undefined ? undefined : parseFlag(body.PENALTY, 'PENALTY'),
 	});
 	res.status(204).send();
 });

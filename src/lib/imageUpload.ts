@@ -54,7 +54,7 @@ function decodeImageInput(text: string): Buffer {
     }
   }
 
-  if (text.replace(/^﻿/, '').startsWith('<')) {
+  if (text.replace(/^\uFEFF/, '').startsWith('<')) {
     return Buffer.from(text, 'utf8');
   }
 
@@ -104,7 +104,7 @@ export function prepareImageForStorage(value: unknown): Buffer | null {
     return buffer;
   }
 
-  const markup = buffer.toString('utf8').replace(/^﻿/, '').trimStart();
+  const markup = buffer.toString('utf8').replace(/^\uFEFF/, '').trimStart();
   if (!markup.startsWith('<')) {
     throw new AppError(400, UNSUPPORTED_FORMAT_MESSAGE);
   }

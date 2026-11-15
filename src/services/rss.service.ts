@@ -1,11 +1,12 @@
 import { createEntityService } from '../lib/baseService';
 import { AppError } from '../types';
+import { toText } from '../lib/coerce';
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
   const clean = { ...body };
 
   if (clean.RSSID !== undefined && clean.RSSID !== null) {
-    const rawId = String(clean.RSSID).trim();
+    const rawId = toText(clean.RSSID);
     if (rawId === '') {
       delete clean.RSSID;
     } else if (Number.isFinite(Number(rawId))) {

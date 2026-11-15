@@ -1,7 +1,7 @@
 import { createEntityService } from '../lib/baseService';
 import { dbGet, dbAll } from '../config/database';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
-import { requireUpperCaseCode } from '../lib/coerce';
+import { requireBodyObject, requireUpperCaseCode, toText } from '../lib/coerce';
 import { AppError } from '../types';
 
 /** Generates IDARBITRE (MAX + 1, 4 digits) when missing, then checks the required fields. */
@@ -100,16 +100,26 @@ export async function getArbitreSuggestions(search: string, limit = 12): Promise
   return { data };
 }
 
-export async function createArbitreWithWizard(payload: { nom: string; prenom?: string; natioId: string }): Promise<Record<string, unknown> | undefined> {
-  // Stored as sent (trimmed): the front writes NOM in upper case.
-  const nom = String(payload.nom ?? '').trim();
-  const prenom = String(payload.prenom ?? '').trim();
-  const natioId = String(payload.natioId ?? '').trim();
+export interface ArbitreWizardPayload {
+  nom: string;
+  prenom: string;
+  natioId: string;
+}
+
+/** Wizard body (400 when malformed). Stored as sent (trimmed): the front writes NOM in upper case. */
+export function parseArbitreWizardPayload(body: unknown): ArbitreWizardPayload {
+  const raw = requireBodyObject(body);
+  const nom = toText(raw.nom);
+  const prenom = toText(raw.prenom);
+  const natioId = toText(raw.natioId);
 
   if (!nom) throw new AppError(400, 'Nom requis.');
   if (!natioId) throw new AppError(400, 'Nationalite requise.');
   requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
+  return { nom, prenom, natioId };
+}
 
+export async function createArbitreWithWizard({ nom, prenom, natioId }: ArbitreWizardPayload): Promise<Record<string, unknown> | undefined> {
   return baseService.create({
     NOM: nom,
     PRENOM: prenom,

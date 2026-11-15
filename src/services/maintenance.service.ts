@@ -242,7 +242,7 @@ function toJsonSafeValue(value: unknown): string | number | boolean | null {
       ? `${value.slice(0, MAX_TEXT_CELL_LENGTH)}...`
       : value;
   }
-  return String(value);
+  return JSON.stringify(value) ?? null;
 }
 
 /** Deduplique les libelles de colonnes pour que la grille puisse les afficher tous. */

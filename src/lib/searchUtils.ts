@@ -1,3 +1,4 @@
+import { toRawText } from './coerce';
 /** Latin letters that NFD does not decompose into base letter + diacritic (looked up after lowercasing). */
 const NON_DECOMPOSABLE_LETTERS: Readonly<Record<string, string>> = {
   \u00df: 'ss', \u00e6: 'ae', \u0153: 'oe', \u00f8: 'o', \u0142: 'l', \u0111: 'd', \u0131: 'i', \u00fe: 'th', \u00f0: 'd',
@@ -27,7 +28,7 @@ export function rowMatchesSearch(row: Record<string, unknown>, searchCols: reado
     return true;
   }
 
-  return searchCols.some((col) => normalizeSearchText(String(row[col] ?? '')).includes(search));
+  return searchCols.some((col) => normalizeSearchText(toRawText(row[col])).includes(search));
 }
 
 export function levenshteinDistance(a: string, b: string): number {

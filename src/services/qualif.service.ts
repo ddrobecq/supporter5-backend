@@ -1,5 +1,5 @@
 import { createEntityService } from '../lib/baseService';
-import { parseHexColor } from '../lib/coerce';
+import { parseHexColor, toText } from '../lib/coerce';
 import { AppError } from '../types';
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
@@ -48,7 +48,7 @@ function validatePayload(body: Record<string, unknown>, isCreate: boolean): Reco
     clean.CLASS_Type = validateType(clean.CLASS_Type);
     clean.TUCLEUNIK = parseIntegerField(clean.TUCLEUNIK, 'TUCLEUNIK');
 
-    const abrege = String(clean.CLASS_Abrege ?? '').trim();
+    const abrege = toText(clean.CLASS_Abrege);
     if (!abrege) {
       throw new AppError(400, 'CLASS_Abrege est requis');
     }
@@ -67,7 +67,7 @@ function validatePayload(body: Record<string, unknown>, isCreate: boolean): Reco
       clean.CLASS_Type = validateType(clean.CLASS_Type);
     }
     if (clean.CLASS_Abrege !== undefined) {
-      const abrege = String(clean.CLASS_Abrege ?? '').trim();
+      const abrege = toText(clean.CLASS_Abrege);
       if (!abrege) {
         throw new AppError(400, 'CLASS_Abrege est requis');
       }

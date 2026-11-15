@@ -2,7 +2,7 @@ import db, { dbAll, dbGet, dbRun } from '../config/database';
 import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
 import { normalizeDayDate } from '../lib/dates';
-import { parseFlag } from '../lib/coerce';
+import { parseFlag, requireBodyObject, requirePositiveInt, toText } from '../lib/coerce';
 import { AppError } from '../types';
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
@@ -29,7 +29,7 @@ function normalizeFlag(value: unknown): number {
 }
 
 function normalizeHttpUrl(value: unknown): string {
-  const url = String(value ?? '').trim();
+  const url = toText(value);
   if (!url) return '';
 
   let parsed: URL;
@@ -207,11 +207,11 @@ export async function clonePreviousCompetition(
   );
 
   if (!previousCompetition) {
-    throw new AppError(404, 'La compétition précédente est introuvable.');
+    throw new AppError(422, 'La compétition précédente est introuvable.');
   }
 
   const epreuveId = target.epreuveId ?? Number(previousCompetition.IDEPREUVE ?? 0);
-  const name = String(target.name ?? previousCompetition.NOM ?? '').trim();
+  const name = toText(target.name ?? previousCompetition.NOM);
   if (!Number.isInteger(epreuveId) || epreuveId <= 0) {
     throw new AppError(400, 'Épreuve requise.');
   }
@@ -366,13 +366,13 @@ export async function createCompetitionFromPrevious(
   );
 
   if (!previousCompetition) {
-    throw new AppError(404, 'La compétition précédente est introuvable.');
+    throw new AppError(422, 'La compétition précédente est introuvable.');
   }
 
   return createCompetitionRecord({
     SAISON: normalizeSaison(target.saison),
     IDEPREUVE: Number(previousCompetition.IDEPREUVE ?? 0),
-    NOM: String(previousCompetition.NOM ?? '').trim(),
+    NOM: toText(previousCompetition.NOM),
     COCOMMENT: typeof previousCompetition.COCOMMENT === 'string' ? previousCompetition.COCOMMENT : '',
     CO_WEB: typeof previousCompetition.CO_WEB === 'string' ? previousCompetition.CO_WEB : '',
     LOGO: previousCompetition.LOGO ?? null,
@@ -380,22 +380,31 @@ export async function createCompetitionFromPrevious(
   });
 }
 
-export async function createCompetitionWithWizard(payload: {
-  epreuveId: string | number;
+export interface CompetitionWizardPayload {
+  epreuveId: number;
   saison: string;
-  name?: string;
-  sameAsLastEdition?: boolean;
-}): Promise<Record<string, unknown> | undefined> {
-  const epreuveId = Number(payload.epreuveId);
-  if (!Number.isInteger(epreuveId) || epreuveId <= 0) {
-    throw new AppError(400, 'Épreuve requise.');
-  }
+  /** '' = take the name of the epreuve. */
+  name: string;
+  sameAsLastEdition: boolean;
+}
 
-  const saison = normalizeSaison(payload.saison);
+/** Wizard body (400 when malformed); sameAsLastEdition is a strict 0/1 flag, absent = false. */
+export function parseCompetitionWizardPayload(body: unknown): CompetitionWizardPayload {
+  const raw = requireBodyObject(body);
+  return {
+    epreuveId: requirePositiveInt(raw.epreuveId, 'Épreuve requise.'),
+    saison: normalizeSaison(raw.saison),
+    name: toText(raw.name),
+    sameAsLastEdition: raw.sameAsLastEdition === undefined ? false : parseFlag(raw.sameAsLastEdition, 'sameAsLastEdition') === 1,
+  };
+}
+
+export async function createCompetitionWithWizard(payload: CompetitionWizardPayload): Promise<Record<string, unknown> | undefined> {
+  const { epreuveId, saison } = payload;
   await assertEpreuveExists(epreuveId);
 
   const epreuve = await dbGet<{ EPREUVE: string }>('SELECT EPREUVE FROM EPREUVE WHERE IDEPREUVE = ?', [epreuveId]);
-  const name = String(payload.name ?? '').trim() || String(epreuve?.EPREUVE ?? '').trim();
+  const name = payload.name || toText(epreuve?.EPREUVE);
   if (!name) {
     throw new AppError(400, 'Nom de la competition requis.');
   }

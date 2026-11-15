@@ -17,7 +17,7 @@ try {
   fs.mkdirSync(dbDirectory, { recursive: true });
 } catch (error) {
   const details = error instanceof Error ? error.message : String(error);
-  throw new Error(`Unable to create SQLite directory "${dbDirectory}": ${details}`);
+  throw new Error(`Unable to create SQLite directory "${dbDirectory}": ${details}`, { cause: error });
 }
 
 /**
@@ -61,7 +61,7 @@ function applyPendingUploadedDatabase(dbPath: string): void {
     }
   } catch (error) {
     const details = error instanceof Error ? error.message : String(error);
-    throw new Error(`Unable to apply pending SQLite upload "${pendingPath}": ${details}`);
+    throw new Error(`Unable to apply pending SQLite upload "${pendingPath}": ${details}`, { cause: error });
   }
 }
 
@@ -83,7 +83,7 @@ function cleanupStaleSqliteArtifacts(dbPath: string): void {
     const staleFile = `${dbPath}${suffix}`;
     try {
       fs.unlinkSync(staleFile);
-      console.log(`[startup] Removed stale SQLite artifact: ${staleFile}`);
+      console.info(`[startup] Removed stale SQLite artifact: ${staleFile}`);
     } catch (error) {
       if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT') {
         console.warn(`[startup] Could not remove stale artifact "${staleFile}": ${error instanceof Error ? error.message : String(error)}`);
@@ -99,7 +99,7 @@ function cleanupStaleSqliteArtifacts(dbPath: string): void {
       const fullPath = path.join(dbDirectory, entry);
       try {
         fs.unlinkSync(fullPath);
-        console.log(`[startup] Removed stale SQLite artifact: ${fullPath}`);
+        console.info(`[startup] Removed stale SQLite artifact: ${fullPath}`);
       } catch (error) {
         console.warn(`[startup] Could not remove stale artifact "${fullPath}": ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -113,11 +113,14 @@ applyPendingUploadedDatabase(resolvedDbPath);
 cleanupStaleSqliteArtifacts(resolvedDbPath);
 
 
+/** Values SQLite hands to user-defined functions. */
+type SqliteValue = string | number | bigint | Buffer | null;
+
 const db = new Database(resolvedDbPath);
 db.pragma('foreign_keys = OFF');
 // Accent/case-insensitive search: SQL side of normalizeSearchText / foldSearchWords (NULL -> '').
-db.function('fold', { deterministic: true }, (value: unknown) => (value == null ? '' : normalizeSearchText(String(value))));
-db.function('fold_words', { deterministic: true }, (value: unknown) => (value == null ? '' : foldSearchWords(String(value))));
+db.function('fold', { deterministic: true }, (value: SqliteValue) => (value == null ? '' : normalizeSearchText(String(value))));
+db.function('fold_words', { deterministic: true }, (value: SqliteValue) => (value == null ? '' : foldSearchWords(String(value))));
 
 /** Crée un snapshot cohérent (WAL inclus) via l'Online Backup API de SQLite. */
 export function backupDatabaseTo(destPath: string): Promise<void> {

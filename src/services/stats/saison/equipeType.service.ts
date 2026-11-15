@@ -1,6 +1,7 @@
 import { dbAll } from '../../../config/database';
 import { officialMatchSql, playedMatchSql } from '../../../lib/supportedMatches';
 import { STARTER_LINES, STARTER_SLOTS, type StarterSlot } from '../../../lib/compo';
+import { toText } from '../../../lib/coerce';
 
 /** Postes de champ (hors remplacants), du gardien vers l'attaque (ordre des lignes tactiques). */
 export const PITCH_SLOTS: readonly StarterSlot[] = STARTER_LINES.flatMap((line) => line.slots);
@@ -30,7 +31,7 @@ export interface EquipeTypeResult {
 type CompoRow = Record<string, string | null> & { DATE: string };
 
 export function normalize(value: unknown): string {
-  return String(value ?? '').trim();
+  return toText(value);
 }
 
 export function formationLabel(codes: string[]): string {

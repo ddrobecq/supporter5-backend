@@ -7,7 +7,7 @@ import { errorMiddleware } from './middlewares/error.middleware';
 import { jsonBody } from './middlewares/jsonBody.middleware';
 import { DEFAULT_JSON_BODY_LIMIT_BYTES } from './config/uploadLimits';
 import { getSitemapXml } from './services/sitemap.service';
-import { sendNotFound } from './lib/responseHelpers';
+import { asyncHandler, sendNotFound } from './lib/responseHelpers';
 
 dotenv.config();
 
@@ -52,17 +52,13 @@ app.use((req, res, next) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 
 // Référencement : contenu reconstruit après chaque écriture admin (TTL serveur 24 h), cache HTTP 1 h.
-app.get('/sitemap.xml', async (_req, res, next) => {
-  try {
-    const xml = await getSitemapXml();
-    res
-      .type('application/xml')
-      .set('Cache-Control', 'public, max-age=3600')
-      .send(xml);
-  } catch (error) {
-    next(error);
-  }
-});
+app.get('/sitemap.xml', asyncHandler(async (_req, res) => {
+  const xml = await getSitemapXml();
+  res
+    .type('application/xml')
+    .set('Cache-Control', 'public, max-age=3600')
+    .send(xml);
+}));
 
 // API
 app.use('/api', routes);

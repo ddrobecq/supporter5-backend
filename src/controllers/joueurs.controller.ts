@@ -4,38 +4,30 @@ import { parseSuggestQuery } from '../lib/requestQuery';
 import { parseGridPagination } from '../lib/gridPagination';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
 import { normalizeSaison } from '../lib/saisonRules';
-import joueursService from '../services/joueurs.service';
+import joueursService, {
+	parseJoueurHistoryPayload,
+	parseJoueurTransactionPayload,
+	parseJoueurWizardPayload,
+} from '../services/joueurs.service';
 import { AppError } from '../types';
+import { toText } from '../lib/coerce';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = integrityCheckerFor('joueur');
 
 const baseController = createEntityController(joueursService, { integrityChecker });
 
-type TransactionPayload = {
-	date: string;
-	type: number | string;
-	statut?: number | string;
-	idClub?: string | null;
-	salaire?: number | string | null;
-	indemnites?: number | string | null;
-	deviseId?: number | string | null;
-	echeance?: string | null;
-};
-type HistoryPayload = { saison: string; poste: number | string };
-type JoueurWizardPayload = { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string };
-
 export const getJoueursGrid = jsonHandler((req) => {
 	// Absent or empty season: search across all seasons (one row per player).
-	const seasonRaw = String(req.query.season ?? '').trim();
+	const seasonRaw = toText(req.query.season);
 	const season = seasonRaw === '' ? '' : normalizeSaison(seasonRaw, 'Parametre season invalide (xxxx-yyyy attendu)');
 
-	const search = String(req.query.search ?? '').trim();
+	const search = toText(req.query.search);
 	const posTypeRaw = req.query.posType;
-	if (posTypeRaw != null && !/^-?\d+$/.test(String(posTypeRaw).trim())) {
+	if (posTypeRaw != null && !/^-?\d+$/.test(toText(posTypeRaw))) {
 		throw new AppError(400, 'Parametre posType invalide (entier attendu)');
 	}
-	const posType = posTypeRaw != null ? Number(String(posTypeRaw).trim()) : undefined;
+	const posType = posTypeRaw != null ? Number(toText(posTypeRaw)) : undefined;
 	return joueursService.getJoueursGridBySeason(season, search, posType, parseGridPagination(req.query));
 });
 
@@ -55,12 +47,12 @@ export const getJoueurTransactions = dataHandler((req) => joueursService.getJoue
 export const getJoueurTransactionOptions = jsonHandler((req) => joueursService.getJoueurTransactionOptions(req.params.id));
 
 export const createJoueurTransaction = jsonHandler(
-	(req) => joueursService.createJoueurTransactionById(req.params.id, req.body as TransactionPayload),
+	(req) => joueursService.createJoueurTransactionById(req.params.id, parseJoueurTransactionPayload(req.body)),
 	201,
 );
 
 export const updateJoueurTransaction = rowOr404(
-	(req) => joueursService.updateJoueurTransactionById(req.params.id, req.params.transactionId, req.body as TransactionPayload),
+	(req) => joueursService.updateJoueurTransactionById(req.params.id, req.params.transactionId, parseJoueurTransactionPayload(req.body)),
 );
 
 export const deleteJoueurTransaction = removedOr404(
@@ -68,12 +60,12 @@ export const deleteJoueurTransaction = removedOr404(
 );
 
 export const createJoueurHistory = rowOr404(
-	(req) => joueursService.createJoueurHistoryById(req.params.id, req.body as HistoryPayload),
+	(req) => joueursService.createJoueurHistoryById(req.params.id, parseJoueurHistoryPayload(req.body)),
 	201,
 );
 
 export const updateJoueurHistory = rowOr404(
-	(req) => joueursService.updateJoueurHistoryById(req.params.id, req.params.historyId, req.body as HistoryPayload),
+	(req) => joueursService.updateJoueurHistoryById(req.params.id, req.params.historyId, parseJoueurHistoryPayload(req.body)),
 );
 
 export const deleteJoueurHistory = removedOr404(
@@ -86,7 +78,7 @@ export const getJoueurSuggestions = jsonHandler((req) => {
 });
 
 export const createJoueurWithWizard = jsonHandler(
-	(req) => joueursService.createJoueurWithWizard(req.body as JoueurWizardPayload),
+	(req) => joueursService.createJoueurWithWizard(parseJoueurWizardPayload(req.body)),
 	201,
 );
 

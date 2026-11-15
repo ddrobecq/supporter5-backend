@@ -2,7 +2,7 @@ import { createEntityController } from '../lib/controllerFactory';
 import { integrityCheckerFor } from '../lib/fkDependencies';
 import { parseSuggestQuery } from '../lib/requestQuery';
 import { jsonHandler } from '../lib/responseHelpers';
-import epreuveService from '../services/epreuve.service';
+import epreuveService, { parseEpreuveWizardPayload } from '../services/epreuve.service';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = integrityCheckerFor('epreuve');
@@ -15,7 +15,7 @@ export const getEpreuveSuggestions = jsonHandler((req) => {
 });
 
 export const createEpreuveWithWizard = jsonHandler(
-	(req) => epreuveService.createEpreuveWithWizard(req.body as { name: string }),
+	(req) => epreuveService.createEpreuveWithWizard(parseEpreuveWizardPayload(req.body)),
 	201,
 );
 

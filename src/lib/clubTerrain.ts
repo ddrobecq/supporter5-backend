@@ -1,4 +1,5 @@
 import db from '../config/database';
+import { toText } from './coerce';
 
 export interface ClubLatestTerrainRow {
   TERRAIN_ID: string;
@@ -7,7 +8,7 @@ export interface ClubLatestTerrainRow {
 }
 
 export function getLatestTerrainForClub(clubId: unknown): ClubLatestTerrainRow | null {
-  const normalizedClubId = String(clubId ?? '').trim();
+  const normalizedClubId = toText(clubId);
   if (!normalizedClubId) {
     return null;
   }
@@ -26,14 +27,14 @@ export function getLatestTerrainForClub(clubId: unknown): ClubLatestTerrainRow |
      LIMIT 1`,
   ).get(normalizedClubId) as Record<string, unknown> | undefined;
 
-  const terrainId = String(row?.TERRAIN_ID ?? '').trim();
+  const terrainId = toText(row?.TERRAIN_ID);
   if (!terrainId) {
     return null;
   }
 
   return {
     TERRAIN_ID: terrainId,
-    TERRAIN_NOM: String(row?.TERRAIN_NOM ?? '').trim(),
-    TERRAIN_VILLE: String(row?.TERRAIN_VILLE ?? '').trim(),
+    TERRAIN_NOM: toText(row?.TERRAIN_NOM),
+    TERRAIN_VILLE: toText(row?.TERRAIN_VILLE),
   };
 }

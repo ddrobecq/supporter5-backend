@@ -4,6 +4,7 @@ import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/respons
 import toursService from '../services/tours.service';
 import rencontresService from '../services/rencontres.service';
 import { AppError } from '../types';
+import { toText } from '../lib/coerce';
 
 /** Checker shared by the /:id/can-delete route and the server-side guard on deletions. */
 export const integrityChecker = integrityCheckerFor('tour');
@@ -14,8 +15,12 @@ export const getToursByCompetition = dataHandler((req) => toursService.getToursB
 
 export const getTourByIdDetailed = rowOr404((req) => toursService.getTourByIdDetailed(req.params.id));
 
+type MoveTourBody = { direction?: unknown } | undefined;
+type AddParticipantBody = { clubId?: unknown; groupe?: unknown; paSource?: unknown } | undefined;
+type RemoveParticipantsBody = { clubIds?: unknown; participantIds?: unknown } | undefined;
+
 export const moveTour = dataHandler((req) => {
-	const direction = req.body?.direction === 'down' ? 'down' : 'up';
+	const direction = (req.body as MoveTourBody)?.direction === 'down' ? 'down' : 'up';
 	return toursService.moveTour(req.params.id, direction);
 });
 
@@ -24,19 +29,21 @@ export const removeTour = removedOr404((req) => toursService.removeTourWithReseq
 export const getTourParticipants = dataHandler((req) => toursService.getTourParticipants(req.params.id));
 
 export const addTourParticipant = jsonHandler((req) => {
-	const clubId = String(req.body?.clubId ?? '').trim();
-	const groupe = String(req.body?.groupe ?? '').trim();
-	const paSource = String(req.body?.paSource ?? '').trim();
+	const body = req.body as AddParticipantBody;
+	const clubId = toText(body?.clubId);
+	const groupe = toText(body?.groupe);
+	const paSource = toText(body?.paSource);
 	return toursService.addTourParticipant(req.params.id, clubId, groupe, paSource);
 }, 201);
 
 export const removeTourParticipants = jsonHandler(async (req) => {
-	const rawClubIds: unknown[] = Array.isArray(req.body?.clubIds) ? req.body.clubIds : [];
+	const body = req.body as RemoveParticipantsBody;
+	const rawClubIds: unknown[] = Array.isArray(body?.clubIds) ? body.clubIds : [];
 	const clubIds = rawClubIds
-		.map((clubId: unknown) => String(clubId ?? '').trim())
+		.map((clubId: unknown) => toText(clubId))
 		.filter((clubId: string) => clubId.length > 0);
 
-	const rawParticipantIds: unknown[] = Array.isArray(req.body?.participantIds) ? req.body.participantIds : [];
+	const rawParticipantIds: unknown[] = Array.isArray(body?.participantIds) ? body.participantIds : [];
 	const participantIds = rawParticipantIds
 		.map((participantId: unknown) => Number(participantId))
 		.filter((participantId: number) => Number.isInteger(participantId) && participantId > 0);

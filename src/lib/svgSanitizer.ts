@@ -117,6 +117,7 @@ function hasOnlyInternalUrls(lowerValue: string): boolean {
 
 function isSafeAttributeValue(name: string, value: string): boolean {
   // Remove whitespace and control characters used to obfuscate schemes ("java\tscript:").
+  // eslint-disable-next-line no-control-regex -- matching control characters is the purpose here
   const compact = value.replace(/[\u0000- \u007f]+/g, '').toLowerCase();
 
   if (compact.includes('javascript:') || compact.includes('vbscript:')) {
@@ -263,7 +264,7 @@ const INVALID_SVG_MESSAGE = 'Image SVG invalide.';
  * @throws AppError(400) when the document cannot be parsed or its root element is not <svg>.
  */
 export function sanitizeSvg(input: string): string {
-  const source = input.replace(/^﻿/, '');
+  const source = input.replace(/^\uFEFF/, '');
 
   const validation = XMLValidator.validate(source);
   if (validation !== true) {
@@ -291,7 +292,7 @@ export function sanitizeSvg(input: string): string {
   root[ATTRS_KEY] = {
     [`${ATTR_PREFIX}xmlns`]: SVG_NS,
     ...(usesXlink ? { [`${ATTR_PREFIX}xmlns:xlink`]: XLINK_NS } : {}),
-    ...((root[ATTRS_KEY] as XmlNode | undefined) ?? {}),
+    ...(root[ATTRS_KEY] ?? {}),
   };
-  return builder.build([root]) as string;
+  return builder.build([root]);
 }

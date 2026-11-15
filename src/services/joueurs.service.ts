@@ -1,5 +1,5 @@
 import { dbAll, dbGet, dbRun } from '../config/database';
-import { requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode } from '../lib/coerce';
+import { requireBodyObject, requireMaxLength, requirePositiveInt, requireText, requireUpperCaseCode, toText } from '../lib/coerce';
 import { createEntityService } from '../lib/baseService';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
 import { normalizeSaison } from '../lib/saisonRules';
@@ -160,16 +160,86 @@ export interface JoueurMatchRow {
   events: JoueurMatchEvent[];
 }
 
-interface JoueurTransactionUpsertPayload {
+/**
+ * Transaction body once its format is validated (400). Rules that depend on the transaction type
+ * (fields not applicable, existing club / currency) are checked on write (422).
+ */
+export interface JoueurTransactionPayload {
   date: string;
-  saison?: string | null;
-  type: number | string;
-  statut?: number | string;
-  idClub?: string | null;
-  salaire?: number | string | null;
-  indemnites?: number | string | null;
-  deviseId?: number | string | null;
-  echeance?: string | null;
+  /** Sent by the client (the front proposes it from the date); never recomputed. */
+  saison: string;
+  typeId: number;
+  /** 1, 2 or 3. */
+  statut: number;
+  /** Club as sent: its id, '' (empty string sent) or null (null / absent). */
+  idClub: string | null;
+  /** null = default currency. */
+  deviseId: number | null;
+  /** null = unknown. */
+  salaire: number | null;
+  /** NULL = unknown, 0 = no fee, > 0 = amount. */
+  indemnites: number | null;
+  /** '' = no due date. */
+  echeance: string;
+}
+
+export function parseJoueurTransactionPayload(body: unknown): JoueurTransactionPayload {
+  const raw = requireBodyObject(body);
+  const date = normalizeDayDate(raw.date, { required: true, field: 'de la transaction' });
+  const saison = normalizeSaison(requireText(raw.saison, 'La saison est requise.'));
+  const typeId = requirePositiveInt(raw.type, 'Type de transaction invalide.');
+  const statut = normalizeTransactionStatut(raw.statut);
+  const clubId = normalizeOptionalClubId(raw.idClub);
+  return {
+    date,
+    saison,
+    typeId,
+    statut,
+    idClub: clubId ?? (raw.idClub == null ? null : ''),
+    deviseId: normalizeDeviseId(raw.deviseId),
+    salaire: normalizeMoney(raw.salaire, 'Salaire'),
+    indemnites: normalizeMoney(raw.indemnites, 'Indemnites'),
+    echeance: normalizeDayDate(raw.echeance, { field: "d'échéance" }),
+  };
+}
+
+export interface JoueurHistoryPayload {
+  saison: string;
+  posteId: number;
+}
+
+export function parseJoueurHistoryPayload(body: unknown): JoueurHistoryPayload {
+  const raw = requireBodyObject(body);
+  return {
+    saison: normalizeSaison(raw.saison),
+    posteId: requirePositiveInt(raw.poste, 'Poste invalide.'),
+  };
+}
+
+export interface JoueurWizardPayload {
+  nom: string;
+  prenom: string;
+  alias: string;
+  natioId: string;
+  posteId: number;
+  /** '' = unknown. */
+  naissance: string;
+}
+
+/** Stored as sent (trimmed): the front writes NOM in upper case; too long values are rejected, never truncated. */
+export function parseJoueurWizardPayload(body: unknown): JoueurWizardPayload {
+  const raw = requireBodyObject(body);
+  const nom = requireMaxLength(toText(raw.nom), 30, 'Nom');
+  const prenom = requireMaxLength(toText(raw.prenom), 20, 'Prénom');
+  const alias = requireMaxLength(toText(raw.alias), 20, 'Alias');
+  const natioId = toText(raw.natioId);
+  const naissance = normalizeDayDate(raw.naissance, { field: 'de naissance' });
+
+  if (!nom) throw new AppError(400, 'Nom requis.');
+  if (!natioId) throw new AppError(400, 'Nationalite requise.');
+  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
+  const posteId = requirePositiveInt(raw.posteId, 'Poste requis.');
+  return { nom, prenom, alias, natioId, posteId, naissance };
 }
 
 export interface JoueurSuggestionRow {
@@ -250,19 +320,8 @@ async function resolveNextJoueurId(): Promise<string> {
   return String(nextId).padStart(4, '0');
 }
 
-export async function createJoueurWithWizard(payload: { nom: string; prenom?: string; natioId: string; posteId: number; alias?: string; naissance?: string }): Promise<Record<string, unknown> | undefined> {
-  // Stored as sent (trimmed): the front writes NOM in upper case; too long values are rejected, never truncated.
-  const nom = requireMaxLength(String(payload.nom ?? '').trim(), 30, 'Nom');
-  const prenom = requireMaxLength(String(payload.prenom ?? '').trim(), 20, 'Prénom');
-  const alias = requireMaxLength(String(payload.alias ?? '').trim(), 20, 'Alias');
-  const natioId = String(payload.natioId ?? '').trim();
-  const posteId = Number(payload.posteId);
-  const naissance = normalizeDayDate(payload.naissance, { field: 'de naissance' });
-
-  if (!nom) throw new AppError(400, 'Nom requis.');
-  if (!natioId) throw new AppError(400, 'Nationalite requise.');
-  requireUpperCaseCode(natioId, 'Le code pays doit être en majuscules.');
-  if (!Number.isInteger(posteId) || posteId <= 0) throw new AppError(400, 'Poste requis.');
+export async function createJoueurWithWizard(payload: JoueurWizardPayload): Promise<Record<string, unknown> | undefined> {
+  const { nom, prenom, alias, natioId, posteId, naissance } = payload;
 
   const country = await dbGet<{ IDNATIO: string }>('SELECT IDNATIO FROM NATIO WHERE IDNATIO = ?', [natioId]);
   if (!country) {
@@ -363,9 +422,9 @@ function latestTransactionSql(columns: string, latestFilter = ''): string {
 const JOUEURS_GRID_MAX_ROWS = 2_000;
 
 /**
- * Players grid. `season` ('xxxx-yyyy') lists the JOUEUR rows of that season; an empty `season` searches across
- * all seasons and returns one row per player: their JOUEUR row of the latest SAISON whose Poste has POS_TYPE
- * `posType` (tie-break on highest JOCLEUNIK).
+ * Players grid. `season` = 'xxxx-yyyy' lists the JOUEUR rows of that season; empty `season` searches across
+ * all seasons and returns one row per player: their JOUEUR row of the latest SAISON with a Poste of `posType`
+ * (tie-break on highest JOCLEUNIK).
  */
 export async function getJoueursGridBySeason(
   season: string,
@@ -386,7 +445,8 @@ export async function getJoueursGridBySeason(
        ) j`
     : 'JOUEUR j';
   const seasonFilter = allSeasons ? 'j.RN = 1' : 'j.SAISON = ?';
-  const scopeParams: unknown[] = allSeasons ? [posType] : [season];
+  const sourceParams: unknown[] = allSeasons ? [posType] : [];
+  const seasonParams: unknown[] = allSeasons ? [] : [season];
 
   return fetchGridPage<JoueurGridRow>(
     `SELECT
@@ -413,7 +473,7 @@ export async function getJoueursGridBySeason(
          OR fold(p.POS_NOM) LIKE ?
        )
      ORDER BY JOUEUR_NOM ASC, j.JOCLEUNIK ASC`,
-    [...scopeParams, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
+    [...sourceParams, ...seasonParams, posType, normalizedSearch, likeSearch, likeSearch, likeSearch, likeSearch],
     pagination,
     JOUEURS_GRID_MAX_ROWS,
   );
@@ -523,13 +583,13 @@ function normalizeTransactionId(transactionId: string | number): number {
 }
 
 function normalizeOptionalClubId(value: unknown): string | null {
-  const text = String(value ?? '').trim();
+  const text = toText(value);
   return text ? text : null;
 }
 
 /** Amount as sent: empty -> NULL (unknown), otherwise a finite number >= 0 ("," accepted as decimal separator), else 400. */
 function normalizeMoney(value: unknown, fieldName: string): number | null {
-  const text = String(value ?? '').trim();
+  const text = toText(value);
   if (!text) {
     return null;
   }
@@ -541,7 +601,7 @@ function normalizeMoney(value: unknown, fieldName: string): number | null {
 }
 
 function normalizeDeviseId(value: unknown): number | null {
-  const text = String(value ?? '').trim();
+  const text = toText(value);
   if (!text || Number(text) === 0) {
     return null;
   }
@@ -617,8 +677,8 @@ async function getDefaultDeviseId(): Promise<number | null> {
   return devise?.DVCLEUNIK ?? null;
 }
 
-async function resolveDeviseId(value: unknown): Promise<number> {
-  const deviseId = normalizeDeviseId(value) ?? await getDefaultDeviseId();
+async function resolveDeviseId(sentDeviseId: number | null): Promise<number> {
+  const deviseId = sentDeviseId ?? await getDefaultDeviseId();
   if (deviseId === null) {
     throw new AppError(422, 'La devise est requise.');
   }
@@ -695,19 +755,11 @@ export async function getJoueurTransactionOptions(_idJoueur: string | number): P
  */
 async function buildTransactionValues(
   joueurId: string,
-  payload: JoueurTransactionUpsertPayload,
+  payload: JoueurTransactionPayload,
   mode: 'create' | 'update',
 ): Promise<unknown[]> {
-  const date = normalizeDayDate(payload.date, { required: true, field: 'de la transaction' });
-  // The season is the one sent by the client (the front proposes it from the date); it is never recomputed here.
-  const season = normalizeSaison(requireText(payload.saison, 'La saison est requise.'));
-  const typeId = Number(payload.type);
-  if (!Number.isInteger(typeId) || typeId <= 0) {
-    throw new AppError(400, 'Type de transaction invalide.');
-  }
-
+  const { date, saison: season, typeId, statut, salaire, indemnites, echeance } = payload;
   const transactionType = await getTransactionTypeById(typeId);
-  const statut = normalizeTransactionStatut(payload.statut);
 
   // Fields the type does not use must arrive empty: a value is rejected (422), never silently dropped.
   // Fields the type uses stay optional (e.g. the club may be unknown or absent, as for a free agent on trial).
@@ -716,7 +768,7 @@ async function buildTransactionValues(
   const usesIndemnites = Number(transactionType.TYT_INDEMNITES ?? 0) !== 0;
   const usesEcheance = Number(transactionType.TYT_ECHEANCE ?? 0) !== 0;
 
-  const clubId = normalizeOptionalClubId(payload.idClub);
+  const clubId = payload.idClub || null;
   if (clubId) {
     if (!usesClub) {
       throw new AppError(422, "Le club n'est pas applicable à ce type de transaction.");
@@ -724,25 +776,22 @@ async function buildTransactionValues(
     await ensureClubExists(clubId);
   }
   // An empty club is stored as sent: NULL for null/absent, '' for an empty string.
-  const storedClubId = clubId ?? (payload.idClub == null ? null : '');
+  const storedClubId = payload.idClub;
 
   const deviseId = await resolveDeviseId(payload.deviseId);
   await ensureDeviseExists(deviseId);
 
   // Salary: empty -> NULL. On a type without salary, only empty or 0 (historical value of 2 275 rows) is accepted.
-  const salaire = normalizeMoney(payload.salaire, 'Salaire');
   if (!usesSalaire && salaire !== null && salaire !== 0) {
     throw new AppError(422, "Le salaire n'est pas applicable à ce type de transaction.");
   }
 
   // Fees (option A): empty or NULL -> NULL (unknown), 0 = no fee (known), > 0 = amount; negatives are a 400.
   // On a type without fees, only NULL is accepted (0 would claim a known "no fee").
-  const indemnites = normalizeMoney(payload.indemnites, 'Indemnites');
   if (!usesIndemnites && indemnites !== null) {
     throw new AppError(422, "Les indemnités ne sont pas applicables à ce type de transaction.");
   }
 
-  const echeance = normalizeDayDate(payload.echeance, { field: "d'échéance" });
   if (!usesEcheance && echeance) {
     throw new AppError(422, "L'échéance n'est pas applicable à ce type de transaction.");
   }
@@ -754,7 +803,7 @@ async function buildTransactionValues(
 
 export async function createJoueurTransactionById(
   idJoueur: string | number,
-  payload: JoueurTransactionUpsertPayload,
+  payload: JoueurTransactionPayload,
 ): Promise<JoueurTransactionRow> {
   const joueurId = normalizeJoueurId(idJoueur);
   await ensureJoueurExists(joueurId);
@@ -783,7 +832,7 @@ export async function createJoueurTransactionById(
 export async function updateJoueurTransactionById(
   idJoueur: string | number,
   transactionId: string | number,
-  payload: JoueurTransactionUpsertPayload,
+  payload: JoueurTransactionPayload,
 ): Promise<JoueurTransactionRow | undefined> {
   const joueurId = normalizeJoueurId(idJoueur);
   const rowId = normalizeTransactionId(transactionId);
@@ -841,7 +890,7 @@ function readJoueurHistoryById(jocleunik: number, joueurId: string): Promise<Jou
 
 export async function createJoueurHistoryById(
   idJoueur: string | number,
-  payload: { saison: string; poste: number | string },
+  payload: JoueurHistoryPayload,
 ): Promise<JoueurHistoryRow | undefined> {
   const joueurId = requireText(idJoueur, 'Identifiant joueur invalide.');
 
@@ -850,8 +899,8 @@ export async function createJoueurHistoryById(
     return undefined;
   }
 
-  const saison = normalizeSaison(payload.saison);
-  const posteId = await normalizePosteJoueur(payload.poste);
+  const { saison, posteId } = payload;
+  await ensurePosteJoueurExists(posteId);
 
   const existing = await dbGet<{ JOCLEUNIK: number }>(
     'SELECT JOCLEUNIK FROM JOUEUR WHERE IDJOUEUR = ? AND SAISON = ? LIMIT 1',
@@ -875,7 +924,7 @@ export async function createJoueurHistoryById(
 export async function updateJoueurHistoryById(
   idJoueur: string | number,
   historyId: string,
-  payload: { saison: string; poste: number | string },
+  payload: JoueurHistoryPayload,
 ): Promise<JoueurHistoryRow | undefined> {
   const joueurId = requireText(idJoueur, 'Identifiant joueur invalide.');
   const rowId = requirePositiveInt(historyId, 'Identifiant historique invalide.');
@@ -888,8 +937,8 @@ export async function updateJoueurHistoryById(
     return undefined;
   }
 
-  const saison = normalizeSaison(payload.saison);
-  const posteId = await normalizePosteJoueur(payload.poste);
+  const { saison, posteId } = payload;
+  await ensurePosteJoueurExists(posteId);
 
   const duplicate = await dbGet<{ JOCLEUNIK: number }>(
     'SELECT JOCLEUNIK FROM JOUEUR WHERE IDJOUEUR = ? AND SAISON = ? AND JOCLEUNIK <> ? LIMIT 1',
@@ -917,17 +966,11 @@ export async function deleteJoueurHistoryById(idJoueur: string | number, history
   return result.changes > 0;
 }
 
-async function normalizePosteJoueur(value: unknown): Promise<number> {
-  const posteId = Number(value);
-  if (!Number.isInteger(posteId) || posteId <= 0) {
-    throw new AppError(400, 'Poste invalide.');
-  }
-
+async function ensurePosteJoueurExists(posteId: number): Promise<void> {
   const poste = await dbGet<{ POS_ID: number }>('SELECT POS_ID FROM Poste WHERE POS_ID = ? AND POS_TYPE = 1', [posteId]);
   if (!poste) {
     throw new AppError(422, 'Le poste selectionne est introuvable.');
   }
-  return posteId;
 }
 
 export async function getJoueurSeasonsByPlayedMatches(joueurId: string): Promise<string[]> {
@@ -1082,7 +1125,7 @@ export async function getJoueurMatchesForSeason(
 
   const rows: JoueurMatchRow[] = rawRows.map((row) => {
     const { EVENTS_JSON, ...rest } = row;
-    let events: JoueurMatchEvent[] = [];
+    let events: JoueurMatchEvent[];
     try {
       events = JSON.parse(EVENTS_JSON ?? '[]') as JoueurMatchEvent[];
     } catch {
