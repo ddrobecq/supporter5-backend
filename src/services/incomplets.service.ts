@@ -1,6 +1,7 @@
 import { dbAll } from '../config/database';
 import { getSupportedClubIdFromEnv } from '../lib/supportedClub';
 import { STARTER_SLOTS, SUB_SLOTS } from '../lib/compo';
+import { officialMatchSql } from '../lib/supportedMatches';
 
 export interface JoueurIncompletRow {
   IDJOUEUR: string;
@@ -143,6 +144,7 @@ export interface RencontreIncompleteRow {
   BUTDOM: number | null;
   BUTEXT: number | null;
   COMPET_NOM: string | null;
+  OFFICIEL: number;
   SANS_ARBITRE: number;
   SANS_TERRAIN: number;
   SANS_ENTRAINEUR: number;
@@ -291,7 +293,10 @@ async function getEventIssuesByMatch(): Promise<Map<number, boolean>> {
   return issues;
 }
 
-/** Outils > Fiches incompletes : matchs du club supporte (amicaux inclus) presentant au moins une anomalie. */
+/**
+ * Outils > Fiches incompletes : matchs du club supporte (amicaux inclus) presentant au moins une anomalie.
+ * OFFICIEL (1/0, 0 si la fiche RENCO manque) permet au front de filtrer les matchs officiels.
+ */
 export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow[]> {
   const supportedClubId = getSupportedClubIdFromEnv();
 
@@ -310,6 +315,7 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
        r."BUTDOM",
        r."BUTEXT",
        co."NOM" AS "COMPET_NOM",
+       CASE WHEN ${officialMatchSql('r')} THEN 1 ELSE 0 END AS "OFFICIEL",
        CASE WHEN ${PLAYED_SQL} AND (
          TRIM(COALESCE(m."IDARBITRE", '')) = ''
          OR NOT EXISTS (SELECT 1 FROM "ARBITRE" a WHERE a."IDARBITRE" = m."IDARBITRE")
@@ -380,6 +386,7 @@ export async function getRencontresIncompletes(): Promise<RencontreIncompleteRow
        r."BUTDOM",
        r."BUTEXT",
        co."NOM" AS "COMPET_NOM",
+       CASE WHEN ${officialMatchSql('r')} THEN 1 ELSE 0 END AS "OFFICIEL",
        0, 0, 0,
        CASE WHEN COALESCE(r."ETAT", 0) = 1 THEN 1 ELSE 0 END AS "SCORE_INCONNU",
        0, 0, 0, 0, 0, 0,
