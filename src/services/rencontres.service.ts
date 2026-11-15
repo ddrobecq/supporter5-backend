@@ -704,7 +704,12 @@ function buildSupportedEventText(eventRow: Record<string, unknown>): string {
     const scorer = `But de ${joueur1}`;
     baseText = joueur2 ? `${scorer} sur une passe de ${joueur2}` : scorer;
   } else if (typeEvent === 2) {
-    baseText = `${joueur2} remplace ${joueur1}`;
+    const hasJoueur1 = Boolean(toText(eventRow.JOUEUR1));
+    const hasJoueur2 = Boolean(toText(eventRow.JOUEUR2));
+    if (hasJoueur1 && hasJoueur2) baseText = `${joueur2} remplace ${joueur1}`;
+    else if (hasJoueur2) baseText = `Entrée de ${joueur2}`;
+    else if (hasJoueur1) baseText = `Sortie de ${joueur1}`;
+    else baseText = 'Remplacement';
   } else if (typeEvent === 3) {
     baseText = `Carton jaune pour ${joueur1}`;
   } else if (typeEvent === 4) {
@@ -2969,9 +2974,8 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
     const matchPlayers = new Set<string>(match.starters);
     match.events.forEach((event) => {
       if (toInt(event.ADVERSAIRE) !== 0 || toInt(event.TYPE_EVENT) !== 2) return;
-      const joueur1 = toText(event.JOUEUR1);
       const joueur2 = toText(event.JOUEUR2);
-      if (joueur1 && joueur2) matchPlayers.add(joueur2);
+      if (joueur2) matchPlayers.add(joueur2);
     });
     const addMatchPlayerTotals = (playerId: string, update: (totals: PlayerMatchTotals) => void) => {
       if (matchPlayers.has(playerId)) addPlayerMatchTotals(totalsByPlayer, playerId, update);
@@ -3010,14 +3014,17 @@ function writeSupportedClubPlayerStatsForSeason(season: string): void {
       const joueur1 = toText(event.JOUEUR1);
       const joueur2 = toText(event.JOUEUR2);
 
-      if (typeEvent === 2 && joueur1 && joueur2) {
-        markExit(joueur1, minute);
-        const entrant = spans.get(joueur2);
-        if (entrant) entrant.start = Math.max(entrant.start, minute);
-        else spans.set(joueur2, { start: minute, end: match.duration });
-        addPlayerMatchTotals(totalsByPlayer, joueur2, (totals) => {
-          totals.REMPTOTAL += 1;
-        });
+      if (typeEvent === 2) {
+        // Each side is independent: exit without replacement, or entry without known outgoing player.
+        if (joueur1) markExit(joueur1, minute);
+        if (joueur2) {
+          const entrant = spans.get(joueur2);
+          if (entrant) entrant.start = Math.max(entrant.start, minute);
+          else spans.set(joueur2, { start: minute, end: match.duration });
+          addPlayerMatchTotals(totalsByPlayer, joueur2, (totals) => {
+            totals.REMPTOTAL += 1;
+          });
+        }
       } else if (typeEvent === 9 && joueur1) {
         markExit(joueur1, minute);
       }
@@ -3480,11 +3487,11 @@ export function parseEventPayload(body: unknown): EventPayload {
  * Business rules (422) for supported-club events. Only rules that no existing data violates are enforced:
  * types 6 (penalty whistled) and 10 (additional time) carry no player. "JOUEUR1 required", "JOUEUR2 required"
  * and "JOUEUR2 empty" are violated by historical events, so they are not enforced yet.
+ * Type 2 (substitution): JOUEUR1 (outgoing) and JOUEUR2 (incoming) are each optional, but at least one is required.
  */
 /** business rules.md (Event): types whose JOUEUR1 is required, with the 422 message naming the type. */
 const JOUEUR1_REQUIRED_MESSAGES: Readonly<Record<number, string>> = {
   1: 'Le joueur est requis pour un but.',
-  2: 'Le joueur sortant est requis pour un remplacement.',
   3: 'Le joueur est requis pour un carton jaune.',
   4: 'Le joueur est requis pour un second carton jaune.',
   5: 'Le joueur est requis pour un carton rouge.',
@@ -3505,6 +3512,9 @@ function assertEventBusinessRules(payload: EventPayload): void {
   const joueur1Required = JOUEUR1_REQUIRED_MESSAGES[payload.typeEvent];
   if (joueur1Required && !payload.joueur1) {
     throw new AppError(422, joueur1Required);
+  }
+  if (payload.typeEvent === 2 && !payload.joueur1 && !payload.joueur2) {
+    throw new AppError(422, 'Un remplacement doit indiquer au moins le joueur sortant ou le joueur entrant.');
   }
   // JOUEUR2 stays optional (unknown assist or incoming player), but never the same player as JOUEUR1.
   if (payload.joueur1 && payload.joueur2 && payload.joueur1 === payload.joueur2) {
