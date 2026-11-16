@@ -217,6 +217,8 @@ const SUBSTITUTION_EVENT_TYPE = 2;
 const EVENT_TYPES_WITHOUT_PLAYER = new Set([6, 10]);
 /** Buts (1) et penaltys (7): JOUEUR2 designe le passeur. */
 const EVENT_TYPES_WITH_ASSIST = new Set([1, 7]);
+/** Cartons (jaune 3, second jaune 4, rouge 5): peuvent etre recus par un membre du staff (banc). */
+const CARD_EVENT_TYPES = new Set([3, 4, 5]);
 
 interface MatchEventRow {
   MACLEUNIK: number | null;
@@ -228,14 +230,28 @@ interface MatchEventRow {
 /**
  * Evenements du club supporte incoherents avec la compo (matchs ayant au moins un titulaire):
  * entrant deja titulaire, entrant absent des remplacants declares, sortant = entrant,
- * ou joueur cite ni titulaire, ni remplacant, ni entrant. Les remplacements sans sortant/entrant
- * relevent de REMPLACEMENTS_INCOMPLETS et ne sont pas comptes ici.
+ * ou joueur cite ni titulaire, ni remplacant, ni entrant (l'ENTRAINEUR du match est admis).
+ * Pour les seuls cartons (types 3, 4, 5), un membre du staff est aussi admis, comme dans le recalcul
+ * des stats : personne ayant, pour la saison du match (RENCO.SAISON, renseignee aussi pour les amicaux),
+ * une ligne JOUEUR dont le poste est connu de Poste avec POS_TYPE <> 1. Les remplacements sans
+ * sortant/entrant relevent de REMPLACEMENTS_INCOMPLETS et ne sont pas comptes ici.
  */
 async function getEventIssuesByMatch(): Promise<Map<number, boolean>> {
   const compoRows = await dbAll<Record<string, unknown>>(
-    `SELECT e."MACLEUNIK", e."ENTRAINEUR", ${[...COMPO_STARTER_FIELDS, ...COMPO_SUB_FIELDS].map((col) => `e."${col}"`).join(', ')}
-     FROM "EQUIPE" e`,
+    `SELECT e."MACLEUNIK", e."ENTRAINEUR", r."SAISON", ${[...COMPO_STARTER_FIELDS, ...COMPO_SUB_FIELDS].map((col) => `e."${col}"`).join(', ')}
+     FROM "EQUIPE" e
+     LEFT JOIN "MATCH" m ON m."MACLEUNIK" = e."MACLEUNIK"
+     LEFT JOIN "RENCO" r ON r."RECLEUNIK" = m."RECLEUNIK"`,
   );
+  // Ligne staff : poste connu de Poste et POS_TYPE <> 1 (un poste inconnu vaut ligne joueur).
+  const staffRows = await dbAll<{ IDJOUEUR: unknown; SAISON: unknown }>(
+    `SELECT DISTINCT j."IDJOUEUR", j."SAISON"
+     FROM "JOUEUR" j
+     JOIN "Poste" p ON p."POS_ID" = j."POSTE"
+     WHERE p."POS_TYPE" IS NOT 1`,
+  );
+  const staffKey = (season: string, playerId: string): string => `${season}|${playerId}`;
+  const staffBySeason = new Set(staffRows.map((row) => staffKey(toText(row.SAISON), toText(row.IDJOUEUR))));
   const eventRows = await dbAll<MatchEventRow>(
     `SELECT ev."MACLEUNIK", ev."TYPE_EVENT", ev."JOUEUR1", ev."JOUEUR2"
      FROM "EVENT" ev
@@ -261,6 +277,7 @@ async function getEventIssuesByMatch(): Promise<Map<number, boolean>> {
     if (starters.size === 0) return;
     const subs = new Set(COMPO_SUB_FIELDS.map((field) => readCode(row[field])).filter(Boolean));
     const coach = readCode(row.ENTRAINEUR);
+    const season = readCode(row.SAISON);
     const events = eventsByMatch.get(macleunik) ?? [];
 
     const substitutions = events.filter((event) => Number(event.TYPE_EVENT) === SUBSTITUTION_EVENT_TYPE);
@@ -281,10 +298,12 @@ async function getEventIssuesByMatch(): Promise<Map<number, boolean>> {
       && !starters.has(code)
       && !subs.has(code)
       && !incomingPlayers.has(code);
+    const isStaff = (code: string): boolean => Boolean(season) && staffBySeason.has(staffKey(season, code));
     const hasUnknownPlayer = events.some((event) => {
       const type = Number(event.TYPE_EVENT);
       if (EVENT_TYPES_WITHOUT_PLAYER.has(type)) return false;
-      return isUnknownPlayer(readCode(event.JOUEUR1))
+      const joueur1 = readCode(event.JOUEUR1);
+      return (isUnknownPlayer(joueur1) && !(CARD_EVENT_TYPES.has(type) && isStaff(joueur1)))
         || (EVENT_TYPES_WITH_ASSIST.has(type) && isUnknownPlayer(readCode(event.JOUEUR2)));
     });
 
