@@ -5,6 +5,10 @@ import { AppError } from '../types';
  * Whitelist-based SVG sanitizer, applied before any SVG is stored.
  * - Unknown elements are removed together with their content (script, foreignObject, image,
  *   animate*, set, style, metadata, editor namespaces...).
+ * - Before <style> is dropped, its simple class rules (selector lists made only of `.class`
+ *   selectors) are inlined into the `style` attribute of the elements carrying those classes;
+ *   every other rule and @-rule is ignored. Each inlined declaration is checked individually,
+ *   and an existing inline `style` is appended last so it keeps priority.
  * - Unknown attributes, `on*` handlers, non-internal references and `javascript:` values are removed.
  * - DOCTYPE, entity declarations, comments and processing instructions are never re-emitted,
  *   and DOCTYPE entities are never expanded (XXE / billion laughs).
@@ -142,6 +146,118 @@ function isSafeAttributeValue(name: string, value: string): boolean {
   return true;
 }
 
+/** A `.a, .b { ... }` rule from a <style> element, with its safe declarations. */
+interface ClassRule {
+  classes: ReadonlySet<string>;
+  declarations: string[];
+}
+
+const CLASS_SELECTOR = /^\.(-?[_a-zA-Z][_a-zA-Z0-9-]*)$/;
+
+/** Index of the `}` closing the block opened at `openIndex`, or css.length when unbalanced. */
+function findBlockEnd(css: string, openIndex: number): number {
+  let depth = 0;
+  for (let i = openIndex; i < css.length; i++) {
+    if (css[i] === '{') {
+      depth++;
+    } else if (css[i] === '}') {
+      depth--;
+      if (depth === 0) {
+        return i;
+      }
+    }
+  }
+  return css.length;
+}
+
+/**
+ * Extracts the rules whose selector list contains only simple class selectors.
+ * @-rules (with or without block) and any other selector are skipped entirely.
+ */
+function parseClassRules(rawCss: string): ClassRule[] {
+  const css = rawCss.replace(/\/\*[\s\S]*?(\*\/|$)/g, ' ');
+  const rules: ClassRule[] = [];
+  let position = 0;
+  while (position < css.length) {
+    const open = css.indexOf('{', position);
+    const semicolon = css.indexOf(';', position);
+    const prelude = css.slice(position, open === -1 ? css.length : open).trim();
+    // Block-less @-rule (@import, @charset...): skip up to its ';'.
+    if (prelude.startsWith('@') && semicolon !== -1 && (open === -1 || semicolon < open)) {
+      position = semicolon + 1;
+      continue;
+    }
+    if (open === -1) {
+      break;
+    }
+    const close = findBlockEnd(css, open);
+    const body = css.slice(open + 1, close);
+    position = close + 1;
+
+    const selectors = prelude.split(',').map((selector) => selector.trim());
+    const classes = selectors.map((selector) => CLASS_SELECTOR.exec(selector)?.[1]);
+    if (prelude.startsWith('@') || body.includes('{') || classes.some((name) => name === undefined)) {
+      continue;
+    }
+    const declarations = body
+      .split(';')
+      .map((declaration) => declaration.trim())
+      .filter((declaration) => /^[a-zA-Z-]+\s*:\s*\S/.test(declaration) && isSafeAttributeValue('style', declaration));
+    if (declarations.length) {
+      rules.push({ classes: new Set(classes as string[]), declarations });
+    }
+  }
+  return rules;
+}
+
+/** Concatenated text of every <style> element of the tree (CDATA is exposed as text by the parser). */
+function collectStyleText(nodes: unknown, parentScope: NamespaceScope, insideStyle: boolean, out: string[]): void {
+  if (!Array.isArray(nodes)) {
+    return;
+  }
+  for (const node of nodes as XmlNode[]) {
+    if (!node || typeof node !== 'object') {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(node, TEXT_KEY)) {
+      const text = node[TEXT_KEY];
+      if (insideStyle && (typeof text === 'string' || typeof text === 'number')) {
+        out.push(decodeXmlEntities(String(text)));
+      }
+      continue;
+    }
+    const rawName = elementName(node);
+    if (!rawName) {
+      continue;
+    }
+    const scope = extendScope(node[ATTRS_KEY], parentScope);
+    collectStyleText(node[rawName], scope, insideStyle || canonicalName(rawName, scope) === 'style', out);
+  }
+}
+
+/** Merges class-derived declarations (rule order) and the existing inline style (last, wins) into `style`. */
+function inlineClassStyles(attributes: XmlNode, rules: readonly ClassRule[]): void {
+  const classAttribute = attributes[`${ATTR_PREFIX}class`];
+  if (!rules.length || typeof classAttribute !== 'string') {
+    return;
+  }
+  const classes = new Set(classAttribute.split(/\s+/).filter(Boolean));
+  const declarations = rules
+    .filter((rule) => [...rule.classes].some((name) => classes.has(name)))
+    .flatMap((rule) => rule.declarations);
+  if (!declarations.length) {
+    return;
+  }
+  const existing = attributes[`${ATTR_PREFIX}style`];
+  if (typeof existing === 'string' && existing.trim()) {
+    declarations.push(existing.trim());
+  }
+  const merged = declarations.join('; ');
+  if (isSafeAttributeValue('style', merged)) {
+    attributes[`${ATTR_PREFIX}style`] = merged;
+  }
+}
+
 /** Namespace prefix -> URI bindings in scope for an element. */
 type NamespaceScope = ReadonlyMap<string, string>;
 
@@ -217,7 +333,7 @@ function elementName(node: XmlNode): string | null {
   return null;
 }
 
-function sanitizeNodes(nodes: unknown, parentScope: NamespaceScope): XmlNode[] {
+function sanitizeNodes(nodes: unknown, parentScope: NamespaceScope, rules: readonly ClassRule[]): XmlNode[] {
   if (!Array.isArray(nodes)) {
     return [];
   }
@@ -246,9 +362,10 @@ function sanitizeNodes(nodes: unknown, parentScope: NamespaceScope): XmlNode[] {
       continue;
     }
 
-    const cleanNode: XmlNode = { [name]: sanitizeNodes(node[rawName], scope) };
+    const cleanNode: XmlNode = { [name]: sanitizeNodes(node[rawName], scope, rules) };
     const attributes = sanitizeAttributes(node[ATTRS_KEY], scope);
     if (attributes) {
+      inlineClassStyles(attributes, rules);
       cleanNode[ATTRS_KEY] = attributes;
     }
     clean.push(cleanNode);
@@ -286,7 +403,9 @@ export function sanitizeSvg(input: string): string {
     throw new AppError(400, 'Image SVG invalide : l\'élément racine doit être <svg>.');
   }
 
-  const [root] = sanitizeNodes(elements, new Map());
+  const styleTexts: string[] = [];
+  collectStyleText(elements, new Map(), false, styleTexts);
+  const [root] = sanitizeNodes(elements, new Map(), parseClassRules(styleTexts.join('\n')));
   // Canonical namespaces (an entity-based xmlns such as Illustrator's "&ns_svg;" is not expanded).
   const usesXlink = JSON.stringify(root).includes(`"${ATTR_PREFIX}xlink:href"`);
   root[ATTRS_KEY] = {
