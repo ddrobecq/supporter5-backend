@@ -343,7 +343,7 @@ function resolveProgrammedClubIdFromSource(sourceValue: string): string | null {
   return resolved[0];
 }
 
-function isTourCompleted(tourId: number): boolean {
+export function isTourCompleted(tourId: number): boolean {
   if (!Number.isInteger(tourId) || tourId <= 0) {
     return false;
   }

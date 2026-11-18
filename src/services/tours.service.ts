@@ -4,6 +4,7 @@ import { parsePaSource } from '../lib/paSource';
 import { AppError } from '../types';
 import { createEntityService } from '../lib/baseService';
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
+import { isTourCompleted } from './rencontres.service';
 
 export interface CompetitionTourGridRow {
   TUCLEUNIK: number;
@@ -40,6 +41,7 @@ export interface TourParticipantRow {
   LOCKED_QUALIF_LIBELLE?: string | null;
   LOCKED_QUALIF_COULEUR?: string | null;
   LOCKED_QUALIF_TYPE?: number | null;
+  TOUR_TERMINE?: 0 | 1;
 }
 
 interface QualifRuleRow {
@@ -392,6 +394,8 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     [id],
   );
 
+  const tourTermine: 0 | 1 = isTourCompleted(id) ? 1 : 0;
+
   return addLockedQualificationMetadata(rows.map((row) => ({
     PACLEUNIK: Number(row.PACLEUNIK),
     TUCLEUNIK: Number(row.TUCLEUNIK),
@@ -413,6 +417,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     PADiff: Number(row.PADiff ?? 0),
     PARatio: Number(row.PARatio ?? 0),
     TDCalculDiffBut: Number(row.TDCalculDiffBut ?? 1),
+    TOUR_TERMINE: tourTermine,
   })), id);
 }
 
