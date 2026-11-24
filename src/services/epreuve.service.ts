@@ -1,7 +1,8 @@
 import { createEntityService } from '../lib/baseService';
 import { dbAll } from '../config/database';
 import { levenshteinDistance, normalizeSearchText, rankSuggestions } from '../lib/searchUtils';
-import { parseFlag, requireBodyObject, toText } from '../lib/coerce';
+import { parseFlag, requireBodyObject, requirePositiveInt, toText } from '../lib/coerce';
+import { fetchPalmaresTitles, type PalmaresWinner } from './palmares.service';
 import { VALID_SCOPES } from '../lib/matchScopeFilter';
 import { AppError } from '../types';
 
@@ -122,10 +123,24 @@ export function parseEpreuveWizardPayload(body: unknown): EpreuveWizardPayload {
 export async function createEpreuveWithWizard({ name }: EpreuveWizardPayload): Promise<Record<string, unknown> | undefined> {
   return baseService.create({ EPREUVE: name, SCOPE: 1, OFFICIELLE: 0, EPR_PAYS: 0, EPR_WEB: '' });
 }
+export interface EpreuvePalmaresRow {
+  COCLEUNIK: number;
+  SAISON_LIBELLE: string;
+  DATE_FINALE: string;
+  /** [] = not awarded. */
+  VAINQUEURS: PalmaresWinner[];
+}
 
+/** Past competitions of the event with their winners, latest final first. */
+export async function getEpreuvePalmares(id: unknown): Promise<EpreuvePalmaresRow[]> {
+  const epreuveId = requirePositiveInt(id, 'Identifiant d epreuve invalide.');
+  const titles = await fetchPalmaresTitles({ epreuveId });
+  return titles.map(({ COCLEUNIK, SAISON_LIBELLE, DATE_FINALE, VAINQUEURS }) => ({ COCLEUNIK, SAISON_LIBELLE, DATE_FINALE, VAINQUEURS }));
+}
 
 export default {
   ...baseService,
   getEpreuveSuggestions,
   createEpreuveWithWizard,
+  getEpreuvePalmares,
 };

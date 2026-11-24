@@ -8,6 +8,7 @@ import { foldSearchWords, levenshteinDistance, normalizeSearchText, rankSuggesti
 import { normalizeDayDate } from '../lib/dates';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
 import { AppError } from '../types';
+import { fetchPalmaresTitles } from './palmares.service';
 
 /** Latest valid name of club `c` (CLUB_NOM, disappearances CN_ACTION = 3 excluded), '' when none. */
 const LATEST_CLUB_NAME_SQL = `COALESCE((
@@ -931,86 +932,23 @@ export async function createClubWithWizard(payload: CreateClubWizardPayload): Pr
   return created;
 }
 
+/** Titles of the club (awarded past competitions it won), grouped by event, most prestigious first. */
 export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
   const clubId = requireText(id, 'Identifiant de club invalide.');
 
-  const rows = await dbAll<{ IDEPREUVE: number; EPREUVE: string; OFFICIELLE: number; SCOPE: number; COCLEUNIK: number; ANNEE: string | null }>(
-    `SELECT
-       e.IDEPREUVE,
-       e.EPREUVE,
-       COALESCE(e.OFFICIELLE, 0) AS OFFICIELLE,
-       COALESCE(e.SCOPE, 0) AS SCOPE,
-       co.COCLEUNIK,
-       CASE
-         WHEN COALESCE(co.CO_ANNEE, 0) = 1 THEN (
-           SELECT MAX(SUBSTR(COALESCE(r2.DATE, ''), 1, 4))
-           FROM TOUR t2
-           JOIN RENCO r2 ON r2.TUCLEUNIK = t2.TUCLEUNIK
-           WHERE t2.COCLEUNIK = co.COCLEUNIK AND COALESCE(t2.TU_FINAL, 0) = 1
-         )
-         ELSE co.SAISON
-       END AS ANNEE
-     FROM EPREUVE e
-     JOIN COMPET co ON co.IDEPREUVE = e.IDEPREUVE
-     WHERE EXISTS (
-       SELECT 1
-       FROM TOUR t
-       LEFT JOIN TOURDEF td ON td.TDCLEUNIK = t.TDCLEUNIK
-       WHERE t.COCLEUNIK = co.COCLEUNIK
-         AND COALESCE(t.TU_FINAL, 0) = 1
-         AND (
-           -- Ligue: vérifier que TOUS les matchs sont terminés/annulés
-           (COALESCE(td.TDTYPETOUR, 2) = 1
-            AND NOT EXISTS (
-              SELECT 1 FROM RENCO r
-              WHERE r.TUCLEUNIK = t.TUCLEUNIK
-                AND COALESCE(r.ETAT, 0) NOT IN (3, 4)
-            )
-            AND EXISTS (
-              SELECT 1 FROM PARTICIP p
-              WHERE p.TUCLEUNIK = t.TUCLEUNIK
-                AND CAST(p.IDCLUB AS TEXT) = ?
-                AND COALESCE(p.PAClassement, 0) = 1
-            )
-           )
-           OR
-           -- Eliminatoire: le club gagne le match de la finale
-           (COALESCE(td.TDTYPETOUR, 2) = 2
-            AND EXISTS (
-              SELECT 1 FROM RENCO r
-              WHERE r.TUCLEUNIK = t.TUCLEUNIK
-                AND COALESCE(r.ETAT, 0) = 3
-                AND (
-                  (CAST(r.DOMICILE AS TEXT) = ?
-                    AND (
-                      COALESCE(r.BUTDOM, 0) > COALESCE(r.BUTEXT, 0)
-                      OR (COALESCE(r.BUTDOM, 0) = COALESCE(r.BUTEXT, 0) AND COALESCE(r.TABDOM, 0) > COALESCE(r.TABEXT, 0))
-                    )
-                  )
-                  OR
-                  (CAST(r.EXTERIEUR AS TEXT) = ?
-                    AND (
-                      COALESCE(r.BUTEXT, 0) > COALESCE(r.BUTDOM, 0)
-                      OR (COALESCE(r.BUTDOM, 0) = COALESCE(r.BUTEXT, 0) AND COALESCE(r.TABEXT, 0) > COALESCE(r.TABDOM, 0))
-                    )
-                  )
-                )
-            )
-           )
-         )
-     )
-     ORDER BY e.EPREUVE ASC, ANNEE ASC`,
-    [clubId, clubId, clubId],
-  );
+  const titles = (await fetchPalmaresTitles({ clubId }))
+    .filter((title) => title.VAINQUEURS.some((winner) => winner.IDCLUB === clubId))
+    // Same order as before: event name, then season label (binary comparison, as SQLite ORDER BY).
+    .sort((a, b) => compareBinary(a.EPREUVE, b.EPREUVE) || compareBinary(a.SAISON_LIBELLE, b.SAISON_LIBELLE));
 
   const grouped = new Map<number, { EPREUVE: string; OFFICIELLE: number; SCOPE: number; annees: Set<string> }>();
-  for (const row of rows) {
-    const idepreuve = Number(row.IDEPREUVE);
-    if (!grouped.has(idepreuve)) {
-      grouped.set(idepreuve, { EPREUVE: String(row.EPREUVE ?? ''), OFFICIELLE: Number(row.OFFICIELLE ?? 0), SCOPE: Number(row.SCOPE ?? 0), annees: new Set() });
+  for (const title of titles) {
+    let group = grouped.get(title.IDEPREUVE);
+    if (!group) {
+      group = { EPREUVE: title.EPREUVE, OFFICIELLE: title.OFFICIELLE, SCOPE: title.SCOPE, annees: new Set() };
+      grouped.set(title.IDEPREUVE, group);
     }
-    const annee = String(row.ANNEE ?? '').trim();
-    if (annee) grouped.get(idepreuve)!.annees.add(annee);
+    if (title.SAISON_LIBELLE) group.annees.add(title.SAISON_LIBELLE);
   }
 
   const result = Array.from(grouped.entries()).map(([idepreuve, val]) => ({
@@ -1030,6 +968,11 @@ export async function getClubPalmares(id: string): Promise<ClubPalmareRow[]> {
   );
 
   return result;
+}
+
+function compareBinary(a: string, b: string): number {
+  if (a === b) return 0;
+  return a < b ? -1 : 1;
 }
 
 export default {
