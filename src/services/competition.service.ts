@@ -3,7 +3,8 @@ import { createEntityService } from '../lib/baseService';
 import { normalizeSaison } from '../lib/saisonRules';
 import { addYearsToDayDate, normalizeDayDate } from '../lib/dates';
 import { parseFlag, requireBodyObject, requirePositiveInt, toText } from '../lib/coerce';
-import { AppError } from '../types';
+import { buildCircCompletResolver, type CircCompletSourceRow } from '../lib/circComplet';
+import { AppError, type PaginatedResult, type QueryParams } from '../types';
 
 function sanitize(body: Record<string, unknown>): Record<string, unknown> {
   // COCLEUNIK is never written through the API (ignored on create as well).
@@ -162,9 +163,51 @@ export interface CompetitionRow {
   CO_WEB: string | null;
   CO_ANNEE: number;
   CO_TERMINEE: number;
+  SAISON_LABEL: string;
 }
 
-const getCompetitionById = baseService.getById;
+/** Only COCLEUNIK, SAISON and CO_ANNEE drive the season label; the other resolver fields stay neutral. */
+function toSeasonSourceRow(row: Record<string, unknown>): CircCompletSourceRow {
+  return {
+    COCLEUNIK: Number(row.COCLEUNIK ?? 0),
+    SAISON: toText(row.SAISON),
+    CO_ANNEE: Number(row.CO_ANNEE ?? 0),
+    TUCLEUNIK: 0,
+    CIRC: null,
+    TOUR_NOM: '',
+    COMPET_NOM: '',
+  };
+}
+
+/** Adds SAISON_LABEL (annual competitions dated by their final) with one grouped query for the whole batch. */
+async function withSeasonLabels(rows: Record<string, unknown>[]): Promise<Record<string, unknown>[]> {
+  const pairs = rows.map((row) => ({ row, source: toSeasonSourceRow(row) }));
+  const { saison } = await buildCircCompletResolver(pairs.map(({ source }) => source));
+  return pairs.map(({ row, source }) => ({ ...row, SAISON_LABEL: saison(source) }));
+}
+
+async function withSeasonLabel(row: Record<string, unknown> | undefined): Promise<Record<string, unknown> | undefined> {
+  if (!row) return undefined;
+  const [labelled] = await withSeasonLabels([row]);
+  return labelled;
+}
+
+async function getAll(params: QueryParams): Promise<PaginatedResult> {
+  const result = await baseService.getAll(params);
+  return { ...result, data: await withSeasonLabels(result.data) };
+}
+
+async function getCompetitionById(id: string | number): Promise<Record<string, unknown> | undefined> {
+  return withSeasonLabel(await baseService.getById(id));
+}
+
+async function create(rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  return withSeasonLabel(await baseService.create(rawBody));
+}
+
+async function update(id: string | number, rawBody: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
+  return withSeasonLabel(await baseService.update(id, rawBody));
+}
 
 async function createCompetitionRecord(body: Record<string, unknown>): Promise<Record<string, unknown> | undefined> {
   const keys = Object.keys(body);
@@ -432,5 +475,9 @@ export async function createCompetitionWithWizard(payload: CompetitionWizardPayl
 
 export default {
   ...baseService,
+  getAll,
+  getById: getCompetitionById,
+  create,
+  update,
   createCompetitionWithWizard,
 };
