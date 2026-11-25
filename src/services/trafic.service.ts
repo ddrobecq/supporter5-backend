@@ -129,7 +129,7 @@ function dailySalt(day: string): Buffer {
 }
 
 /** ISO country code of `ip`, '' when unknown or when the GeoIP database is not loaded. */
-export function lookupCountry(ip: string): string {
+function lookupCountry(ip: string): string {
   if (!geoReader || ip === '') return '';
   const address = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
   if (!maxmind.validate(address)) return '';

@@ -13,9 +13,10 @@ dotenv.config();
 
 const app = express();
 
-// Hosted behind a single reverse proxy (Render): trust its X-Forwarded-For hop only,
-// so req.ip (used by express-rate-limit) is the real client address.
-app.set('trust proxy', 1);
+// Chain: client -> Cloudflare -> Render proxy -> app (verified in production on 2026-11-25).
+// Trusting exactly these 2 hops makes req.ip (used by express-rate-limit and the traffic tracker) the
+// real client address; it cannot be forged, since a client can only add X-Forwarded-For entries on the left.
+app.set('trust proxy', 2);
 
 // Sécurité
 app.use(helmet());

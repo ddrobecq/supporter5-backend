@@ -9,18 +9,10 @@ function validIp(value: string): string {
 }
 
 /**
- * Visitor address for AUDIENCE TRACKING ONLY (fallback visitor hash + country lookup), never for security
- * (rate limiting, access control...): on Render behind Cloudflare, req.ip is an internal relay address.
- * Order: CF-Connecting-IP (set by Cloudflare), then the first valid X-Forwarded-For entry (the real client
- * according to Render, which appends without cleaning), then req.ip.
- * Both headers can be forged by the client; the impact is limited to the forger's own hits (country, hash).
+ * Visitor address for audience tracking (fallback visitor hash + country lookup): req.ip, normalized.
+ * With `trust proxy` set to the Cloudflare -> Render chain (see app.ts), req.ip is the real client and
+ * cannot be forged; the raw CF-Connecting-IP / X-Forwarded-For headers are deliberately not read.
  */
 export function trackingClientIp(req: Request): string {
-  const cf = validIp(req.get('cf-connecting-ip') ?? '');
-  if (cf) return cf;
-  for (const entry of (req.get('x-forwarded-for') ?? '').split(',')) {
-    const ip = validIp(entry);
-    if (ip) return ip;
-  }
   return validIp(req.ip ?? '');
 }

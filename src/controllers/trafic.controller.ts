@@ -3,7 +3,7 @@ import { trackingClientIp } from '../lib/clientIp';
 import { parsePageParams } from '../lib/queryBuilder';
 import { normalizeDayDate } from '../lib/dates';
 import { asyncHandler, jsonHandler } from '../lib/responseHelpers';
-import { lookupCountry, parseHitPayload, recordHit } from '../services/trafic.service';
+import { parseHitPayload, recordHit } from '../services/trafic.service';
 import {
   getTraficAppareils,
   getTraficPages,
@@ -56,19 +56,3 @@ export const getPays = jsonHandler((req) => getTraficPays(parseRange(req.query),
 export const getAppareils = jsonHandler((req) => getTraficAppareils(parseRange(req.query)));
 
 export const getTempsReel = jsonHandler(() => getTraficTempsReel());
-
-/** Address seen by the tracker for the calling admin, to check the proxy headers in production; nothing is stored. */
-export const getDiagnostic = jsonHandler(async (req) => {
-  const ip = trackingClientIp(req);
-  return {
-    ip,
-    pays: lookupCountry(ip),
-    reqIp: req.ip ?? '',
-    headers: {
-      xForwardedFor: req.get('x-forwarded-for') ?? null,
-      cfConnectingIp: req.get('cf-connecting-ip') ?? null,
-      trueClientIp: req.get('true-client-ip') ?? null,
-      xRealIp: req.get('x-real-ip') ?? null,
-    },
-  };
-});
