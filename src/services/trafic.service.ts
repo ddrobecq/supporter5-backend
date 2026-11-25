@@ -1,7 +1,8 @@
 /**
  * Cookie-free audience tracking (CNIL exemption): no IP is ever stored nor logged.
- * - Visitor = sha256(ip + user-agent + daily random salt kept in memory only), so it cannot be reversed
- *   nor linked from one UTC day to the next.
+ * - Visitor = sha256(visitorId) when the front sends its persistent random UUID (the raw id is never stored
+ *   nor logged), otherwise sha256(ip + user-agent + daily random salt kept in memory only), which cannot be
+ *   reversed nor linked from one UTC day to the next.
  * - Visit = same visitor with less than 30 min of inactivity (in-memory map, lost on restart).
  * - Hits are buffered and written in one transaction every few seconds.
  * - Hits older than 13 months are aggregated into TRAFIC_JOUR, then purged.
@@ -17,6 +18,7 @@ import { parseUserAgent, type DeviceType } from '../lib/userAgent';
 import { AppError } from '../types';
 
 const MAX_REFERRER_LENGTH = 500;
+const VISITOR_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const VISIT_INACTIVITY_MS = 30 * 60 * 1000;
 const FLUSH_INTERVAL_MS = 5_000;
 const VISIT_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
@@ -69,6 +71,8 @@ export interface BufferedHit {
 export interface HitPayload {
   path: string;
   referrer: string;
+  /** Persistent random UUID of the browser (lowercase), null when not sent. */
+  visitorId: string | null;
 }
 
 let enabled = false;
@@ -82,7 +86,7 @@ const visits = new Map<string, { visit: string; lastSeen: number }>();
 // Validation
 // ---------------------------------------------------------------------------
 
-/** Body sent by navigator.sendBeacon: text/plain containing `{ "path": string, "referrer"?: string }`. */
+/** Body sent by navigator.sendBeacon: text/plain containing `{ "path": string, "referrer"?: string, "visitorId"?: uuid }`. */
 export function parseHitPayload(body: unknown): HitPayload {
   if (typeof body !== 'string' || body === '') throw new AppError(400, 'Corps text/plain JSON attendu.');
   let parsed: unknown;
@@ -92,12 +96,15 @@ export function parseHitPayload(body: unknown): HitPayload {
     throw new AppError(400, 'Corps de requête JSON invalide.');
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new AppError(400, 'Objet JSON attendu.');
-  const { path: rawPath, referrer: rawReferrer } = parsed as Record<string, unknown>;
+  const { path: rawPath, referrer: rawReferrer, visitorId: rawVisitorId } = parsed as Record<string, unknown>;
   if (typeof rawPath !== 'string' || !parseTrackedPath(rawPath)) throw new AppError(400, 'Chemin invalide.');
   if (rawReferrer !== undefined && typeof rawReferrer !== 'string') throw new AppError(400, 'Référent invalide.');
   const referrer = rawReferrer ?? '';
   if (referrer.length > MAX_REFERRER_LENGTH) throw new AppError(400, 'Référent invalide.');
-  return { path: rawPath, referrer };
+  if (rawVisitorId !== undefined && (typeof rawVisitorId !== 'string' || !VISITOR_ID_PATTERN.test(rawVisitorId))) {
+    throw new AppError(400, 'Identifiant visiteur invalide.');
+  }
+  return { path: rawPath, referrer, visitorId: rawVisitorId ?? null };
 }
 
 /** External referrer host ('' for direct access or the site itself); AppError 400 for a non-URL value. */
@@ -121,7 +128,8 @@ function dailySalt(day: string): Buffer {
   return salt.value;
 }
 
-function lookupCountry(ip: string): string {
+/** ISO country code of `ip`, '' when unknown or when the GeoIP database is not loaded. */
+export function lookupCountry(ip: string): string {
   if (!geoReader || ip === '') return '';
   const address = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
   if (!maxmind.validate(address)) return '';
@@ -154,10 +162,10 @@ export function recordHit(payload: HitPayload, ip: string, userAgent: string): v
   const nowDate = new Date();
   const date = nowDate.toISOString();
   const ua = parseUserAgent(userAgent);
-  const visitor = crypto.createHash('sha256')
-    .update(ip).update('\n').update(userAgent).update('\n').update(dailySalt(date.slice(0, 10)))
-    .digest('hex')
-    .slice(0, 32);
+  const hash = crypto.createHash('sha256');
+  if (payload.visitorId !== null) hash.update(payload.visitorId);
+  else hash.update(ip).update('\n').update(userAgent).update('\n').update(dailySalt(date.slice(0, 10)));
+  const visitor = hash.digest('hex').slice(0, 32);
 
   buffer.push({
     date,
@@ -236,26 +244,48 @@ export const VISIT_DIMENSIONS = {
 export type TraficDimension = keyof typeof HIT_DIMENSIONS | keyof typeof VISIT_DIMENSIONS;
 
 /**
- * Detailed hits in [start, end) (ISO prefixes compared as text) with `TH_BOT <= maxBot`, as rows
- * (day, value, bot, pageViews, visits, visitors) per UTC day. The SQL fragments come from the constant maps above.
+ * Grouping of the detailed hits:
+ * - 'dayBot': one row per (UTC day, value, bot), the TRAFIC_JOUR granularity (maintenance);
+ * - 'day': one row per (UTC day, value), visitors distinct per day (or per hour for the 'hour' dimension);
+ * - 'period': one row per value over the whole range, visitors distinct over the range (a persistent visitor
+ *   seen on several days counts once). Visits stay counted per day (COUNT DISTINCT of day + visit) so that they
+ *   remain consistent with the daily sums of TRAFIC_JOUR.
  */
-export function hitSourceSql(dimension: TraficDimension, start: string, end: string, maxBot: number): { sql: string; params: unknown[] } {
+export type HitGrouping = 'dayBot' | 'day' | 'period';
+
+/**
+ * Detailed hits in [start, end) (ISO prefixes compared as text) with `TH_BOT <= maxBot`, as rows
+ * (day, value, [bot,] pageViews, visits, visitors) grouped as described above ('' as day for 'period';
+ * bot only for 'dayBot'). The SQL fragments come from the constant maps above.
+ */
+export function hitSourceSql(
+  dimension: TraficDimension,
+  start: string,
+  end: string,
+  maxBot: number,
+  grouping: HitGrouping = 'dayBot',
+): { sql: string; params: unknown[] } {
   const range = `"TH_DATE" >= ? AND "TH_DATE" < ? AND "TH_BOT" <= ?`;
+  const perPeriod = grouping === 'period';
+  const columns = `${perPeriod ? `''` : `substr(h."TH_DATE", 1, 10)`} AS day, %VALUE% AS value,
+              ${grouping === 'dayBot' ? `h."TH_BOT" AS bot,` : ''}
+              COUNT(*) AS pageViews,
+              ${perPeriod ? `COUNT(DISTINCT substr(h."TH_DATE", 1, 10) || h."TH_VISIT")` : `COUNT(DISTINCT h."TH_VISIT")`} AS visits,
+              COUNT(DISTINCT h."TH_VISITOR") AS visitors`;
+  const groupBy = { dayBot: 'day, value, bot', day: 'day, value', period: 'value' }[grouping];
   if (dimension in HIT_DIMENSIONS) {
     const value = HIT_DIMENSIONS[dimension as keyof typeof HIT_DIMENSIONS];
     return {
-      sql: `SELECT substr(h."TH_DATE", 1, 10) AS day, ${value} AS value, h."TH_BOT" AS bot,
-              COUNT(*) AS pageViews, COUNT(DISTINCT h."TH_VISIT") AS visits, COUNT(DISTINCT h."TH_VISITOR") AS visitors
+      sql: `SELECT ${columns.replace('%VALUE%', value)}
             FROM "TRAFIC_HIT" h
-            WHERE ${range}
-            GROUP BY day, value, bot`,
+            WHERE ${range.replaceAll('"TH_', 'h."TH_')}
+            GROUP BY ${groupBy}`,
       params: [start, end, maxBot],
     };
   }
   const column = VISIT_DIMENSIONS[dimension as keyof typeof VISIT_DIMENSIONS];
   return {
-    sql: `SELECT substr(h."TH_DATE", 1, 10) AS day, e.value AS value, h."TH_BOT" AS bot,
-            COUNT(*) AS pageViews, COUNT(DISTINCT h."TH_VISIT") AS visits, COUNT(DISTINCT h."TH_VISITOR") AS visitors
+    sql: `SELECT ${columns.replace('%VALUE%', 'e.value')}
           FROM "TRAFIC_HIT" h
           INNER JOIN (
             SELECT "TH_VISIT", ${column} AS value
@@ -263,7 +293,7 @@ export function hitSourceSql(dimension: TraficDimension, start: string, end: str
             WHERE "TH_ID" IN (SELECT MIN("TH_ID") FROM "TRAFIC_HIT" WHERE ${range} GROUP BY "TH_VISIT")
           ) e ON e."TH_VISIT" = h."TH_VISIT"
           WHERE ${range.replaceAll('"TH_', 'h."TH_')}
-          GROUP BY day, value, bot`,
+          GROUP BY ${groupBy}`,
     params: [start, end, maxBot, start, end, maxBot],
   };
 }

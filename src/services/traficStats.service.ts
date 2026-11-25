@@ -1,7 +1,9 @@
 /**
  * Audience statistics (admin). Every query combines the detailed hits (TRAFIC_HIT, last 13 months) and the daily
- * aggregates (TRAFIC_JOUR, older days): both give rows (day, value, bot, pageViews, visits, visitors) per UTC day,
- * never for the same day. Visits and visitors never span two days, so they are summed day by day.
+ * aggregates (TRAFIC_JOUR, older days), never for the same day. Visits are counted per day and summed.
+ * Visitors (a persistent visitor id can span several days) are COUNT(DISTINCT TH_VISITOR) over the detailed hits
+ * of the period or of the point; for the part of the period covered only by TRAFIC_JOUR (> 13 months), the daily
+ * distinct counts are summed, an approximation (a visitor seen on several of those days counts several times).
  */
 import { dbAll, dbGet } from '../config/database';
 import { fetchGridPage, type GridPageResult, type GridPagination } from '../lib/gridPagination';
@@ -9,7 +11,7 @@ import { FIXED_PAGE_LABELS, parseTrackedPath, type TrackedEntityType } from '../
 import { getClubGridById } from './clubs.service';
 import { getJoueurByIdWithVille } from './joueurs.service';
 import { getRencontreDetailById } from './rencontres.service';
-import { getBufferedHits, hitSourceSql, type TraficDimension } from './trafic.service';
+import { getBufferedHits, hitSourceSql, type HitGrouping, type TraficDimension } from './trafic.service';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const REALTIME_WINDOW_MS = 5 * 60 * 1000;
@@ -60,13 +62,16 @@ export function rangeDays(range: Pick<TraficRange, 'from' | 'to'>): number {
   return Math.round((dayToMs(range.to) - dayToMs(range.from)) / DAY_MS) + 1;
 }
 
-/** Union of detailed hits and daily aggregates for `dimension` over the range. */
-function sourceSql(dimension: TraficDimension, range: TraficRange): { sql: string; params: unknown[] } {
-  const hits = hitSourceSql(dimension, range.from, addDays(range.to, 1), range.maxBot);
+/**
+ * Union of detailed hits and daily aggregates for `dimension` over the range, as rows
+ * (day, value, pageViews, visits, visitors); `grouping` applies to the detailed hits (see HitGrouping).
+ */
+function sourceSql(dimension: TraficDimension, range: TraficRange, grouping: Exclude<HitGrouping, 'dayBot'>): { sql: string; params: unknown[] } {
+  const hits = hitSourceSql(dimension, range.from, addDays(range.to, 1), range.maxBot, grouping);
   return {
     sql: `${hits.sql}
           UNION ALL
-          SELECT "TJ_DAY" AS day, "TJ_VALUE" AS value, "TJ_BOT" AS bot,
+          SELECT "TJ_DAY" AS day, "TJ_VALUE" AS value,
                  "TJ_PAGE_VIEWS" AS pageViews, "TJ_VISITS" AS visits, "TJ_VISITORS" AS visitors
           FROM "TRAFIC_JOUR"
           WHERE "TJ_DIMENSION" = ? AND "TJ_DAY" BETWEEN ? AND ? AND "TJ_BOT" <= ?`,
@@ -75,7 +80,7 @@ function sourceSql(dimension: TraficDimension, range: TraficRange): { sql: strin
 }
 
 async function getTotals(range: TraficRange): Promise<TraficTotals> {
-  const source = sourceSql('total', range);
+  const source = sourceSql('total', range, 'period');
   const row = await dbGet<TraficTotals>(
     `SELECT COALESCE(SUM(pageViews), 0) AS pagesVues, COALESCE(SUM(visits), 0) AS visites,
             COALESCE(SUM(visitors), 0) AS visiteurs
@@ -93,7 +98,7 @@ export async function getTraficResume(range: TraficRange): Promise<TraficResume>
 
 export async function getTraficSerie(range: TraficRange, grain: 'jour' | 'heure'): Promise<TraficPoint[]> {
   const hourly = grain === 'heure';
-  const source = sourceSql(hourly ? 'hour' : 'total', range);
+  const source = sourceSql(hourly ? 'hour' : 'total', range, 'day');
   const rows = await dbAll<TraficTotals & { day: string; value: string }>(
     `SELECT day, value, SUM(pageViews) AS pagesVues, SUM(visits) AS visites, SUM(visitors) AS visiteurs
      FROM (${source.sql})
@@ -164,7 +169,7 @@ async function resolvePageLabel(path: string, cache: Map<string, string>): Promi
 }
 
 export async function getTraficPages(range: TraficRange, pagination: GridPagination): Promise<GridPageResult<TraficPageRow>> {
-  const source = sourceSql('page', range);
+  const source = sourceSql('page', range, 'period');
   const result = await fetchGridPage<{ path: string; pagesVues: number; visiteurs: number }>(
     `SELECT value AS path, SUM(pageViews) AS pagesVues, SUM(visitors) AS visiteurs
      FROM (${source.sql})
@@ -192,7 +197,7 @@ export async function getTraficPages(range: TraficRange, pagination: GridPaginat
 
 /** Visits / visitors per value of a visit dimension, most visited first. */
 function visitDimensionSql(dimension: TraficDimension, range: TraficRange, alias: string): { sql: string; params: unknown[] } {
-  const source = sourceSql(dimension, range);
+  const source = sourceSql(dimension, range, 'period');
   return {
     sql: `SELECT value AS ${alias}, SUM(visits) AS visites, SUM(visitors) AS visiteurs
           FROM (${source.sql})
