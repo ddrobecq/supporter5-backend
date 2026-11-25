@@ -1,6 +1,6 @@
 {
 	"name": "supporter-v5-backend",
-	"version": "5.60.0",
+	"version": "5.61.0",
 	"description": "API REST – Supporter v5 (Express/TypeScript + SQLite)",
 	"main": "dist/server.js",
 	"scripts": {
@@ -10,7 +10,9 @@
 		"typecheck": "tsc --noEmit",
 		"lint": "eslint .",
 		"db:indexes": "node scripts/create-indexes.js",
-		"db:migrate-indemnites": "node scripts/migrate-transac-indemnites.js"
+		"db:migrate-indemnites": "node scripts/migrate-transac-indemnites.js",
+		"db:migrate-trafic": "node scripts/migrate-trafic.js",
+		"geoip:update": "node scripts/update-geoip.js"
 	},
 	"dependencies": {
 		"bcryptjs": "^2.4.3",
@@ -22,6 +24,7 @@
 		"fast-xml-parser": "^5.11.1",
 		"helmet": "^7.1.0",
 		"jsonwebtoken": "^9.0.2",
+		"maxmind": "^5.1.0",
 		"multer": "^2.5.0"
 	},
 	"devDependencies": {

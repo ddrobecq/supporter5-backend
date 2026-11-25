@@ -5,6 +5,7 @@ dotenv.config();
 import app from './app';
 import { resolvedDbPath } from './config/database';
 import { refreshActualites } from './services/actualites.service';
+import { flushHits, startTrafic } from './services/trafic.service';
 
 const port = process.env.PORT ?? 3000;
 const RSS_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
@@ -22,4 +23,14 @@ app.listen(port, () => {
 
   refreshNews();
   setInterval(refreshNews, RSS_REFRESH_INTERVAL_MS).unref();
+
+  startTrafic();
 });
+
+// Clean stop (Render sends SIGTERM on deploy / restart): write the audience hits still buffered.
+for (const signal of ['SIGTERM', 'SIGINT'] as const) {
+  process.once(signal, () => {
+    flushHits();
+    process.exit(0);
+  });
+}

@@ -22,6 +22,7 @@ import rssRoutes       from './rss.routes';
 import imageRoutes     from './image.routes';
 import systemRoutes    from './system.routes';
 import actualitesRoutes from './actualites.routes';
+import traficRoutes    from './trafic.routes';
 import adminRoutes     from './admin/index';
 
 const router = Router();
@@ -52,6 +53,9 @@ router.use('/rss',        rssRoutes);
 router.use('/images',     imageRoutes);
 router.use('/system',     systemRoutes);
 router.use('/actualites', actualitesRoutes);
+
+// Mesure d'audience (ecriture publique, sans cookie ni IP stockee)
+router.use('/trafic',     traficRoutes);
 
 // Routes admin (JWT requis – appliqué dans admin/index.ts)
 router.use('/admin', adminRoutes);
