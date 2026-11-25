@@ -29,6 +29,7 @@ export interface CalendarMatchRow {
   CO_WEB: string | null;
   SAISON: string;
   CO_ANNEE: number;
+  SAISON_LABEL: string;
   DOMICILE: string;
   EXTERIEUR: string;
   BUTDOM: number;
@@ -1814,13 +1815,13 @@ function writeParticipantStats(
 function recomputeGroupStandings(tourId: number, groupName: string): void {
   const participants = db.prepare(
     `SELECT
-      "IDCLUB",
-      "TUCLEUNIK",
-      COALESCE("GROUPE", '') AS "GROUPE",
-      COALESCE("PAMalus", 0) AS "PAMalus"
-     FROM "PARTICIP"
-     WHERE "TUCLEUNIK" = ? AND COALESCE("GROUPE", '') = ?
-     ORDER BY "IDCLUB" ASC`,
+      p."IDCLUB",
+      p."TUCLEUNIK",
+      COALESCE(p."GROUPE", '') AS "GROUPE",
+      COALESCE((SELECT SUM(m."MLPoints") FROM "MALUS" m WHERE m."PACLEUNIK" = p."PACLEUNIK"), 0) AS "MALUS_POINTS"
+     FROM "PARTICIP" p
+     WHERE p."TUCLEUNIK" = ? AND COALESCE(p."GROUPE", '') = ?
+     ORDER BY p."IDCLUB" ASC`,
   ).all(tourId, groupName) as Array<Record<string, unknown>>;
 
   if (participants.length === 0) {
@@ -1897,9 +1898,9 @@ function recomputeGroupStandings(tourId: number, groupName: string): void {
     applyMatchToParticipant(extStats, 'ext', row, rules);
   });
 
-  // PAMalus (saisi a la main, jamais ecrase ici) est retire des points avant le classement.
+  // Total des MALUS du participant (saisis a la main, jamais ecrits ici) retire des points avant le classement.
   const malusByClub = new Map<string, number>();
-  participants.forEach((row) => malusByClub.set(toText(row.IDCLUB), toInt(row.PAMalus)));
+  participants.forEach((row) => malusByClub.set(toText(row.IDCLUB), toInt(row.MALUS_POINTS)));
   const finalized = Array.from(statsByClub.values()).map((row) => {
     const stats = finalizeParticipantStats(row);
     stats.PANbPoints -= malusByClub.get(stats.IDCLUB) ?? 0;
@@ -2132,8 +2133,8 @@ function ensureTourParticipant(tourId: number, clubId: string, groupe: string): 
       "PANbVD", "PANbVE", "PANbND", "PANbNE", "PANbDD", "PANbDE",
       "PANbBPD", "PANbBCD", "PABonus", "PANbBPE", "PANbBCE", "PADiff",
       "PANbBP", "PANbV", "PANbTaBP", "PANbTaBC", "PADiffTaB", "PANbBC",
-      "PASource", "PARatio", "PAMalus"
-    ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0)`,
+      "PASource", "PARatio"
+    ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0)`,
   ).run(clubId, tourId, groupe);
 }
 
@@ -2241,7 +2242,7 @@ const baseService = createEntityService({
 });
 
 export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[]> {
-  const rows = await dbAll<CalendarMatchRow & { PADOMSource?: string | null; PAEXTSource?: string | null }>(
+  const rows = await dbAll<Omit<CalendarMatchRow, 'SAISON_LABEL'> & { PADOMSource?: string | null; PAEXTSource?: string | null }>(
     `SELECT
       r.RECLEUNIK,
       r.TUCLEUNIK,
@@ -2281,9 +2282,11 @@ export async function getCalendarByDate(date: string): Promise<CalendarMatchRow[
 
   const candidateCache = new Map<string, string[]>();
   const clubNameCache = new Map<string, string>();
+  const { saison: resolveSeasonLabel } = await buildCircCompletResolver(rows);
 
   return rows.map((row) => ({
     ...row,
+    SAISON_LABEL: resolveSeasonLabel(row),
     DOMICILE_NOM: resolveMatchSideDisplayName(
       row.DOMICILE,
       row.PADOMSource,

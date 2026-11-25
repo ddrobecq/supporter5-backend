@@ -3,6 +3,7 @@ import { integrityCheckerFor } from '../lib/fkDependencies';
 import { dataHandler, jsonHandler, removedOr404, rowOr404 } from '../lib/responseHelpers';
 import toursService from '../services/tours.service';
 import rencontresService from '../services/rencontres.service';
+import malusService from '../services/malus.service';
 import { AppError } from '../types';
 import { toText } from '../lib/coerce';
 
@@ -61,6 +62,14 @@ export const recomputeTour = jsonHandler(async (req) => {
 	rencontresService.recomputeTourStandings(tourId);
 	return { recomputed: true };
 });
+
+export const getTourMalus = dataHandler((req) => malusService.getMalusOfTour(req.params.id));
+
+export const createTourMalus = jsonHandler((req) => malusService.createMalus(req.params.id, req.body), 201);
+
+export const updateTourMalus = jsonHandler((req) => malusService.updateMalus(req.params.id, req.params.malusId, req.body));
+
+export const removeTourMalus = removedOr404((req) => malusService.removeMalus(req.params.id, req.params.malusId));
 
 export default {
 	...baseController,

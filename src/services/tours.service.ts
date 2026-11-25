@@ -5,6 +5,7 @@ import { AppError } from '../types';
 import { createEntityService } from '../lib/baseService';
 import { assertCanDelete, type IntegrityChecker } from '../lib/fkIntegrity';
 import { isTourCompleted } from './rencontres.service';
+import { getMalusByParticipant, type ParticipantMalus } from './malus.service';
 
 export interface CompetitionTourGridRow {
   TUCLEUNIK: number;
@@ -42,6 +43,8 @@ export interface TourParticipantRow {
   LOCKED_QUALIF_COULEUR?: string | null;
   LOCKED_QUALIF_TYPE?: number | null;
   TOUR_TERMINE?: 0 | 1;
+  /** Point penalties of the participant, already deducted from PANbPoints (always set by getTourParticipants, [] when none). */
+  MALUS?: ParticipantMalus[];
 }
 
 interface QualifRuleRow {
@@ -395,6 +398,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
   );
 
   const tourTermine: 0 | 1 = isTourCompleted(id) ? 1 : 0;
+  const malusByParticipant = await getMalusByParticipant(id);
 
   return addLockedQualificationMetadata(rows.map((row) => ({
     PACLEUNIK: Number(row.PACLEUNIK),
@@ -418,6 +422,7 @@ async function getTourParticipants(tourId: string | number): Promise<TourPartici
     PARatio: Number(row.PARatio ?? 0),
     TDCalculDiffBut: Number(row.TDCalculDiffBut ?? 1),
     TOUR_TERMINE: tourTermine,
+    MALUS: malusByParticipant.get(Number(row.PACLEUNIK)) ?? [],
   })), id);
 }
 
@@ -530,9 +535,8 @@ async function addTourParticipant(
         "PADiffTaB",
         "PANbBC",
         "PASource",
-        "PARatio",
-        "PAMalus"
-      ) VALUES ('', ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0, 0)`,
+        "PARatio"
+      ) VALUES ('', ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ?, 0)`,
       [tourIdValue, groupe, paSource],
     );
 
@@ -646,9 +650,8 @@ async function addTourParticipant(
       "PADiffTaB",
       "PANbBC",
       "PASource",
-      "PARatio",
-      "PAMalus"
-    ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0, 0)`,
+      "PARatio"
+    ) VALUES (?, ?, ?, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, '', 0)`,
     [clubId, tourIdValue, groupe],
   );
 
@@ -712,14 +715,57 @@ async function removeTourParticipants(
     whereParams.push(...normalizedClubIds);
   }
 
-  const result = await dbRun(
-    `DELETE FROM "PARTICIP"
-     WHERE "TUCLEUNIK" = ?
-       AND (${whereClauses.join(' OR ')})`,
-    [tourIdValue, ...whereParams],
-  );
+  const targetWhere = `"TUCLEUNIK" = ? AND (${whereClauses.join(' OR ')})`;
+  // Check and deletion in one transaction: a participant with malus is never removed (MALUS would be orphaned).
+  return runInTransaction(async () => {
+    await assertNoMalusOnParticipants(tourIdValue, targetWhere, whereParams);
+    const result = await dbRun(
+      `DELETE FROM "PARTICIP" WHERE ${targetWhere}`,
+      [tourIdValue, ...whereParams],
+    );
+    return Number(result.changes ?? 0);
+  });
+}
 
-  return Number(result.changes ?? 0);
+/** Business label of a participant: club name, else its source ("2e du groupe A de « Tour 1 »") when unresolved. */
+async function describeParticipant(row: { IDCLUB: string; CLUB: string; PASource: string }): Promise<string> {
+  if (row.CLUB) return row.CLUB;
+  if (row.IDCLUB) return row.IDCLUB;
+  const source = parsePaSource(row.PASource);
+  if (!source) return 'participant sans club';
+  const sourceTour = await dbGet<{ NOM: string | null }>('SELECT "NOM" FROM "TOUR" WHERE "TUCLEUNIK" = ?', [source.tourId]);
+  const groupLabel = source.groupName ? ` du groupe ${source.groupName}` : '';
+  const tourLabel = sourceTour ? ` de « ${String(sourceTour.NOM ?? '').trim()} »` : '';
+  const rankLabel = source.rank === 1 ? '1er' : `${source.rank}e`;
+  return `qualifié ${rankLabel}${groupLabel}${tourLabel}`;
+}
+
+/** 409 when one of the participants matched by `targetWhere` (on PARTICIP, first param = tour id) has malus. */
+async function assertNoMalusOnParticipants(tourId: number, targetWhere: string, whereParams: Array<string | number>): Promise<void> {
+  const blocked = await dbAll<{ IDCLUB: string; CLUB: string; PASource: string }>(
+    `SELECT COALESCE(p."IDCLUB", '') AS "IDCLUB", COALESCE(c."CLUB", '') AS "CLUB", COALESCE(p."PASource", '') AS "PASource"
+     FROM "PARTICIP" p
+     LEFT JOIN "CLUB" c ON c."IDCLUB" = p."IDCLUB"
+     WHERE p."PACLEUNIK" IN (SELECT "PACLEUNIK" FROM "PARTICIP" WHERE ${targetWhere})
+       AND EXISTS (SELECT 1 FROM "MALUS" m WHERE m."PACLEUNIK" = p."PACLEUNIK")
+     ORDER BY COALESCE(c."CLUB", '') ASC, p."PACLEUNIK" ASC`,
+    [tourId, ...whereParams],
+  );
+  if (blocked.length === 0) return;
+
+  const tour = await dbGet<{ NOM: string | null }>('SELECT "NOM" FROM "TOUR" WHERE "TUCLEUNIK" = ?', [tourId]);
+  const labels: string[] = [];
+  for (const row of blocked) {
+    labels.push(await describeParticipant({
+      IDCLUB: String(row.IDCLUB).trim(),
+      CLUB: String(row.CLUB).trim(),
+      PASource: String(row.PASource).trim(),
+    }));
+  }
+  throw new AppError(
+    409,
+    `Impossible de retirer ${labels.join(', ')} du tour « ${String(tour?.NOM ?? '').trim()} » : des malus y sont enregistrés. Supprimez d'abord ces malus.`,
+  );
 }
 
 async function getTourRencontres(tourId: string | number): Promise<TourRencontreRow[]> {
