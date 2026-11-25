@@ -28,8 +28,16 @@ SELECT cid, name, type, "notnull", pk FROM pragma_table_info('MALUS');
 SELECT name FROM pragma_index_list('MALUS');
 
 -- ============================================================================================
--- 3. UNIQUEMENT APRES deploiement du nouveau code (l'ancien code insere encore PAMalus dans PARTICIP).
+-- 3. JUSTE APRES deploiement du nouveau code, sans attendre.
+--    Ordre impose par les deux versions du code :
+--    - le nouveau code lit MALUS : les etapes 1 et 2 doivent etre jouees AVANT son deploiement ;
+--    - l'ancien code insere encore PAMalus, le nouveau ne l'insere plus. PAMalus etant NOT NULL sans valeur
+--      par defaut (verifier dflt_value ci-dessous), l'ajout d'un participant echoue tant que la colonne existe
+--      avec le nouveau code : jouer cette etape des que le deploiement est termine.
 -- ============================================================================================
+
+-- C3bis : valeur par defaut de PAMalus. Si dflt_value est non NULL, l'ajout de participants fonctionne en attendant le DROP.
+SELECT name, "notnull", dflt_value FROM pragma_table_info('PARTICIP') WHERE name = 'PAMalus';
 
 -- C3 (avant DROP) : aucun index, vue ni trigger ne reference PAMalus. Attendu : aucune ligne.
 SELECT type, name FROM sqlite_master WHERE type IN ('index', 'view', 'trigger') AND sql LIKE '%PAMalus%';
